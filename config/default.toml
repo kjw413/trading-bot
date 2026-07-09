@@ -1,0 +1,17 @@
+[data]
+cache_dir = "data/cache"
+
+[backtest]
+initial_cash_kr = 10000000
+initial_cash_us = 10000
+
+[fees.KR]
+commission_rate = 0.00015
+
+[fees.US]
+commission_rate = 0.00015
+
+[strategies.ma_cross]
+fast = 20
+slow = 60
+weight = 0.95
