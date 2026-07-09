@@ -131,7 +131,7 @@ class PaperTradingEngine:
 
     def _close_bars(self, dt: date) -> tuple[dict[str, Bar], str]:
         try:
-            return self._confirmed_close_bars(dt), "confirmed"
+            bars = self._confirmed_close_bars(dt)
         except Exception:
             LOGGER.exception("Failed to refresh confirmed daily bars; using polling snapshot fallback")
             prices = self.polling_feed.fetch_prices()
@@ -139,6 +139,13 @@ class PaperTradingEngine:
                 LOGGER.warning("No polling prices available for close fallback")
                 return {}, "none"
             return _bars_from_prices(dt, prices), "fallback"
+        if not bars:
+            # Data source is reachable but has no bar for today for any symbol:
+            # non-trading day (holiday) or the daily bar is not published yet.
+            # Skip without marking last_close_date so a later run can retry.
+            LOGGER.info("No confirmed daily bars for %s; skipping close processing", dt)
+            return {}, "none"
+        return bars, "confirmed"
 
     def _confirmed_close_bars(self, dt: date) -> dict[str, Bar]:
         for symbol in self.history_feed.symbols:
@@ -163,8 +170,11 @@ class PaperTradingEngine:
                 close=float(row["close"]),
                 volume=float(row["volume"]),
             )
-        if missing:
-            raise ValueError(f"Confirmed daily bars are missing for: {', '.join(missing)}")
+        if missing and bars:
+            LOGGER.warning(
+                "Confirmed daily bars missing for %s; processing available symbols only",
+                ", ".join(missing),
+            )
         return bars
 
     def _notify_fills(self, fills: list[Fill]) -> None:

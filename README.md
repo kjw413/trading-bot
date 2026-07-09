@@ -2,7 +2,7 @@
 
 국내(KOSPI/KOSDAQ)와 미국 주식을 같은 이벤트 기반 엔진으로 백테스트하고, 모의투자 상태를 파일로 보존하며, 이후 실전 브로커를 붙일 수 있게 만든 프로젝트입니다.
 
-## 현재 범위: M4
+## 현재 범위: M5 (v1 완료)
 
 - parquet 기반 일봉 캐시와 증분 업데이트
 - `HistoricalDataFeed` 이벤트 루프
@@ -13,7 +13,9 @@
 - CAGR, MDD, Sharpe, 승률, profit factor, exposure 메트릭
 - 자산곡선/드로다운 차트가 포함된 단일 HTML 리포트와 `trades.csv`
 - CLI `data update`, `backtest`, `paper`, `strategies`
-- M4 모의투자: 세션 클록, 폴링 피드, 마감 확정 일봉 갱신, JSON 상태 영속화
+- 모의투자: 세션 클록, 폴링 피드, 마감 확정 일봉 갱신, JSON 상태 영속화
+- M5: KIS 브로커 스켈레톤(`broker/kis.py`, 미구현 시그니처), 체크인 fixture 기반
+  고정값 회귀 테스트(`tests/test_smoke_backtest.py`), 공휴일(확정 일봉 없음) 마감 스킵
 
 ## 실행 환경
 
@@ -80,8 +82,31 @@ Register-ScheduledTask -TaskName "TradingBot Paper KR" -Action $action -Trigger 
 
 실시간 세션 클록과 폴링 피드는 각각 `TradingSessionClock`과 `PollingDataFeed`로 분리되어 있습니다. 테스트에서는 `now_provider`와 가짜 price fetcher를 주입해 장 시간이나 네트워크에 의존하지 않고 검증합니다.
 
+## 운영 PC 셋업 체크리스트
+
+개발 머신이 아닌 운영용 PC로 옮길 때 순서입니다.
+
+1. 저장소 클론 후 의존성 설치: `git clone <repo>` → `py -m uv sync --extra dev`
+2. 설치 검증(네트워크 불필요): `.\.venv\Scripts\python.exe -m pytest -q` — 전부 통과해야 합니다.
+3. 전략 워밍업 캐시 준비: `data update`를 종목별로 1회 실행 (위 데이터 업데이트 섹션 참고)
+4. 모의투자 1회 실행으로 상태 파일 생성 확인: `paper --name <운영이름> ...` → `state/<이름>.json` 생성 확인
+5. 작업 스케줄러 등록 (아래 예시): 장중 5분 간격 `paper` 1회 실행 + 매일 장 시작 전 `data update`
+6. 며칠 관찰: 출력의 `actions`에 `close`가 정상 기록되는지, `close_fallback`이 반복되지 않는지 확인
+
+장 시작 전 `data update`용 스케줄 예시(평일 08:40):
+
+```powershell
+$python = "E:\trading-bot\.venv\Scripts\python.exe"
+$repo = "E:\trading-bot"
+$action = New-ScheduledTaskAction -Execute $python -Argument "-m tradingbot data update --market KR --symbols 005930 --start 2020-01-01" -WorkingDirectory $repo
+$trigger = New-ScheduledTaskTrigger -Daily -At 08:40
+Register-ScheduledTask -TaskName "TradingBot Data Update KR" -Action $action -Trigger $trigger
+```
+
 ## 운영 노트
 
 - `rsi_reversion`의 `holding_days`는 현재 전략 인스턴스 메모리에만 있습니다. 모의투자 프로세스를 재시작하면 최대 보유일 카운터가 리셋될 수 있습니다.
 - exposure 메트릭은 일말 기준 포지션 보유일 비율입니다. 당일 진입 후 당일 청산하는 데이트레이딩 전략은 exposure가 낮거나 0%로 표시될 수 있습니다.
 - `close_fallback`이 반복되면 확정 일봉 캐시가 최신화되지 않은 상태라는 뜻입니다. 네트워크 또는 데이터 소스 상태를 확인하고 다음 정상 마감 실행에서 캐시가 갱신되는지 확인하세요.
+- 세션 클록은 요일만 확인하고 공휴일 캘린더는 모릅니다. 평일 공휴일에는 장중 폴링이 정체된 지연 시세를 볼 수 있으나, 마감 처리는 확정 일봉이 하나도 없으면 비거래일로 간주하고 건너뜁니다. 다만 공휴일 장중에 제출된 DAY 주문은 다음 거래일 마감까지 살아 있을 수 있으니, 공휴일 전후 체결 내역은 한 번 확인하세요.
+- 실전 전환은 `broker/kis.py` 스켈레톤 구현이 선행되어야 합니다. 모든 메서드가 `NotImplementedError`이며, TR ID와 엔드포인트는 KIS Developers 최신 문서로 검증한 뒤 구현하세요. `app_key`/`app_secret`은 절대 저장소에 커밋하지 마세요.

@@ -190,6 +190,13 @@ class FailingUpdateCache(ParquetCache):
         raise RuntimeError("daily source unavailable")
 
 
+class NoopUpdateCache(ParquetCache):
+    """update() succeeds but the source has no bar for the requested date (holiday)."""
+
+    def update(self, market: str, symbol: str, start=None, end=None):
+        return self.read(market, symbol)
+
+
 class RaisingFetcher:
     def __call__(self, market: str, symbols: list[str]) -> dict[str, float]:
         raise AssertionError("polling fetcher should not be called")
@@ -251,3 +258,20 @@ def test_paper_close_falls_back_to_polling_snapshot_when_daily_update_fails(tmp_
     assert strategy.bars[0].low == 123
     assert strategy.bars[0].close == 123
     assert broker.metadata["last_close_date"] == "2020-01-03"
+
+
+def test_paper_close_skips_when_no_confirmed_bars_available(tmp_path):
+    cache = NoopUpdateCache(tmp_path / "cache")
+    seed_cache(cache)
+    history_feed = HistoricalDataFeed(cache, "KR", ["AAA"], start="2020-01-02")
+    clock = TradingSessionClock("KR", poll_interval=timedelta(minutes=5))
+    polling_feed = PollingDataFeed("KR", ["AAA"], clock, price_fetcher=RaisingFetcher())
+    broker = PaperBroker("holiday", tmp_path / "state", 1_000, market="KR", fee_model=FeeModel("KR"), slippage_bps=0)
+    strategy = RecordingCloseStrategy()
+    engine = PaperTradingEngine(history_feed, polling_feed, broker, strategy)
+
+    snapshot = engine.run_once(datetime(2020, 1, 3, 15, 31, tzinfo=ZoneInfo("Asia/Seoul")))
+
+    assert snapshot["actions"] == []
+    assert strategy.bars == []
+    assert "last_close_date" not in broker.metadata
