@@ -50,6 +50,7 @@ class EngineContext:
         feed: HistoricalDataFeed,
         broker: BacktestBroker,
         risk_manager: RiskManager | None = None,
+        order_start: int = 1,
     ) -> None:
         self.feed = feed
         self.broker = broker
@@ -58,7 +59,7 @@ class EngineContext:
         self._current_bars = {}
         self._current_opens = {}
         self._phase = OrderPhase.CLOSE
-        self._order_seq = count(1)
+        self._order_seq = count(order_start)
 
     def set_datetime(self, dt: date) -> None:
         self._current_dt = dt
@@ -75,8 +76,19 @@ class EngineContext:
     def history(self, symbol: str, n: int) -> pd.DataFrame:
         if self._current_dt is None:
             raise RuntimeError("Current datetime is not set")
-        include_current = self._phase is not OrderPhase.OPEN
-        return self.feed.history(symbol, self._current_dt, n, include_current=include_current)
+        symbol = symbol.upper()
+        include_current = self._phase is OrderPhase.CLOSE
+        history = self.feed.history(symbol, self._current_dt, n, include_current=include_current)
+        if include_current and symbol in self._current_bars:
+            bar = self._current_bars[symbol]
+            key = pd.Timestamp(bar.dt)
+            if key not in history.index:
+                current = pd.DataFrame(
+                    [{"open": bar.open, "high": bar.high, "low": bar.low, "close": bar.close, "volume": bar.volume}],
+                    index=[key],
+                )
+                history = pd.concat([history, current]).sort_index().tail(n)
+        return history
 
     def position(self, symbol: str) -> Position:
         return self.broker.position(symbol.upper())
@@ -169,7 +181,7 @@ class EngineContext:
             return float(self._current_opens[symbol])
         if self._current_dt is None:
             raise RuntimeError("Current datetime is not set")
-        history = self.feed.history(symbol, self._current_dt, 1, include_current=self._phase is not OrderPhase.OPEN)
+        history = self.feed.history(symbol, self._current_dt, 1, include_current=self._phase is OrderPhase.CLOSE)
         if history.empty:
             raise ValueError(f"No price available for {symbol}")
         return float(history.iloc[-1]["close"])
@@ -289,5 +301,3 @@ class BacktestEngine:
     def _notify_fills(self, fills: list[Fill]) -> None:
         for fill in fills:
             self.strategy.on_fill(self.context, fill)
-
-

@@ -46,6 +46,8 @@ class BacktestBroker(Broker):
             return self._reject(order, "LIMIT order requires limit_price")
         if order.order_type is OrderType.STOP and order.stop_price is None:
             return self._reject(order, "STOP order requires stop_price")
+        if order.order_type is OrderType.MOC and order.created_phase is OrderPhase.CLOSE:
+            return self._reject(order, "MOC orders must be submitted before close processing")
         self._open_orders.append(order)
         return order
 

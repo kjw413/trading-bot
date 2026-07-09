@@ -29,18 +29,20 @@ class BacktestMetrics:
     sharpe: float
     win_rate_pct: float
     profit_factor: float
+    exposure_pct: float
     closed_trades: int
 
 
 def calculate_metrics(result: BacktestResult) -> tuple[BacktestMetrics, list[ClosedTrade], pd.DataFrame]:
     equity_curve = result.equity_curve.copy()
-    if equity_curve.empty:
+    metric_curve = _curve_with_initial_point(result)
+    if metric_curve.empty:
         drawdown = pd.DataFrame(columns=["date", "drawdown"])
     else:
-        equity_curve["equity"] = equity_curve["equity"].astype(float)
-        peak = equity_curve["equity"].cummax()
-        drawdown = equity_curve[["date"]].copy()
-        drawdown["drawdown"] = equity_curve["equity"] / peak - 1
+        metric_curve["equity"] = metric_curve["equity"].astype(float)
+        peak = metric_curve["equity"].cummax()
+        drawdown = metric_curve[["date"]].copy()
+        drawdown["drawdown"] = metric_curve["equity"] / peak - 1
 
     closed_trades = build_closed_trades(result.fills)
     metrics = BacktestMetrics(
@@ -50,6 +52,7 @@ def calculate_metrics(result: BacktestResult) -> tuple[BacktestMetrics, list[Clo
         sharpe=_sharpe(equity_curve),
         win_rate_pct=_win_rate_pct(closed_trades),
         profit_factor=_profit_factor(closed_trades),
+        exposure_pct=_exposure_pct(result.fills, equity_curve),
         closed_trades=len(closed_trades),
     )
     return metrics, closed_trades, drawdown
@@ -103,6 +106,15 @@ def closed_trades_frame(trades: list[ClosedTrade]) -> pd.DataFrame:
     return pd.DataFrame([trade.__dict__ for trade in trades])
 
 
+def _curve_with_initial_point(result: BacktestResult) -> pd.DataFrame:
+    curve = result.equity_curve.copy()
+    if curve.empty:
+        return curve
+    first_date = curve["date"].iloc[0]
+    initial = pd.DataFrame([{"date": first_date, "equity": float(result.initial_cash)}])
+    return pd.concat([initial, curve], ignore_index=True)
+
+
 def _cagr_pct(result: BacktestResult) -> float:
     curve = result.equity_curve
     if curve.empty or result.initial_cash <= 0 or result.final_equity <= 0:
@@ -143,3 +155,28 @@ def _profit_factor(trades: list[ClosedTrade]) -> float:
     if losses == 0:
         return inf if gains > 0 else 0.0
     return gains / losses
+
+
+def _exposure_pct(fills: list[Fill], equity_curve: pd.DataFrame) -> float:
+    if equity_curve.empty:
+        return 0.0
+    fills_by_date: dict[object, list[Fill]] = {}
+    for fill in fills:
+        fills_by_date.setdefault(fill.dt, []).append(fill)
+
+    positions: dict[str, int] = {}
+    exposed_days = 0
+    for dt in equity_curve["date"]:
+        for fill in fills_by_date.get(dt, []):
+            qty = positions.get(fill.symbol, 0)
+            if fill.side is OrderSide.BUY:
+                qty += fill.qty
+            else:
+                qty = max(0, qty - fill.qty)
+            if qty:
+                positions[fill.symbol] = qty
+            else:
+                positions.pop(fill.symbol, None)
+        if any(qty > 0 for qty in positions.values()):
+            exposed_days += 1
+    return exposed_days / len(equity_curve) * 100

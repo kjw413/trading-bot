@@ -93,3 +93,20 @@ def test_insufficient_cash_rejects_buy():
     assert submitted.reject_reason == "insufficient cash"
 
 
+
+
+def test_moc_order_submitted_after_close_processing_is_rejected():
+    b = broker()
+
+    submitted = b.submit(
+        order(
+            qty=10,
+            order_type=OrderType.MOC,
+            created_at=date(2020, 1, 2),
+            created_phase=OrderPhase.CLOSE,
+        )
+    )
+
+    assert submitted.status is OrderStatus.REJECTED
+    assert submitted.reject_reason == "MOC orders must be submitted before close processing"
+    assert b.open_orders() == []

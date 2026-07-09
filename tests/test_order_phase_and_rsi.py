@@ -117,3 +117,41 @@ def test_wilder_rsi_matches_reference_series():
     )
 
     assert _wilder_rsi(closes, 14) == pytest.approx(37.7888, abs=1e-4)
+
+
+class IntradayHistoryOnFillStrategy(Strategy):
+    name = "intraday_history_on_fill"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.sent = False
+        self.history_close: float | None = None
+
+    def on_open(self, ctx: StrategyContext, dt, opens: dict[str, float]) -> None:
+        if not self.sent and dt == pd.Timestamp("2020-01-03").date():
+            ctx.buy("AAA", qty=1, order_type=OrderType.STOP, stop_price=opens["AAA"])
+            self.sent = True
+
+    def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
+        pass
+
+    def on_fill(self, ctx: StrategyContext, fill) -> None:
+        history = ctx.history(fill.symbol, 2)
+        self.history_close = float(history.iloc[-1]["close"])
+
+
+def test_intraday_history_excludes_current_bar_on_fill(tmp_path):
+    cache = write_cache(
+        tmp_path,
+        [
+            {"Date": "2020-01-02", "open": 10, "high": 10, "low": 9, "close": 10, "volume": 1000},
+            {"Date": "2020-01-03", "open": 11, "high": 12, "low": 10, "close": 12, "volume": 1000},
+        ],
+    )
+    feed = HistoricalDataFeed(cache, "KR", ["AAA"], start="2020-01-02")
+    broker = BacktestBroker(100_000, market="KR", fee_model=FeeModel("KR"), slippage_bps=0)
+    strategy = IntradayHistoryOnFillStrategy()
+
+    BacktestEngine(feed, broker, strategy).run()
+
+    assert strategy.history_close == 10

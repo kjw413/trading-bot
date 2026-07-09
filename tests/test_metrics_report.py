@@ -41,10 +41,27 @@ def test_metrics_calculate_win_rate_profit_factor_and_drawdown():
     assert metrics.closed_trades == 2
     assert metrics.win_rate_pct == pytest.approx(50.0)
     assert metrics.profit_factor == pytest.approx(98 / 102)
+    assert metrics.exposure_pct == pytest.approx(50.0)
     assert metrics.max_drawdown_pct == pytest.approx((990 / 1100 - 1) * 100)
     assert len(trades) == 2
     assert not drawdown.empty
 
+
+
+def test_mdd_includes_initial_capital_anchor():
+    result = BacktestResult(
+        initial_cash=1000,
+        final_equity=900,
+        equity_curve=pd.DataFrame({"date": [date(2020, 1, 2)], "equity": [900]}),
+        fills=[],
+        rejected_orders=[],
+        expired_orders=[],
+    )
+
+    metrics, _, drawdown = calculate_metrics(result)
+
+    assert metrics.max_drawdown_pct == pytest.approx(-10.0)
+    assert drawdown["drawdown"].min() == pytest.approx(-0.1)
 
 def test_report_writes_html_and_trades_csv(tmp_path):
     html_path = generate_backtest_report(

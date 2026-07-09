@@ -5,6 +5,10 @@ cache_dir = "data/cache"
 initial_cash_kr = 10000000
 initial_cash_us = 10000
 
+[paper]
+state_dir = "state"
+poll_interval_seconds = 300
+
 [fees.KR]
 commission_rate = 0.00015
 sell_tax_rate = 0.0015

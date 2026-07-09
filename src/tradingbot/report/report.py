@@ -86,6 +86,7 @@ def _render_html(
         ("Sharpe", f"{metrics.sharpe:.2f}"),
         ("Win Rate", _pct(metrics.win_rate_pct)),
         ("Profit Factor", _number(metrics.profit_factor)),
+        ("Exposure", _pct(metrics.exposure_pct)),
         ("Closed Trades", str(metrics.closed_trades)),
     ]
     metrics_html = "".join(f"<tr><th>{escape(k)}</th><td>{escape(v)}</td></tr>" for k, v in metric_rows)
