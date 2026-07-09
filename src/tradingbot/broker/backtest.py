@@ -8,6 +8,7 @@ from tradingbot.models import (
     Bar,
     Fill,
     Order,
+    OrderPhase,
     OrderSide,
     OrderStatus,
     OrderType,
@@ -87,7 +88,7 @@ class BacktestBroker(Broker):
 
     def on_session_close(self, dt: date, bars: dict[str, Bar]) -> list[Fill]:
         prices = {symbol: bar.close for symbol, bar in bars.items()}
-        return self._process_orders(dt, prices, {OrderType.MOC})
+        return self._process_orders(dt, prices, {OrderType.MOC}, require_same_day_moc=True)
 
     def expire_day_orders(self, dt: date) -> list[Order]:
         expired: list[Order] = []
@@ -95,7 +96,7 @@ class BacktestBroker(Broker):
         for order in self._open_orders:
             if order.status is not OrderStatus.OPEN:
                 continue
-            if order.tif is TimeInForce.DAY and order.created_at is not None and order.created_at <= dt:
+            if self._should_expire_day_order(order, dt):
                 order.status = OrderStatus.EXPIRED
                 expired.append(order)
                 continue
@@ -104,11 +105,24 @@ class BacktestBroker(Broker):
         self.expired_orders.extend(expired)
         return expired
 
+    def _should_expire_day_order(self, order: Order, dt: date) -> bool:
+        if order.tif is not TimeInForce.DAY or order.created_at is None:
+            return False
+        if order.created_at < dt:
+            return True
+        if order.created_at > dt:
+            return False
+        if order.order_type is OrderType.MARKET:
+            return False
+        return order.created_phase is not OrderPhase.CLOSE
+
     def _process_orders(
         self,
         dt: date,
         prices: dict[str, float],
         order_types: set[OrderType],
+        *,
+        require_same_day_moc: bool = False,
     ) -> list[Fill]:
         fills: list[Fill] = []
         remaining: list[Order] = []
@@ -116,6 +130,9 @@ class BacktestBroker(Broker):
             if order.status is not OrderStatus.OPEN:
                 continue
             if order.order_type not in order_types:
+                remaining.append(order)
+                continue
+            if require_same_day_moc and not self._can_fill_moc(order, dt):
                 remaining.append(order)
                 continue
             if order.symbol not in prices:
@@ -127,6 +144,13 @@ class BacktestBroker(Broker):
         self._open_orders = remaining
         self.fills.extend(fills)
         return fills
+
+    def _can_fill_moc(self, order: Order, dt: date) -> bool:
+        if order.order_type is not OrderType.MOC:
+            return True
+        if order.created_at != dt:
+            return False
+        return order.created_phase in {OrderPhase.OPEN, OrderPhase.INTRADAY, OrderPhase.MOC, None}
 
     def _trigger_price(self, order: Order, bar: Bar) -> float | None:
         if order.order_type is OrderType.STOP:

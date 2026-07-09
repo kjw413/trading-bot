@@ -27,6 +27,13 @@ class TimeInForce(str, Enum):
     GTC = "GTC"
 
 
+class OrderPhase(str, Enum):
+    OPEN = "open"
+    INTRADAY = "intraday"
+    MOC = "moc"
+    CLOSE = "close"
+
+
 class OrderStatus(str, Enum):
     OPEN = "OPEN"
     FILLED = "FILLED"
@@ -55,6 +62,7 @@ class Order:
     order_type: OrderType = OrderType.MARKET
     tif: TimeInForce = TimeInForce.DAY
     created_at: date | None = None
+    created_phase: OrderPhase | None = None
     limit_price: float | None = None
     stop_price: float | None = None
     status: OrderStatus = OrderStatus.OPEN

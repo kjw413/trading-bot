@@ -27,7 +27,8 @@ class RsiReversionStrategy(Strategy):
         max_hold_days = int(self.params["max_hold_days"])
         weight = float(self.params["weight"])
 
-        history = ctx.history(bar.symbol, period + 1)
+        lookback = max(period * 10 + 1, period + 1)
+        history = ctx.history(bar.symbol, lookback)
         if len(history) < period + 1:
             return
         rsi = _wilder_rsi(history["close"], period)

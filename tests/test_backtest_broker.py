@@ -6,17 +6,18 @@ import pytest
 
 from tradingbot.broker.backtest import BacktestBroker
 from tradingbot.broker.fees import FeeModel
-from tradingbot.models import Bar, Order, OrderSide, OrderStatus, OrderType, TimeInForce
+from tradingbot.models import Bar, Order, OrderPhase, OrderSide, OrderStatus, OrderType, TimeInForce
 
 
 def order(symbol="AAA", side=OrderSide.BUY, qty=10, order_type=OrderType.MARKET, **kwargs):
+    created_at = kwargs.pop("created_at", date(2020, 1, 1))
     return Order(
         id="O1",
         symbol=symbol,
         side=side,
         qty=qty,
         order_type=order_type,
-        created_at=date(2020, 1, 1),
+        created_at=created_at,
         **kwargs,
     )
 
@@ -60,7 +61,7 @@ def test_buy_limit_gap_down_fills_at_open():
 
 def test_moc_order_fills_at_close():
     b = broker()
-    b.submit(order(qty=10, order_type=OrderType.MOC))
+    b.submit(order(qty=10, order_type=OrderType.MOC, created_at=date(2020, 1, 2), created_phase=OrderPhase.OPEN))
     bar = Bar("AAA", date(2020, 1, 2), open=90, high=95, low=85, close=92)
 
     fills = b.on_session_close(bar.dt, {"AAA": bar})
@@ -90,3 +91,5 @@ def test_insufficient_cash_rejects_buy():
     assert fills == []
     assert submitted.status is OrderStatus.REJECTED
     assert submitted.reject_reason == "insufficient cash"
+
+

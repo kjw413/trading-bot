@@ -10,6 +10,7 @@ from tradingbot.config import load_config, market_initial_cash, resolve_project_
 from tradingbot.data.cache import ParquetCache
 from tradingbot.data.feed import HistoricalDataFeed
 from tradingbot.engine.engine import BacktestEngine
+from tradingbot.report.report import generate_backtest_report
 from tradingbot.risk import RiskManager
 from tradingbot.strategies.registry import get_strategy, list_strategies
 from tradingbot.utils.log import get_logger, setup_logging
@@ -53,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
     backtest_parser.add_argument("--start", required=True)
     backtest_parser.add_argument("--end", default=None)
     backtest_parser.add_argument("--data-root", default=None)
+    backtest_parser.add_argument("--reports-root", default="reports")
+    backtest_parser.add_argument("--no-report", action="store_true")
     backtest_parser.set_defaults(handler=cmd_backtest)
 
     strategies_parser = subparsers.add_parser("strategies", help="List built-in strategies")
@@ -124,6 +127,16 @@ def cmd_backtest(args) -> int:
         print(f"  - {reason}: {count}")
         LOGGER.warning("Rejected orders: %s = %s", reason, count)
     print(f"만료 주문: {len(result.expired_orders)}")
+
+    if not args.no_report:
+        report_path = generate_backtest_report(
+            result,
+            strategy_name=args.strategy,
+            market=args.market,
+            symbols=args.symbols,
+            reports_root=resolve_project_path(args.reports_root),
+        )
+        print(f"리포트: {report_path}")
     return 0
 
 

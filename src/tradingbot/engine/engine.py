@@ -11,6 +11,7 @@ from tradingbot.data.feed import HistoricalDataFeed
 from tradingbot.models import (
     Fill,
     Order,
+    OrderPhase,
     OrderSide,
     OrderStatus,
     OrderType,
@@ -55,7 +56,8 @@ class EngineContext:
         self.risk_manager = risk_manager
         self._current_dt: date | None = None
         self._current_bars = {}
-        self._phase = "close"
+        self._current_opens = {}
+        self._phase = OrderPhase.CLOSE
         self._order_seq = count(1)
 
     def set_datetime(self, dt: date) -> None:
@@ -64,13 +66,16 @@ class EngineContext:
     def set_bars(self, bars) -> None:
         self._current_bars = bars
 
-    def set_phase(self, phase: str) -> None:
+    def set_opens(self, opens) -> None:
+        self._current_opens = opens
+
+    def set_phase(self, phase: OrderPhase) -> None:
         self._phase = phase
 
     def history(self, symbol: str, n: int) -> pd.DataFrame:
         if self._current_dt is None:
             raise RuntimeError("Current datetime is not set")
-        include_current = self._phase != "open"
+        include_current = self._phase is not OrderPhase.OPEN
         return self.feed.history(symbol, self._current_dt, n, include_current=include_current)
 
     def position(self, symbol: str) -> Position:
@@ -160,9 +165,11 @@ class EngineContext:
     def _last_price(self, symbol: str) -> float:
         if symbol in self._current_bars:
             return float(self._current_bars[symbol].close)
+        if symbol in self._current_opens:
+            return float(self._current_opens[symbol])
         if self._current_dt is None:
             raise RuntimeError("Current datetime is not set")
-        history = self.feed.history(symbol, self._current_dt, 1, include_current=self._phase != "open")
+        history = self.feed.history(symbol, self._current_dt, 1, include_current=self._phase is not OrderPhase.OPEN)
         if history.empty:
             raise ValueError(f"No price available for {symbol}")
         return float(history.iloc[-1]["close"])
@@ -188,6 +195,7 @@ class EngineContext:
             order_type=order_type,
             tif=tif,
             created_at=self._current_dt,
+            created_phase=self._phase,
             limit_price=limit_price,
             stop_price=stop_price,
         )
@@ -237,7 +245,8 @@ class BacktestEngine:
         )
 
     def _handle_open(self, event: SessionOpen) -> None:
-        self.context.set_phase("open")
+        self.context.set_phase(OrderPhase.OPEN)
+        self.context.set_opens(event.opens)
         fills = self.broker.on_session_open(event.dt, event.opens)
         self.broker.mark_to_market(event.opens)
         self._notify_fills(fills)
@@ -246,13 +255,15 @@ class BacktestEngine:
         self.strategy.on_open(self.context, event.dt, event.opens)
 
     def _handle_close(self, event: SessionClose) -> None:
-        self.context.set_phase("close")
         self.context.set_bars(event.bars)
         close_prices = {symbol: bar.close for symbol, bar in event.bars.items()}
         self.broker.mark_to_market(close_prices)
 
+        self.context.set_phase(OrderPhase.INTRADAY)
         intraday_fills = self.broker.on_intraday_bars(event.dt, event.bars)
         self._notify_fills(intraday_fills)
+
+        self.context.set_phase(OrderPhase.MOC)
         moc_fills = self.broker.on_session_close(event.dt, event.bars)
         self._notify_fills(moc_fills)
         self.broker.expire_day_orders(event.dt)
@@ -261,6 +272,7 @@ class BacktestEngine:
         if self.risk_manager is not None:
             self.risk_manager.update_daily_loss(self.broker.equity)
 
+        self.context.set_phase(OrderPhase.CLOSE)
         for symbol in self.feed.symbols:
             bar = event.bars.get(symbol)
             if bar is not None:
@@ -277,3 +289,5 @@ class BacktestEngine:
     def _notify_fills(self, fills: list[Fill]) -> None:
         for fill in fills:
             self.strategy.on_fill(self.context, fill)
+
+
