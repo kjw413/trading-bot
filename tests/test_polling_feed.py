@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from tradingbot.data.polling import PollingDataFeed
+from tradingbot.data.polling import PollingDataFeed, YFinancePriceFetcher
 from tradingbot.engine.clock import TradingSessionClock
 
 
@@ -50,3 +51,26 @@ def test_fetch_prices_normalizes_symbol_keys():
     feed = PollingDataFeed("KR", ["aaa"], clock, price_fetcher=lambda market, symbols: {"aaa": 123})
 
     assert feed.fetch_prices() == {"AAA": 123.0}
+
+
+def test_yfinance_fetcher_falls_back_to_kosdaq_suffix_and_caches(monkeypatch):
+    monkeypatch.setitem(sys.modules, "yfinance", object())
+    fetcher = YFinancePriceFetcher()
+    calls: list[str] = []
+
+    def fake_price(yf, ticker: str) -> float | None:
+        calls.append(ticker)
+        if ticker == "091990.KS":
+            return None
+        if ticker == "091990.KQ":
+            return 42.5
+        raise AssertionError(ticker)
+
+    fetcher._fetch_ticker_price = fake_price
+
+    assert fetcher("KR", ["091990"]) == {"091990": 42.5}
+    assert calls == ["091990.KS", "091990.KQ"]
+
+    calls.clear()
+    assert fetcher("KR", ["091990"]) == {"091990": 42.5}
+    assert calls == ["091990.KQ"]

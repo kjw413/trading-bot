@@ -153,3 +153,101 @@ def test_paper_trading_engine_runs_with_injected_clock_and_prices(tmp_path):
     assert final.position("AAA").qty == 1
     assert final.metadata["last_open_date"] == "2020-01-03"
 
+
+
+class RecordingCloseStrategy(Strategy):
+    name = "recording_close"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.bars: list[Bar] = []
+        self.history_highs: list[float] = []
+
+    def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
+        self.bars.append(bar)
+        self.history_highs.append(float(ctx.history(bar.symbol, 1).iloc[-1]["high"]))
+
+
+class UpdatingCache(ParquetCache):
+    def __init__(self, root, daily_rows: dict[str, dict[str, float]]) -> None:
+        super().__init__(root)
+        self.daily_rows = daily_rows
+        self.updates: list[tuple[str, str, object, object]] = []
+
+    def update(self, market: str, symbol: str, start=None, end=None):
+        self.updates.append((market, symbol, start, end))
+        df = self.read(market, symbol)
+        row = self.daily_rows[symbol]
+        fresh = pd.DataFrame([row], index=[pd.Timestamp(start)])
+        combined = pd.concat([df, fresh]).sort_index()
+        combined = combined[~combined.index.duplicated(keep="last")]
+        self.write(market, symbol, combined)
+        return self.read(market, symbol)
+
+
+class FailingUpdateCache(ParquetCache):
+    def update(self, market: str, symbol: str, start=None, end=None):
+        raise RuntimeError("daily source unavailable")
+
+
+class RaisingFetcher:
+    def __call__(self, market: str, symbols: list[str]) -> dict[str, float]:
+        raise AssertionError("polling fetcher should not be called")
+
+
+def seed_cache(cache: ParquetCache) -> None:
+    df = pd.DataFrame(
+        {
+            "open": [100],
+            "high": [105],
+            "low": [95],
+            "close": [100],
+            "volume": [1000],
+        },
+        index=pd.to_datetime(["2020-01-02"]),
+    )
+    cache.write("KR", "AAA", df)
+
+
+def test_paper_close_refreshes_confirmed_daily_bar_and_reloads_history(tmp_path):
+    cache = UpdatingCache(
+        tmp_path / "cache",
+        {"AAA": {"open": 111, "high": 130, "low": 90, "close": 120, "volume": 2000}},
+    )
+    seed_cache(cache)
+    history_feed = HistoricalDataFeed(cache, "KR", ["AAA"], start="2020-01-02")
+    clock = TradingSessionClock("KR", poll_interval=timedelta(minutes=5))
+    polling_feed = PollingDataFeed("KR", ["AAA"], clock, price_fetcher=RaisingFetcher())
+    broker = PaperBroker("close", tmp_path / "state", 1_000, market="KR", fee_model=FeeModel("KR"), slippage_bps=0)
+    strategy = RecordingCloseStrategy()
+    engine = PaperTradingEngine(history_feed, polling_feed, broker, strategy)
+
+    snapshot = engine.run_once(datetime(2020, 1, 3, 15, 31, tzinfo=ZoneInfo("Asia/Seoul")))
+
+    assert snapshot["actions"] == ["close"]
+    assert cache.updates == [("KR", "AAA", date(2020, 1, 3), date(2020, 1, 3))]
+    assert strategy.bars[0].open == 111
+    assert strategy.bars[0].high == 130
+    assert strategy.bars[0].low == 90
+    assert strategy.bars[0].close == 120
+    assert strategy.history_highs == [130]
+
+
+def test_paper_close_falls_back_to_polling_snapshot_when_daily_update_fails(tmp_path):
+    cache = FailingUpdateCache(tmp_path / "cache")
+    seed_cache(cache)
+    history_feed = HistoricalDataFeed(cache, "KR", ["AAA"], start="2020-01-02")
+    clock = TradingSessionClock("KR", poll_interval=timedelta(minutes=5))
+    polling_feed = PollingDataFeed("KR", ["AAA"], clock, price_fetcher=StaticFetcher(123))
+    broker = PaperBroker("fallback", tmp_path / "state", 1_000, market="KR", fee_model=FeeModel("KR"), slippage_bps=0)
+    strategy = RecordingCloseStrategy()
+    engine = PaperTradingEngine(history_feed, polling_feed, broker, strategy)
+
+    snapshot = engine.run_once(datetime(2020, 1, 3, 15, 31, tzinfo=ZoneInfo("Asia/Seoul")))
+
+    assert snapshot["actions"] == ["close_fallback"]
+    assert strategy.bars[0].open == 123
+    assert strategy.bars[0].high == 123
+    assert strategy.bars[0].low == 123
+    assert strategy.bars[0].close == 123
+    assert broker.metadata["last_close_date"] == "2020-01-03"

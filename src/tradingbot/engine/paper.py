@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 import time
+
+import pandas as pd
 
 from tradingbot.broker.paper import PaperBroker
 from tradingbot.data.feed import HistoricalDataFeed
@@ -10,6 +12,9 @@ from tradingbot.engine.engine import EngineContext
 from tradingbot.models import Bar, Fill, OrderPhase
 from tradingbot.risk import RiskManager
 from tradingbot.strategies.base import Strategy
+from tradingbot.utils.log import get_logger
+
+LOGGER = get_logger(__name__)
 
 
 class PaperTradingEngine:
@@ -55,10 +60,10 @@ class PaperTradingEngine:
 
         elif self.clock.is_after_close(current):
             if self.broker.metadata.get("last_close_date") != current.date().isoformat():
-                prices = self.polling_feed.fetch_prices()
-                if prices:
-                    self._handle_close(current, _bars_from_prices(current.date(), prices))
-                    actions.append("close")
+                bars, source = self._close_bars(current.date())
+                if bars:
+                    self._handle_close(current, bars)
+                    actions.append("close" if source == "confirmed" else "close_fallback")
 
         return {
             "now": current.isoformat(),
@@ -71,7 +76,10 @@ class PaperTradingEngine:
 
     def run_loop(self, sleep_seconds: int = 300) -> None:
         while True:
-            self.run_once()
+            try:
+                self.run_once()
+            except Exception:
+                LOGGER.exception("Paper trading loop iteration failed; continuing")
             time.sleep(sleep_seconds)
 
     def _handle_open(self, current: datetime, opens: dict[str, float]) -> None:
@@ -121,6 +129,44 @@ class PaperTradingEngine:
 
         self.broker.set_metadata("last_close_date", current.date().isoformat())
 
+    def _close_bars(self, dt: date) -> tuple[dict[str, Bar], str]:
+        try:
+            return self._confirmed_close_bars(dt), "confirmed"
+        except Exception:
+            LOGGER.exception("Failed to refresh confirmed daily bars; using polling snapshot fallback")
+            prices = self.polling_feed.fetch_prices()
+            if not prices:
+                LOGGER.warning("No polling prices available for close fallback")
+                return {}, "none"
+            return _bars_from_prices(dt, prices), "fallback"
+
+    def _confirmed_close_bars(self, dt: date) -> dict[str, Bar]:
+        for symbol in self.history_feed.symbols:
+            self.history_feed.cache.update(self.history_feed.market, symbol, start=dt, end=dt)
+        self.history_feed.reload()
+
+        bars: dict[str, Bar] = {}
+        missing: list[str] = []
+        key = pd.Timestamp(dt)
+        for symbol in self.history_feed.symbols:
+            df = self.history_feed.frames.get(symbol)
+            if df is None or key not in df.index:
+                missing.append(symbol)
+                continue
+            row = df.loc[key]
+            bars[symbol] = Bar(
+                symbol=symbol,
+                dt=dt,
+                open=float(row["open"]),
+                high=float(row["high"]),
+                low=float(row["low"]),
+                close=float(row["close"]),
+                volume=float(row["volume"]),
+            )
+        if missing:
+            raise ValueError(f"Confirmed daily bars are missing for: {', '.join(missing)}")
+        return bars
+
     def _notify_fills(self, fills: list[Fill]) -> None:
         for fill in fills:
             self.strategy.on_fill(self.context, fill)
@@ -131,4 +177,3 @@ def _bars_from_prices(dt, prices: dict[str, float]) -> dict[str, Bar]:
         symbol: Bar(symbol=symbol, dt=dt, open=price, high=price, low=price, close=price, volume=0.0)
         for symbol, price in prices.items()
     }
-

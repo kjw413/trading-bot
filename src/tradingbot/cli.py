@@ -197,8 +197,12 @@ def cmd_paper(args) -> int:
         print(f"상태 파일: {broker.state_path}")
         try:
             while True:
-                snapshot = engine.run_once()
-                print_paper_snapshot(args, broker, snapshot, compact=True)
+                try:
+                    snapshot = engine.run_once()
+                    print_paper_snapshot(args, broker, snapshot, compact=True)
+                except Exception as exc:
+                    LOGGER.exception("Paper loop iteration failed; continuing")
+                    print(f"모의투자 루프 오류: {exc}")
                 time.sleep(sleep_seconds)
         except KeyboardInterrupt:
             print("모의투자 루프 종료")

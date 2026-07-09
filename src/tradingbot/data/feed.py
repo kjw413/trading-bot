@@ -26,6 +26,10 @@ class HistoricalDataFeed:
         self.frames = self._load_frames()
         self.dates = self._build_event_dates()
 
+    def reload(self) -> None:
+        self.frames = self._load_frames()
+        self.dates = self._build_event_dates()
+
     def _load_frames(self) -> dict[str, pd.DataFrame]:
         frames: dict[str, pd.DataFrame] = {}
         for symbol in self.symbols:
