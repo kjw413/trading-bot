@@ -5,7 +5,7 @@ from typing import ClassVar, Protocol
 
 import pandas as pd
 
-from tradingbot.models import Bar, Fill, Order, Position
+from tradingbot.models import Bar, Fill, Order, OrderType, Position, TimeInForce
 
 
 class StrategyContext(Protocol):
@@ -21,13 +21,30 @@ class StrategyContext(Protocol):
     def equity(self) -> float:
         ...
 
-    def has_open_order(self, symbol: str) -> bool:
+    def has_open_order(self, symbol: str, side: str | None = None) -> bool:
         ...
 
-    def buy(self, symbol: str, qty: int | None = None, weight: float | None = None) -> Order:
+    def buy(
+        self,
+        symbol: str,
+        qty: int | None = None,
+        weight: float | None = None,
+        order_type: OrderType = OrderType.MARKET,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+        tif: TimeInForce = TimeInForce.DAY,
+    ) -> Order:
         ...
 
-    def sell(self, symbol: str, qty: int) -> Order:
+    def sell(
+        self,
+        symbol: str,
+        qty: int,
+        order_type: OrderType = OrderType.MARKET,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+        tif: TimeInForce = TimeInForce.DAY,
+    ) -> Order:
         ...
 
 
@@ -36,8 +53,7 @@ class Strategy(ABC):
     default_params: ClassVar[dict] = {}
 
     def __init__(self, **params) -> None:
-        merged = {**self.default_params, **params}
-        self.params = merged
+        self.params = {**self.default_params, **params}
 
     def init(self, ctx: StrategyContext) -> None:
         pass

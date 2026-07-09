@@ -7,11 +7,37 @@ initial_cash_us = 10000
 
 [fees.KR]
 commission_rate = 0.00015
+sell_tax_rate = 0.0015
 
 [fees.US]
-commission_rate = 0.00015
+commission_rate = 0.0
+sec_fee_rate = 0.0000278
+finra_taf_per_share = 0.000166
+finra_taf_cap = 8.30
+
+[execution]
+slippage_bps = 5
+
+[risk]
+max_position_pct = 0.20
+max_positions = 5
+max_daily_loss_pct = 0.03
+stop_loss_pct = 0.05
+min_cash_buffer_pct = 0.02
 
 [strategies.ma_cross]
 fast = 20
 slow = 60
-weight = 0.95
+weight = 0.20
+
+[strategies.vol_breakout]
+k = 0.5
+weight = 0.20
+exit = "moc"
+
+[strategies.rsi_reversion]
+period = 14
+buy_below = 30
+exit_above = 55
+max_hold_days = 10
+weight = 0.20

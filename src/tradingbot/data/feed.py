@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Iterator
 
 import pandas as pd
 
@@ -23,27 +24,30 @@ class HistoricalDataFeed:
         self.start = pd.to_datetime(start).normalize()
         self.end = pd.to_datetime(end).normalize() if end else None
         self.frames = self._load_frames()
-        self.dates = self._build_dates()
+        self.dates = self._build_event_dates()
 
     def _load_frames(self) -> dict[str, pd.DataFrame]:
         frames: dict[str, pd.DataFrame] = {}
         for symbol in self.symbols:
             df = self.cache.read(self.market, symbol)
-            df = df.loc[df.index >= self.start]
             if self.end is not None:
                 df = df.loc[df.index <= self.end]
-            if df.empty:
+            event_df = df.loc[df.index >= self.start]
+            if event_df.empty:
                 raise ValueError(f"No cached bars for {self.market} {symbol} in requested date range")
             frames[symbol] = df
         return frames
 
-    def _build_dates(self) -> list[date]:
+    def _build_event_dates(self) -> list[date]:
         all_dates: set[date] = set()
         for df in self.frames.values():
-            all_dates.update(ts.date() for ts in df.index)
+            event_df = df.loc[df.index >= self.start]
+            if self.end is not None:
+                event_df = event_df.loc[event_df.index <= self.end]
+            all_dates.update(ts.date() for ts in event_df.index)
         return sorted(all_dates)
 
-    def events(self):
+    def events(self) -> Iterator[SessionOpen | SessionClose]:
         for dt in self.dates:
             opens: dict[str, float] = {}
             bars: dict[str, Bar] = {}
@@ -69,9 +73,21 @@ class HistoricalDataFeed:
             if bars:
                 yield SessionClose(dt=dt, bars=bars)
 
-    def history(self, symbol: str, current_dt: date, n: int) -> pd.DataFrame:
+    def history(
+        self,
+        symbol: str,
+        current_dt: date,
+        n: int,
+        *,
+        include_current: bool = True,
+    ) -> pd.DataFrame:
         symbol = symbol.upper()
         if symbol not in self.frames:
             raise KeyError(f"Unknown symbol: {symbol}")
         end = pd.Timestamp(current_dt)
-        return self.frames[symbol].loc[:end].tail(n).copy()
+        df = self.frames[symbol]
+        if include_current:
+            history = df.loc[:end]
+        else:
+            history = df.loc[df.index < end]
+        return history.tail(n).copy()

@@ -32,6 +32,7 @@ class OrderStatus(str, Enum):
     FILLED = "FILLED"
     REJECTED = "REJECTED"
     CANCELED = "CANCELED"
+    EXPIRED = "EXPIRED"
 
 
 @dataclass(frozen=True)
@@ -91,6 +92,12 @@ class Position:
 class SessionOpen:
     dt: date
     opens: dict[str, float]
+
+
+@dataclass(frozen=True)
+class PriceTick:
+    dt: date
+    prices: dict[str, float]
 
 
 @dataclass(frozen=True)

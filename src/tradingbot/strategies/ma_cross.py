@@ -11,7 +11,7 @@ class MovingAverageCrossStrategy(Strategy):
     default_params = {
         "fast": 20,
         "slow": 60,
-        "weight": 0.95,
+        "weight": 0.20,
     }
 
     def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:

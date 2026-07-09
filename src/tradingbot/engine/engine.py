@@ -12,11 +12,14 @@ from tradingbot.models import (
     Fill,
     Order,
     OrderSide,
+    OrderStatus,
     OrderType,
     Position,
     SessionClose,
     SessionOpen,
+    TimeInForce,
 )
+from tradingbot.risk import RiskManager
 from tradingbot.strategies.base import Strategy
 
 
@@ -26,6 +29,8 @@ class BacktestResult:
     final_equity: float
     equity_curve: pd.DataFrame
     fills: list[Fill]
+    rejected_orders: list[Order]
+    expired_orders: list[Order]
 
     @property
     def return_pct(self) -> float:
@@ -39,11 +44,18 @@ class BacktestResult:
 
 
 class EngineContext:
-    def __init__(self, feed: HistoricalDataFeed, broker: BacktestBroker) -> None:
+    def __init__(
+        self,
+        feed: HistoricalDataFeed,
+        broker: BacktestBroker,
+        risk_manager: RiskManager | None = None,
+    ) -> None:
         self.feed = feed
         self.broker = broker
+        self.risk_manager = risk_manager
         self._current_dt: date | None = None
         self._current_bars = {}
+        self._phase = "close"
         self._order_seq = count(1)
 
     def set_datetime(self, dt: date) -> None:
@@ -52,10 +64,14 @@ class EngineContext:
     def set_bars(self, bars) -> None:
         self._current_bars = bars
 
+    def set_phase(self, phase: str) -> None:
+        self._phase = phase
+
     def history(self, symbol: str, n: int) -> pd.DataFrame:
         if self._current_dt is None:
             raise RuntimeError("Current datetime is not set")
-        return self.feed.history(symbol, self._current_dt, n)
+        include_current = self._phase != "open"
+        return self.feed.history(symbol, self._current_dt, n, include_current=include_current)
 
     def position(self, symbol: str) -> Position:
         return self.broker.position(symbol.upper())
@@ -66,38 +82,102 @@ class EngineContext:
     def equity(self) -> float:
         return self.broker.equity
 
-    def has_open_order(self, symbol: str) -> bool:
+    def has_open_order(self, symbol: str, side: str | None = None) -> bool:
         symbol = symbol.upper()
-        return any(order.symbol == symbol for order in self.broker.open_orders())
+        side_enum = OrderSide(side.upper()) if side else None
+        return any(
+            order.symbol == symbol and (side_enum is None or order.side is side_enum)
+            for order in self.broker.open_orders()
+        )
 
-    def buy(self, symbol: str, qty: int | None = None, weight: float | None = None) -> Order:
+    def buy(
+        self,
+        symbol: str,
+        qty: int | None = None,
+        weight: float | None = None,
+        order_type: OrderType = OrderType.MARKET,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+        tif: TimeInForce = TimeInForce.DAY,
+    ) -> Order:
         symbol = symbol.upper()
-        order_qty = self._resolve_qty(symbol, qty, weight)
-        return self._submit(symbol=symbol, side=OrderSide.BUY, qty=order_qty)
+        estimated_price = self._estimate_price(symbol, order_type, limit_price, stop_price)
+        order_qty = self._resolve_qty(estimated_price, qty, weight)
+        return self._submit(
+            symbol=symbol,
+            side=OrderSide.BUY,
+            qty=order_qty,
+            order_type=order_type,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            tif=tif,
+            estimated_price=estimated_price,
+        )
 
-    def sell(self, symbol: str, qty: int) -> Order:
-        return self._submit(symbol=symbol.upper(), side=OrderSide.SELL, qty=int(qty))
+    def sell(
+        self,
+        symbol: str,
+        qty: int,
+        order_type: OrderType = OrderType.MARKET,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+        tif: TimeInForce = TimeInForce.DAY,
+    ) -> Order:
+        symbol = symbol.upper()
+        estimated_price = self._estimate_price(symbol, order_type, limit_price, stop_price)
+        return self._submit(
+            symbol=symbol,
+            side=OrderSide.SELL,
+            qty=int(qty),
+            order_type=order_type,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            tif=tif,
+            estimated_price=estimated_price,
+        )
 
-    def _resolve_qty(self, symbol: str, qty: int | None, weight: float | None) -> int:
+    def _resolve_qty(self, estimated_price: float, qty: int | None, weight: float | None) -> int:
         if qty is not None:
             return int(qty)
         if weight is None:
             raise ValueError("qty or weight is required")
-        price = self._last_price(symbol)
-        budget = max(0.0, self.cash() * float(weight))
-        return int(budget // price)
+        budget = max(0.0, self.equity() * float(weight))
+        return int(budget // estimated_price)
+
+    def _estimate_price(
+        self,
+        symbol: str,
+        order_type: OrderType,
+        limit_price: float | None,
+        stop_price: float | None,
+    ) -> float:
+        if order_type is OrderType.LIMIT and limit_price is not None:
+            return float(limit_price)
+        if order_type is OrderType.STOP and stop_price is not None:
+            return float(stop_price)
+        return self._last_price(symbol)
 
     def _last_price(self, symbol: str) -> float:
         if symbol in self._current_bars:
             return float(self._current_bars[symbol].close)
         if self._current_dt is None:
             raise RuntimeError("Current datetime is not set")
-        history = self.feed.history(symbol, self._current_dt, 1)
+        history = self.feed.history(symbol, self._current_dt, 1, include_current=self._phase != "open")
         if history.empty:
             raise ValueError(f"No price available for {symbol}")
         return float(history.iloc[-1]["close"])
 
-    def _submit(self, symbol: str, side: OrderSide, qty: int) -> Order:
+    def _submit(
+        self,
+        symbol: str,
+        side: OrderSide,
+        qty: int,
+        order_type: OrderType,
+        limit_price: float | None,
+        stop_price: float | None,
+        tif: TimeInForce,
+        estimated_price: float,
+    ) -> Order:
         if self._current_dt is None:
             raise RuntimeError("Current datetime is not set")
         order = Order(
@@ -105,9 +185,19 @@ class EngineContext:
             symbol=symbol,
             side=side,
             qty=qty,
-            order_type=OrderType.MARKET,
+            order_type=order_type,
+            tif=tif,
             created_at=self._current_dt,
+            limit_price=limit_price,
+            stop_price=stop_price,
         )
+        if self.risk_manager is not None:
+            reason = self.risk_manager.validate(order, self.broker, estimated_price)
+            if reason is not None:
+                order.status = OrderStatus.REJECTED
+                order.reject_reason = reason
+                self.broker.rejected_orders.append(order)
+                return order
         return self.broker.submit(order)
 
 
@@ -117,11 +207,13 @@ class BacktestEngine:
         feed: HistoricalDataFeed,
         broker: BacktestBroker,
         strategy: Strategy,
+        risk_manager: RiskManager | None = None,
     ) -> None:
         self.feed = feed
         self.broker = broker
         self.strategy = strategy
-        self.context = EngineContext(feed=feed, broker=broker)
+        self.risk_manager = risk_manager
+        self.context = EngineContext(feed=feed, broker=broker, risk_manager=risk_manager)
         self.equity_points: list[tuple[date, float]] = []
 
     def run(self) -> BacktestResult:
@@ -130,19 +222,9 @@ class BacktestEngine:
         for event in self.feed.events():
             self.context.set_datetime(event.dt)
             if isinstance(event, SessionOpen):
-                fills = self.broker.on_session_open(event.dt, event.opens)
-                for fill in fills:
-                    self.strategy.on_fill(self.context, fill)
-                self.strategy.on_open(self.context, event.dt, event.opens)
+                self._handle_open(event)
             elif isinstance(event, SessionClose):
-                prices = {symbol: bar.close for symbol, bar in event.bars.items()}
-                self.broker.mark_to_market(prices)
-                self.context.set_bars(event.bars)
-                for symbol in self.feed.symbols:
-                    bar = event.bars.get(symbol)
-                    if bar is not None:
-                        self.strategy.on_bar(self.context, bar)
-                self.equity_points.append((event.dt, self.broker.equity))
+                self._handle_close(event)
 
         equity_curve = pd.DataFrame(self.equity_points, columns=["date", "equity"])
         return BacktestResult(
@@ -150,4 +232,48 @@ class BacktestEngine:
             final_equity=self.broker.equity,
             equity_curve=equity_curve,
             fills=list(self.broker.fills),
+            rejected_orders=list(self.broker.rejected_orders),
+            expired_orders=list(self.broker.expired_orders),
         )
+
+    def _handle_open(self, event: SessionOpen) -> None:
+        self.context.set_phase("open")
+        fills = self.broker.on_session_open(event.dt, event.opens)
+        self.broker.mark_to_market(event.opens)
+        self._notify_fills(fills)
+        if self.risk_manager is not None:
+            self.risk_manager.start_day(self.broker.equity)
+        self.strategy.on_open(self.context, event.dt, event.opens)
+
+    def _handle_close(self, event: SessionClose) -> None:
+        self.context.set_phase("close")
+        self.context.set_bars(event.bars)
+        close_prices = {symbol: bar.close for symbol, bar in event.bars.items()}
+        self.broker.mark_to_market(close_prices)
+
+        intraday_fills = self.broker.on_intraday_bars(event.dt, event.bars)
+        self._notify_fills(intraday_fills)
+        moc_fills = self.broker.on_session_close(event.dt, event.bars)
+        self._notify_fills(moc_fills)
+        self.broker.expire_day_orders(event.dt)
+        self.broker.mark_to_market(close_prices)
+
+        if self.risk_manager is not None:
+            self.risk_manager.update_daily_loss(self.broker.equity)
+
+        for symbol in self.feed.symbols:
+            bar = event.bars.get(symbol)
+            if bar is not None:
+                self.strategy.on_bar(self.context, bar)
+
+        if self.risk_manager is not None:
+            for symbol in self.risk_manager.stop_loss_symbols(self.broker, event.bars):
+                position = self.broker.position(symbol)
+                if position.qty > 0 and not self.context.has_open_order(symbol, side="SELL"):
+                    self.context.sell(symbol, qty=position.qty)
+
+        self.equity_points.append((event.dt, self.broker.equity))
+
+    def _notify_fills(self, fills: list[Fill]) -> None:
+        for fill in fills:
+            self.strategy.on_fill(self.context, fill)

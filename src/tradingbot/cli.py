@@ -1,28 +1,37 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+import sys
+from collections import Counter
 
 from tradingbot.broker.backtest import BacktestBroker
-from tradingbot.config import (
-    load_config,
-    market_commission_rate,
-    market_initial_cash,
-    resolve_project_path,
-)
+from tradingbot.broker.fees import FeeModel
+from tradingbot.config import load_config, market_initial_cash, resolve_project_path
 from tradingbot.data.cache import ParquetCache
 from tradingbot.data.feed import HistoricalDataFeed
 from tradingbot.engine.engine import BacktestEngine
+from tradingbot.risk import RiskManager
 from tradingbot.strategies.registry import get_strategy, list_strategies
+from tradingbot.utils.log import get_logger, setup_logging
+
+LOGGER = get_logger(__name__)
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_console()
+    setup_logging()
     parser = build_parser()
     args = parser.parse_args(argv)
     if not hasattr(args, "handler"):
         parser.print_help()
         return 0
     return args.handler(args)
+
+
+def configure_console() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -78,8 +87,12 @@ def cmd_backtest(args) -> int:
     strategy_params = config.get("strategies", {}).get(args.strategy, {})
     strategy = strategy_cls(**strategy_params)
     initial_cash = market_initial_cash(config, args.market)
-    commission_rate = market_commission_rate(config, args.market)
+    if initial_cash <= 0:
+        raise ValueError(f"Initial cash is not configured for market {args.market}")
 
+    fee_model = FeeModel.from_config(args.market, config)
+    slippage_bps = float(config.get("execution", {}).get("slippage_bps", 0.0))
+    risk_manager = RiskManager.from_config(config)
     feed = HistoricalDataFeed(
         cache=cache,
         market=args.market,
@@ -87,15 +100,30 @@ def cmd_backtest(args) -> int:
         start=args.start,
         end=args.end,
     )
-    broker = BacktestBroker(initial_cash=initial_cash, commission_rate=commission_rate)
-    result = BacktestEngine(feed=feed, broker=broker, strategy=strategy).run()
+    broker = BacktestBroker(
+        initial_cash=initial_cash,
+        market=args.market,
+        fee_model=fee_model,
+        slippage_bps=slippage_bps,
+    )
+    result = BacktestEngine(
+        feed=feed,
+        broker=broker,
+        strategy=strategy,
+        risk_manager=risk_manager,
+    ).run()
 
     print(f"전략: {args.strategy}")
     print(f"시장: {args.market}")
     print(f"종목: {', '.join(args.symbols)}")
     print(f"최종 자산: {result.final_equity:,.2f}")
     print(f"수익률: {result.return_pct:,.2f}%")
-    print(f"거래수: {result.trade_count}")
+    print(f"체결수: {result.trade_count}")
+    print(f"거부 주문: {len(result.rejected_orders)}")
+    for reason, count in Counter(order.reject_reason or "unknown" for order in result.rejected_orders).items():
+        print(f"  - {reason}: {count}")
+        LOGGER.warning("Rejected orders: %s = %s", reason, count)
+    print(f"만료 주문: {len(result.expired_orders)}")
     return 0
 
 
