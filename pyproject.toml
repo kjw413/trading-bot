@@ -21,6 +21,9 @@ dev = [
 [project.scripts]
 tradingbot = "tradingbot.cli:main"
 
+[project.gui-scripts]
+tradingbot-gui = "tradingbot.gui:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

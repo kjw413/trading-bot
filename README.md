@@ -28,6 +28,23 @@ py -m uv sync --extra dev
 
 `uv` 실행 파일이 PATH에 있다면 `uv sync --extra dev`를 써도 됩니다. 가상환경을 활성화한 셸에서는 `python -m tradingbot ...` 형태로 실행하면 됩니다.
 
+## GUI
+
+CLI 대신 데스크톱 GUI(Tkinter, 추가 의존성 없음)로 같은 기능을 쓸 수 있습니다. 주식 초보자도 쓸 수 있도록 만들어져 있습니다.
+
+- 종목을 **이름으로 검색**해서 선택 (예: "삼성전자" → 005930 자동 변환). 한국은 KRX 전체, 미국은 S&P 500 구성 종목이 검색되고, 목록에 없는 티커는 "코드 직접 추가"로 넣을 수 있습니다. 종목 목록은 `data/cache/_listings/`에 7일간 캐시됩니다.
+- 백테스트/모의투자 실행 전 **시세 데이터 자동 받기**(기본 켜짐) — `data update`를 따로 몰라도 됩니다.
+- 백테스트 완료 시 HTML 리포트가 브라우저에 자동으로 열립니다.
+- 전략 선택 시 한 줄 설명 표시, 진행 상황 로그 창, 도움말 메뉴/버튼으로 여는 [사용 설명서](docs/manual.html) 제공.
+
+```powershell
+.\.venv\Scripts\python.exe -m tradingbot gui
+```
+
+가장 쉬운 실행법은 저장소 루트의 **`트레이딩봇 실행.bat` 더블클릭**입니다. `.venv`가 없으면 `uv sync`까지 자동으로 수행한 뒤 콘솔 창 없이 GUI를 띄웁니다. 설치된 스크립트 `tradingbot-gui`(창만 뜨고 콘솔이 없는 GUI 엔트리)를 사용해도 됩니다. `--config` 없이 실행하면 `config/default.toml`을 사용하고, 상단 "설정 파일" 입력으로 다른 TOML을 지정할 수 있습니다. CLI와 GUI는 `src/tradingbot/services.py`의 동일한 실행 로직을 공유하며, 종목명 검색은 `src/tradingbot/symbols.py`가 담당합니다.
+
+주식이 처음인 사용자를 위한 안내는 [docs/manual.html](docs/manual.html)에 있습니다 (GUI의 "사용 설명서" 버튼으로도 열림).
+
 ## 데이터 업데이트
 
 공개 데이터 소스에서 일봉을 받아 `data/cache/<MARKET>/<SYMBOL>.parquet`에 저장합니다. 국내 데이터는 FinanceDataReader, 미국 데이터는 yfinance를 사용합니다.

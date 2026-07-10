@@ -4,21 +4,12 @@ import argparse
 import sys
 import time
 from collections import Counter
-from datetime import timedelta
 
-from tradingbot.broker.backtest import BacktestBroker
-from tradingbot.broker.fees import FeeModel
 from tradingbot.broker.paper import PaperBroker
-from tradingbot.config import load_config, market_initial_cash, resolve_project_path
-from tradingbot.data.cache import ParquetCache
-from tradingbot.data.feed import HistoricalDataFeed
-from tradingbot.data.polling import PollingDataFeed
-from tradingbot.engine.clock import TradingSessionClock
-from tradingbot.engine.engine import BacktestEngine
-from tradingbot.engine.paper import PaperTradingEngine
+from tradingbot.config import load_config, resolve_project_path
 from tradingbot.report.report import generate_backtest_report
-from tradingbot.risk import RiskManager
-from tradingbot.strategies.registry import get_strategy, list_strategies
+from tradingbot.services import build_paper_session, run_backtest, update_data
+from tradingbot.strategies.registry import list_strategies
 from tradingbot.utils.log import get_logger, setup_logging
 
 LOGGER = get_logger(__name__)
@@ -78,6 +69,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     strategies_parser = subparsers.add_parser("strategies", help="List built-in strategies")
     strategies_parser.set_defaults(handler=cmd_strategies)
+
+    gui_parser = subparsers.add_parser("gui", help="Launch the desktop GUI")
+    gui_parser.set_defaults(handler=cmd_gui)
     return parser
 
 
@@ -86,53 +80,31 @@ def add_market_symbols(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--symbols", nargs="+", required=True)
 
 
-def cache_from_args(args, config: dict) -> ParquetCache:
-    root = args.data_root if getattr(args, "data_root", None) else config["data"]["cache_dir"]
-    return ParquetCache(resolve_project_path(root))
-
-
 def cmd_data_update(args) -> int:
     config = load_config(args.config)
-    cache = cache_from_args(args, config)
-    for symbol in args.symbols:
-        df = cache.update(args.market, symbol, start=args.start, end=args.end)
-        path = cache.path(args.market, symbol)
-        print(f"{args.market} {symbol}: {len(df)} rows -> {path}")
+    for result in update_data(
+        config,
+        market=args.market,
+        symbols=args.symbols,
+        start=args.start,
+        end=args.end,
+        data_root=args.data_root if hasattr(args, "data_root") else None,
+    ):
+        print(f"{args.market} {result.symbol}: {result.rows} rows -> {result.path}")
     return 0
 
 
 def cmd_backtest(args) -> int:
     config = load_config(args.config)
-    cache = cache_from_args(args, config)
-    strategy_cls = get_strategy(args.strategy)
-    strategy_params = config.get("strategies", {}).get(args.strategy, {})
-    strategy = strategy_cls(**strategy_params)
-    initial_cash = market_initial_cash(config, args.market)
-    if initial_cash <= 0:
-        raise ValueError(f"Initial cash is not configured for market {args.market}")
-
-    fee_model = FeeModel.from_config(args.market, config)
-    slippage_bps = float(config.get("execution", {}).get("slippage_bps", 0.0))
-    risk_manager = RiskManager.from_config(config)
-    feed = HistoricalDataFeed(
-        cache=cache,
+    result = run_backtest(
+        config,
         market=args.market,
         symbols=args.symbols,
+        strategy_name=args.strategy,
         start=args.start,
         end=args.end,
+        data_root=args.data_root,
     )
-    broker = BacktestBroker(
-        initial_cash=initial_cash,
-        market=args.market,
-        fee_model=fee_model,
-        slippage_bps=slippage_bps,
-    )
-    result = BacktestEngine(
-        feed=feed,
-        broker=broker,
-        strategy=strategy,
-        risk_manager=risk_manager,
-    ).run()
 
     print(f"전략: {args.strategy}")
     print(f"시장: {args.market}")
@@ -160,37 +132,20 @@ def cmd_backtest(args) -> int:
 
 def cmd_paper(args) -> int:
     config = load_config(args.config)
-    cache = cache_from_args(args, config)
-    strategy_cls = get_strategy(args.strategy)
-    strategy_params = config.get("strategies", {}).get(args.strategy, {})
-    strategy = strategy_cls(**strategy_params)
-    initial_cash = market_initial_cash(config, args.market)
-    if initial_cash <= 0:
-        raise ValueError(f"Initial cash is not configured for market {args.market}")
-
-    paper_config = config.get("paper", {})
-    state_dir = resolve_project_path(args.state_dir or paper_config.get("state_dir", "state"))
-    poll_interval_seconds = int(paper_config.get("poll_interval_seconds", 300))
-    sleep_seconds = int(args.sleep_seconds or poll_interval_seconds)
-
-    clock = TradingSessionClock(args.market, poll_interval=timedelta(seconds=poll_interval_seconds))
-    history_feed = HistoricalDataFeed(cache, args.market, args.symbols, start=args.start, end=args.end)
-    polling_feed = PollingDataFeed(args.market, args.symbols, clock)
-    broker = PaperBroker(
+    session = build_paper_session(
+        config,
         name=args.name,
-        state_dir=state_dir,
-        initial_cash=initial_cash,
         market=args.market,
-        fee_model=FeeModel.from_config(args.market, config),
-        slippage_bps=float(config.get("execution", {}).get("slippage_bps", 0.0)),
+        symbols=args.symbols,
+        strategy_name=args.strategy,
+        start=args.start,
+        end=args.end,
+        data_root=args.data_root,
+        state_dir=args.state_dir,
     )
-    engine = PaperTradingEngine(
-        history_feed=history_feed,
-        polling_feed=polling_feed,
-        broker=broker,
-        strategy=strategy,
-        risk_manager=RiskManager.from_config(config),
-    )
+    engine = session.engine
+    broker = session.broker
+    sleep_seconds = int(args.sleep_seconds or session.poll_interval_seconds)
 
     if args.loop:
         print(f"모의투자 루프 시작: {args.name}")
@@ -251,3 +206,9 @@ def cmd_strategies(args) -> int:
     for name in list_strategies():
         print(name)
     return 0
+
+
+def cmd_gui(args) -> int:
+    from tradingbot.gui import run_gui
+
+    return run_gui(config_path=args.config)

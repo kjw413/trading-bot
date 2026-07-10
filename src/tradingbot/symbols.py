@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from typing import Callable
+
+import pandas as pd
+
+from tradingbot.utils.log import get_logger
+
+LOGGER = get_logger(__name__)
+
+LISTING_TTL_SECONDS = 7 * 24 * 3600
+
+# US: 전체 거래소 목록은 다운로드가 느려서 S&P 500 구성 종목만 제공한다.
+# 목록에 없는 티커는 종목 선택기에서 직접 입력으로 추가할 수 있다.
+_SOURCES = {"KR": ["KRX"], "US": ["S&P500"]}
+
+
+def _normalize(raw: pd.DataFrame) -> pd.DataFrame:
+    code_col = next(col for col in ("Code", "Symbol") if col in raw.columns)
+    df = raw[[code_col, "Name"]].rename(columns={code_col: "symbol", "Name": "name"})
+    return df.dropna().astype(str)
+
+
+def _default_fetcher(market: str) -> pd.DataFrame:
+    import FinanceDataReader as fdr
+
+    frames = [_normalize(fdr.StockListing(source)) for source in _SOURCES[market.upper()]]
+    df = pd.concat(frames, ignore_index=True).drop_duplicates("symbol")
+    return df.sort_values("name", ignore_index=True)
+
+
+class SymbolDirectory:
+    """시장별 (코드, 종목명) 목록을 내려받아 CSV로 캐시하고 이름/코드 검색을 제공한다."""
+
+    def __init__(self, cache_dir: str | Path, fetcher: Callable[[str], pd.DataFrame] | None = None) -> None:
+        self.cache_dir = Path(cache_dir)
+        self.fetcher = fetcher or _default_fetcher
+
+    def path(self, market: str) -> Path:
+        return self.cache_dir / "_listings" / f"{market.upper()}.csv"
+
+    def load(self, market: str, *, fetch: bool = True) -> pd.DataFrame:
+        """종목 목록을 반환한다. columns: [symbol, name].
+
+        캐시가 신선하면 캐시를 쓰고, 오래됐으면 다시 내려받는다. fetch=False면
+        네트워크를 쓰지 않고 캐시가 없을 때 빈 DataFrame을 반환한다.
+        """
+        path = self.path(market)
+        cached = pd.read_csv(path, dtype=str) if path.exists() else None
+        if cached is not None:
+            fresh = time.time() - path.stat().st_mtime <= LISTING_TTL_SECONDS
+            if fresh or not fetch:
+                return cached
+        if not fetch:
+            return pd.DataFrame(columns=["symbol", "name"])
+
+        try:
+            df = self.fetcher(market)
+        except Exception:
+            if cached is not None:
+                LOGGER.exception("Symbol listing refresh failed for %s; using stale cache", market)
+                return cached
+            raise
+        path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(path, index=False)
+        return df
+
+    def search(self, market: str, query: str, *, limit: int = 50) -> list[tuple[str, str]]:
+        """종목명 또는 코드에 query가 포함된 종목을 (코드, 이름) 목록으로 반환한다."""
+        term = query.strip().lower()
+        if not term:
+            return []
+        df = self.load(market)
+        mask = df["name"].str.lower().str.contains(term, regex=False) | df["symbol"].str.lower().str.contains(
+            term, regex=False
+        )
+        return list(df[mask].head(limit).itertuples(index=False, name=None))
+
+    def name_map(self, market: str) -> dict[str, str]:
+        """캐시된 목록만으로 코드 -> 종목명 매핑을 반환한다(네트워크 사용 없음)."""
+        df = self.load(market, fetch=False)
+        return dict(zip(df["symbol"], df["name"]))

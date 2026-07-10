@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>주식 트레이딩 봇 사용 설명서</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #1f2430; --muted: #5b6474; --accent: #2456c8;
+    --card: #f4f6fa; --border: #d8dee9; --warn-bg: #fff4e5; --warn-border: #f0b429;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #171a21; --text: #e6e9f0; --muted: #9aa3b5; --accent: #7ea6ff;
+      --card: #21252f; --border: #3a4050; --warn-bg: #2e2415; --warn-border: #b98a1f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 16px 64px;
+    background: var(--bg); color: var(--text);
+    font-family: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", sans-serif;
+    line-height: 1.7;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 1.7em; border-bottom: 3px solid var(--accent); padding-bottom: 8px; margin-top: 40px; }
+  h2 { font-size: 1.3em; margin-top: 44px; color: var(--accent); }
+  h3 { font-size: 1.05em; margin-top: 28px; }
+  p, li { font-size: 0.98em; }
+  .muted { color: var(--muted); }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 18px; margin: 14px 0;
+  }
+  .warn {
+    background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 10px;
+    padding: 14px 18px; margin: 14px 0;
+  }
+  .steps li { margin-bottom: 10px; }
+  kbd, code {
+    background: var(--card); border: 1px solid var(--border); border-radius: 5px;
+    padding: 1px 6px; font-family: Consolas, monospace; font-size: 0.92em;
+  }
+  .btn {
+    display: inline-block; background: var(--card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 0 8px; font-weight: 600; white-space: nowrap;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--card); }
+  .toc { list-style: none; padding-left: 0; }
+  .toc li { margin: 4px 0; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>📈 주식 트레이딩 봇 — 쉬운 사용 설명서</h1>
+<p class="muted">주식을 잘 몰라도 따라 할 수 있도록 만든 안내서입니다. 5분이면 첫 백테스트를 돌려볼 수 있어요.</p>
+
+<ul class="toc card">
+  <li>1. <a href="#what">이 프로그램은 무엇인가요?</a></li>
+  <li>2. <a href="#concept">꼭 알아야 할 3가지 개념</a></li>
+  <li>3. <a href="#start">프로그램 실행하기</a></li>
+  <li>4. <a href="#screen">화면 안내</a></li>
+  <li>5. <a href="#first">따라하기 ①: 내 첫 백테스트</a></li>
+  <li>6. <a href="#report">결과 리포트 읽는 법 (용어 사전)</a></li>
+  <li>7. <a href="#paper">따라하기 ②: 모의투자</a></li>
+  <li>8. <a href="#faq">자주 묻는 질문</a></li>
+  <li>9. <a href="#caution">꼭 기억할 주의사항</a></li>
+</ul>
+
+<h2 id="what">1. 이 프로그램은 무엇인가요?</h2>
+<p>
+"삼성전자를 이런 규칙으로 사고팔았다면 지난 5년간 얼마를 벌었을까?" —
+이 질문에 답해주는 프로그램입니다. 정해진 규칙(<b>전략</b>)대로 주식을 사고파는 것을
+과거 데이터로 시험해 보고(<b>백테스트</b>), 가상의 돈으로 실제 시세에 따라 굴려볼 수도 있습니다(<b>모의투자</b>).
+</p>
+<div class="warn">
+  ⚠️ 이 프로그램은 <b>실제 주문을 내지 않습니다.</b> 진짜 돈이 들어가거나 나가는 일은 없으니 마음 놓고 이것저것 눌러보세요.
+</div>
+
+<h2 id="concept">2. 꼭 알아야 할 3가지 개념</h2>
+<table>
+  <tr><th>용어</th><th>쉬운 설명</th></tr>
+  <tr><td><b>전략</b></td><td>"언제 사고 언제 판다"는 규칙입니다. 예: "최근 20일 평균 가격이 60일 평균보다 높아지면 산다". 이 프로그램에는 전략 3개가 들어 있습니다.</td></tr>
+  <tr><td><b>백테스트</b></td><td>전략을 <b>과거 데이터</b>에 적용해 보는 모의시험입니다. "이 규칙대로 했다면 얼마 벌었을까?"를 성적표(리포트)로 보여줍니다.</td></tr>
+  <tr><td><b>모의투자</b></td><td>가상의 돈(기본: 한국 1,000만 원 / 미국 1만 달러)으로 전략을 <b>지금 시세</b>에 따라 굴려보는 것입니다. 실제 계좌와는 무관합니다.</td></tr>
+</table>
+
+<h2 id="start">3. 프로그램 실행하기</h2>
+<p>가장 쉬운 방법: 프로그램 폴더에서 <b>「트레이딩봇 실행.bat」 파일을 더블클릭</b>하세요.
+처음 실행이라면 필요한 구성 요소를 자동으로 설치한 뒤(몇 분 소요, 인터넷 필요) 창이 열립니다.</p>
+<div class="card">
+<p>명령어로 실행하고 싶다면 PowerShell에서:<br>
+<code>cd E:\trading-bot</code><br>
+<code>.\.venv\Scripts\python.exe -m tradingbot gui</code></p>
+</div>
+
+<h2 id="screen">4. 화면 안내</h2>
+<table>
+  <tr><th>위치</th><th>설명</th></tr>
+  <tr><td>위쪽 탭 3개</td><td><b>백테스트</b>(과거 검증) / <b>모의투자</b>(가상 돈) / <b>데이터 받기</b>(시세 저장). 대부분 백테스트 탭만 쓰면 됩니다.</td></tr>
+  <tr><td>종목 선택</td><td>종목 <b>이름으로 검색</b>해서 담는 곳입니다. "삼성전자"라고 치면 코드(005930)를 몰라도 됩니다.</td></tr>
+  <tr><td>진행 상황</td><td>아래쪽 큰 창. 프로그램이 지금 무엇을 하는지, 결과가 어땠는지 글로 알려줍니다.</td></tr>
+  <tr><td>설정 파일</td><td>맨 위 입력칸. <b>비워두면 기본 설정</b>이 적용되니 건드리지 않아도 됩니다.</td></tr>
+</table>
+
+<h2 id="first">5. 따라하기 ①: 내 첫 백테스트 (삼성전자, 5분)</h2>
+<ol class="steps">
+  <li><b>[백테스트]</b> 탭이 선택되어 있는지 확인합니다. 시장은 <b>KR</b>(한국) 그대로 둡니다.</li>
+  <li>'종목 선택'의 검색칸에 <b>삼성전자</b>를 입력하고 <span class="btn">검색</span>을 누릅니다.<br>
+      <span class="muted">처음 한 번은 전체 종목 목록을 내려받느라 몇 초 걸릴 수 있어요. (인터넷 필요)</span></li>
+  <li>검색 결과에서 <b>삼성전자 (005930)</b>를 <b>더블클릭</b>합니다. 오른쪽 '내가 고른 종목'에 담기면 성공!</li>
+  <li>전략은 기본값 <b>ma_cross</b>(이동평균 교차) 그대로, 시작일도 <b>2020-01-01</b> 그대로 둡니다.</li>
+  <li><span class="btn">백테스트 실행</span>을 누르고 기다립니다. 시세 데이터를 자동으로 받은 뒤 계산이 돌아갑니다.</li>
+  <li>끝나면 <b>결과 리포트가 브라우저에 자동으로 열립니다.</b> 진행 상황 창에도 요약(최종 자산, 수익률 등)이 표시됩니다.</li>
+</ol>
+<div class="card">
+  💡 미국 주식을 해보려면: 시장을 <b>US</b>로 바꾸고 "Apple"이나 "Tesla"로 검색하세요.
+  검색 목록에는 미국 대표 500개 기업(S&amp;P 500)이 나오며, 목록에 없는 종목은
+  <span class="btn">코드 직접 추가</span>로 티커(예: PLTR)를 그대로 넣으면 됩니다.
+</div>
+
+<h2 id="report">6. 결과 리포트 읽는 법 (용어 사전)</h2>
+<p>리포트에서 이 네 가지만 보면 충분합니다: <b>수익률, MDD, 승률, 체결수</b>.</p>
+<table>
+  <tr><th>용어</th><th>쉬운 설명</th><th>보는 법</th></tr>
+  <tr><td><b>수익률</b></td><td>처음 돈이 얼마나 불었나/줄었나</td><td>+10%면 1,000만 원이 1,100만 원이 됐다는 뜻</td></tr>
+  <tr><td><b>CAGR</b></td><td>연평균 수익률</td><td>은행 이자율과 비교해 보세요</td></tr>
+  <tr><td><b>MDD (최대 낙폭)</b></td><td>도중에 <b>최악의 순간</b> 얼마나 깨졌었나</td><td>-30%면 견디기 힘들 수 있는 하락입니다. 작을수록 좋음</td></tr>
+  <tr><td><b>승률</b></td><td>이익 본 거래의 비율</td><td>승률이 낮아도 크게 벌고 작게 잃으면 좋은 전략일 수 있음</td></tr>
+  <tr><td><b>체결수</b></td><td>사고판 횟수</td><td>0이면 전략의 매수 조건이 한 번도 안 왔다는 뜻</td></tr>
+  <tr><td><b>Sharpe (샤프지수)</b></td><td>출렁임 대비 수익이 얼마나 알찼나</td><td>1 이상이면 준수한 편</td></tr>
+  <tr><td><b>Profit factor</b></td><td>총이익 ÷ 총손실</td><td>1보다 크면 번 게 더 많다는 뜻</td></tr>
+  <tr><td><b>자산곡선</b></td><td>내 돈이 시간에 따라 변한 그래프</td><td>꾸준히 우상향이면 이상적</td></tr>
+</table>
+
+<h3>내장 전략 3가지</h3>
+<table>
+  <tr><th>이름</th><th>쉬운 설명</th><th>성격</th></tr>
+  <tr><td><b>ma_cross</b><br>(이동평균 교차)</td><td>최근 20일 평균 가격이 60일 평균을 위로 뚫으면 사고, 아래로 내려가면 판다</td><td>추세를 따라가는 정석. 거래 횟수 적음</td></tr>
+  <tr><td><b>vol_breakout</b><br>(변동성 돌파)</td><td>가격이 '전날 변동폭의 절반'만큼 오르면 사고, 그날 장 마감에 판다</td><td>하루 단위 단타. 거래 횟수 많음</td></tr>
+  <tr><td><b>rsi_reversion</b><br>(RSI 과매도 반등)</td><td>최근 과하게 떨어진 종목(RSI 30 이하)을 사고, 회복하면 판다</td><td>"떨어지면 줍는" 역추세</td></tr>
+</table>
+
+<h2 id="paper">7. 따라하기 ②: 모의투자 (가상 돈으로 실전 연습)</h2>
+<p>백테스트가 과거 시험이라면, 모의투자는 <b>오늘부터의 실전 연습</b>입니다. 가상 계좌의 잔고와 보유 종목이 파일로 저장되어, 프로그램을 껐다 켜도 이어집니다.</p>
+<ol class="steps">
+  <li><b>[모의투자]</b> 탭에서 계좌 이름을 정합니다 (예: <code>내첫계좌</code>).</li>
+  <li>백테스트 때처럼 종목을 검색해 담고, 전략을 고릅니다.</li>
+  <li><span class="btn">지금 한 번 실행</span>: 현재 시각 기준으로 한 번만 확인하고 끝납니다.
+      <b>장이 닫혀 있으면 "변화 없음"이 정상입니다.</b></li>
+  <li><span class="btn">자동 반복 시작</span>: 프로그램을 켜 둔 동안 5분마다(기본) 시세를 확인하며 전략대로 사고팝니다.
+      <span class="btn">자동 반복 중지</span>로 언제든 멈출 수 있습니다.</li>
+</ol>
+<div class="card">
+  💡 한국 장은 평일 09:00~15:30, 미국 장은 한국 시간 밤 11:30~새벽 6:00(서머타임엔 1시간 빠름)에 열립니다.
+  장이 열려 있을 때 돌려야 실제로 사고파는 것을 볼 수 있어요.
+</div>
+
+<h2 id="faq">8. 자주 묻는 질문</h2>
+<h3>Q. 인터넷이 꼭 필요한가요?</h3>
+<p>종목 검색과 시세 데이터 받기에는 필요합니다. 데이터를 한 번 받아두면, 같은 조건의 백테스트는 인터넷 없이도 됩니다.</p>
+<h3>Q. 체결수가 0이에요.</h3>
+<p>고장이 아닙니다. 그 기간에 전략의 매수 조건이 한 번도 충족되지 않았다는 뜻입니다. 기간을 늘리거나 다른 전략/종목을 시험해 보세요.</p>
+<h3>Q. 수익률이 마이너스예요. 프로그램이 잘못된 건가요?</h3>
+<p>아니요, 그것이 백테스트의 존재 이유입니다. "이 전략은 이 종목·기간에는 잃는다"를 진짜 돈을 잃기 전에 알게 된 것입니다.</p>
+<h3>Q. 검색해도 종목이 안 나와요.</h3>
+<p>미국 주식은 대표 500개 기업만 검색됩니다. 그 외 종목은 <b>코드 직접 추가</b> 버튼으로 티커를 그대로 넣으세요. 한국 주식이 안 나오면 인터넷 연결을 확인하세요.</p>
+<h3>Q. "데이터를 받지 못했습니다" 오류가 나요.</h3>
+<p>인터넷 연결을 확인하고 다시 시도하세요. 반복되면 종목 코드가 맞는지(상장폐지 종목이 아닌지) 확인하세요.</p>
+<h3>Q. 모의투자 기록은 어디에 저장되나요?</h3>
+<p>프로그램 폴더의 <code>state\계좌이름.json</code> 파일입니다. 이 파일을 지우면 그 가상 계좌는 처음부터 다시 시작합니다.</p>
+
+<h2 id="caution">9. 꼭 기억할 주의사항</h2>
+<div class="warn">
+  <ul>
+    <li><b>과거에 벌었다고 미래에도 번다는 보장은 없습니다.</b> 백테스트 성적은 참고 자료일 뿐입니다.</li>
+    <li>백테스트에는 수수료·세금·슬리피지(주문 시점과 체결 가격의 차이)가 반영되어 있지만, 실제 시장은 더 불리할 수 있습니다.</li>
+    <li>모의투자 시세(yfinance)는 실제보다 몇 분 지연될 수 있습니다.</li>
+    <li>이 프로그램은 학습·연구용입니다. 실제 투자 판단과 그 결과는 본인 책임입니다.</li>
+  </ul>
+</div>
+
+<p class="muted" style="margin-top:48px">문서 버전: 2026-07 · 프로그램 화면의 [도움말] 메뉴 또는 오른쪽 아래 [사용 설명서] 버튼으로 언제든 다시 열 수 있습니다.</p>
+
+</main>
+</body>
+</html>
