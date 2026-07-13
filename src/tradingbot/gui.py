@@ -344,7 +344,7 @@ class TradingBotApp:
         row = self._build_form(
             tab,
             [
-                ("전략", self.bt_strategy, {"choices": strategies, "hint": "사고파는 규칙"}),
+                ("전략", self.bt_strategy, {"choices": strategies, "hint": "매매 규칙"}),
             ],
             start_row=row,
         )
@@ -407,7 +407,7 @@ class TradingBotApp:
         row = self._build_form(
             tab,
             [
-                ("전략", self.pp_strategy, {"choices": strategies, "hint": "사고파는 규칙"}),
+                ("전략", self.pp_strategy, {"choices": strategies, "hint": "매매 규칙"}),
             ],
             start_row=row,
         )

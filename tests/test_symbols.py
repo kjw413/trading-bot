@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
-from tradingbot.symbols import SymbolDirectory
+from tradingbot.symbols import LISTING_CACHE_VERSION, SymbolDirectory, _default_fetcher
 
 
 def make_fetcher(calls: list[str]):
@@ -41,6 +43,48 @@ def test_listing_is_cached_after_first_fetch(tmp_path):
 
     assert calls == ["KR"]
     assert directory.path("KR").exists()
+    assert directory.version_path("KR").read_text(encoding="utf-8") == LISTING_CACHE_VERSION
+
+
+@pytest.mark.parametrize(
+    ("market", "expected_sources", "expected_symbols"),
+    [
+        ("KR", ["KRX", "ETF/KR"], ["005930", "069500"]),
+        ("US", ["S&P500", "ETF/US"], ["AAPL", "SPY"]),
+    ],
+)
+def test_default_fetcher_combines_stocks_and_etfs(monkeypatch, market, expected_sources, expected_symbols):
+    calls: list[str] = []
+    listings = {
+        "KRX": pd.DataFrame({"Code": ["005930"], "Name": ["삼성전자"]}),
+        "ETF/KR": pd.DataFrame({"Symbol": ["069500"], "Name": ["KODEX 200"]}),
+        "S&P500": pd.DataFrame({"Symbol": ["AAPL"], "Name": ["Apple"]}),
+        "ETF/US": pd.DataFrame({"Symbol": ["SPY"], "Name": ["SPDR S&P 500 ETF Trust"]}),
+    }
+
+    def stock_listing(source: str) -> pd.DataFrame:
+        calls.append(source)
+        return listings[source]
+
+    monkeypatch.setitem(sys.modules, "FinanceDataReader", SimpleNamespace(StockListing=stock_listing))
+
+    result = _default_fetcher(market)
+
+    assert calls == expected_sources
+    assert sorted(result["symbol"].tolist()) == sorted(expected_symbols)
+
+
+def test_legacy_cache_without_version_is_refreshed(tmp_path):
+    calls: list[str] = []
+    directory = SymbolDirectory(tmp_path, fetcher=make_fetcher(calls))
+    directory.path("KR").parent.mkdir(parents=True)
+    pd.DataFrame({"symbol": ["069500"], "name": ["오래된 이름"]}).to_csv(directory.path("KR"), index=False)
+
+    result = directory.load("KR")
+
+    assert calls == ["KR"]
+    assert result.iloc[0]["name"] == "삼성전자"
+    assert directory.version_path("KR").read_text(encoding="utf-8") == LISTING_CACHE_VERSION
 
 
 def test_symbol_codes_keep_leading_zeros_after_cache_roundtrip(tmp_path):

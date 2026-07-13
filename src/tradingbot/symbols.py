@@ -11,10 +11,11 @@ from tradingbot.utils.log import get_logger
 LOGGER = get_logger(__name__)
 
 LISTING_TTL_SECONDS = 7 * 24 * 3600
+LISTING_CACHE_VERSION = "2"
 
-# US: 전체 거래소 목록은 다운로드가 느려서 S&P 500 구성 종목만 제공한다.
-# 목록에 없는 티커는 종목 선택기에서 직접 입력으로 추가할 수 있다.
-_SOURCES = {"KR": ["KRX"], "US": ["S&P500"]}
+# 일반 주식 목록에 시장별 ETF 목록을 합친다. US 전체 거래소 목록은 다운로드가
+# 느리므로 일반 주식은 기존처럼 S&P 500으로 제한하고 ETF는 별도 목록을 사용한다.
+_SOURCES = {"KR": ["KRX", "ETF/KR"], "US": ["S&P500", "ETF/US"]}
 
 
 def _normalize(raw: pd.DataFrame) -> pd.DataFrame:
@@ -41,16 +42,25 @@ class SymbolDirectory:
     def path(self, market: str) -> Path:
         return self.cache_dir / "_listings" / f"{market.upper()}.csv"
 
+    def version_path(self, market: str) -> Path:
+        return self.cache_dir / "_listings" / f"{market.upper()}.version"
+
     def load(self, market: str, *, fetch: bool = True) -> pd.DataFrame:
         """종목 목록을 반환한다. columns: [symbol, name].
 
-        캐시가 신선하면 캐시를 쓰고, 오래됐으면 다시 내려받는다. fetch=False면
-        네트워크를 쓰지 않고 캐시가 없을 때 빈 DataFrame을 반환한다.
+        캐시가 신선하면 캐시를 쓰고, 오래됐거나 검색 소스 버전이 바뀌었으면
+        다시 내려받는다. fetch=False면 네트워크를 쓰지 않고 캐시가 없을 때 빈
+        DataFrame을 반환한다.
         """
         path = self.path(market)
         cached = pd.read_csv(path, dtype=str) if path.exists() else None
         if cached is not None:
-            fresh = time.time() - path.stat().st_mtime <= LISTING_TTL_SECONDS
+            version_path = self.version_path(market)
+            current_version = version_path.read_text(encoding="utf-8").strip() if version_path.exists() else None
+            fresh = (
+                current_version == LISTING_CACHE_VERSION
+                and time.time() - path.stat().st_mtime <= LISTING_TTL_SECONDS
+            )
             if fresh or not fetch:
                 return cached
         if not fetch:
@@ -65,6 +75,7 @@ class SymbolDirectory:
             raise
         path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(path, index=False)
+        self.version_path(market).write_text(LISTING_CACHE_VERSION, encoding="utf-8")
         return df
 
     def search(self, market: str, query: str, *, limit: int = 50) -> list[tuple[str, str]]:
