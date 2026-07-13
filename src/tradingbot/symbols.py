@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from io import StringIO
 from pathlib import Path
 from typing import Callable
 
@@ -11,11 +12,13 @@ from tradingbot.utils.log import get_logger
 LOGGER = get_logger(__name__)
 
 LISTING_TTL_SECONDS = 7 * 24 * 3600
-LISTING_CACHE_VERSION = "2"
+LISTING_CACHE_VERSION = "3"
 
-# 일반 주식 목록에 시장별 ETF 목록을 합친다. US 전체 거래소 목록은 다운로드가
-# 느리므로 일반 주식은 기존처럼 S&P 500으로 제한하고 ETF는 별도 목록을 사용한다.
-_SOURCES = {"KR": ["KRX", "ETF/KR"], "US": ["S&P500", "ETF/US"]}
+_KR_SOURCES = ["KRX", "ETF/KR"]
+_US_LISTING_URLS = (
+    ("https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt", "Symbol"),
+    ("https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt", "ACT Symbol"),
+)
 
 
 def _normalize(raw: pd.DataFrame) -> pd.DataFrame:
@@ -24,10 +27,43 @@ def _normalize(raw: pd.DataFrame) -> pd.DataFrame:
     return df.dropna().astype(str)
 
 
+def _fetch_us_listings(http_get=None) -> pd.DataFrame:
+    """NASDAQ Trader 공식 디렉터리에서 미국 상장 주식·ETF 목록을 받는다."""
+    if http_get is None:
+        import truststore
+
+        truststore.inject_into_ssl()
+        import requests
+
+        http_get = requests.get
+
+    frames: list[pd.DataFrame] = []
+    for url, symbol_column in _US_LISTING_URLS:
+        response = http_get(url, timeout=30)
+        response.raise_for_status()
+        raw = pd.read_csv(StringIO(response.text), sep="|", dtype=str)
+        # 파일 마지막의 생성 시각 행과 거래소 테스트 종목을 함께 제외한다.
+        raw = raw.loc[raw["Test Issue"].eq("N"), [symbol_column, "Security Name"]]
+        frames.append(raw.rename(columns={symbol_column: "symbol", "Security Name": "name"}))
+
+    combined = pd.concat(frames, ignore_index=True)
+    combined["symbol"] = combined["symbol"].str.strip()
+    combined["name"] = combined["name"].str.strip()
+    combined = combined.loc[combined["symbol"].ne("") & combined["name"].ne("")]
+    combined = combined.drop_duplicates("symbol")
+    return combined.sort_values("name", ignore_index=True)
+
+
 def _default_fetcher(market: str) -> pd.DataFrame:
+    market = market.upper()
+    if market == "US":
+        return _fetch_us_listings()
+    if market != "KR":
+        raise ValueError(f"Unsupported market: {market}")
+
     import FinanceDataReader as fdr
 
-    frames = [_normalize(fdr.StockListing(source)) for source in _SOURCES[market.upper()]]
+    frames = [_normalize(fdr.StockListing(source)) for source in _KR_SOURCES]
     df = pd.concat(frames, ignore_index=True).drop_duplicates("symbol")
     return df.sort_values("name", ignore_index=True)
 
@@ -84,10 +120,17 @@ class SymbolDirectory:
         if not term:
             return []
         df = self.load(market)
-        mask = df["name"].str.lower().str.contains(term, regex=False) | df["symbol"].str.lower().str.contains(
-            term, regex=False
-        )
-        return list(df[mask].head(limit).itertuples(index=False, name=None))
+        symbols = df["symbol"].str.lower()
+        names = df["name"].str.lower()
+        matched = df.loc[names.str.contains(term, regex=False) | symbols.str.contains(term, regex=False)].copy()
+        matched_symbols = matched["symbol"].str.lower()
+        matched_names = matched["name"].str.lower()
+        matched["_rank"] = 3
+        matched.loc[matched_symbols.str.startswith(term) | matched_names.str.startswith(term), "_rank"] = 2
+        matched.loc[matched_names.eq(term), "_rank"] = 1
+        matched.loc[matched_symbols.eq(term), "_rank"] = 0
+        matched = matched.sort_values(["_rank", "name", "symbol"], kind="stable")
+        return list(matched[["symbol", "name"]].head(limit).itertuples(index=False, name=None))
 
     def name_map(self, market: str) -> dict[str, str]:
         """캐시된 목록만으로 코드 -> 종목명 매핑을 반환한다(네트워크 사용 없음)."""

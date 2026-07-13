@@ -22,8 +22,9 @@ flowchart TB
     end
 
     subgraph EXTERNAL["외부 데이터 / 향후 외부 주문"]
-        FDR["FinanceDataReader<br/>일봉·주식/ETF 종목 목록"]
+        FDR["FinanceDataReader<br/>일봉·한국 주식/ETF 목록"]
         YF["yfinance<br/>미국 일봉·KR/US 폴링 가격"]
+        Nasdaq["NASDAQ Trader<br/>미국 상장 주식·ETF 목록"]
         KISAPI["KIS Developers REST<br/>실전/모의 API"]
     end
 
@@ -71,6 +72,7 @@ flowchart TB
     Sources --> Cache
     Cache <--> Parquet
     FDR --> Symbols
+    Nasdaq --> Symbols
     Symbols <--> Listings
 
     Cache --> History
@@ -137,11 +139,11 @@ flowchart TD
     Normalize --> Merge --> Write --> Feed
 ```
 
-종목 검색용 목록은 가격 데이터와 별도다. 한국은 KRX 주식과 `ETF/KR`, 미국은
-S&P 500 구성 종목과 `ETF/US` 목록을 FinanceDataReader로 내려받아
-`data/cache/_listings/{KR,US}.csv`에 7일 동안 캐시한다. 목록에 없는 종목은
-GUI에서 코드를 직접 추가할 수 있다. 검색 소스 구성이 바뀌면 캐시 버전을 비교해
-7일이 지나지 않았더라도 목록을 자동 갱신한다.
+종목 검색용 목록은 가격 데이터와 별도다. 국내는 KRX 주식과 `ETF/KR`을
+FinanceDataReader로 받는다. 미국은 NASDAQ Trader 공식 심볼 디렉터리에서 미국
+거래소 상장 주식과 ETF를 받는다. 결과는 `data/cache/_listings/{KR,US}.csv`에
+7일 동안 캐시한다. 목록에 없는 종목은 GUI에서 코드를 직접 추가할 수 있으며,
+검색 소스 구성이 바뀌면 캐시 버전을 비교해 기간 전에도 목록을 자동 갱신한다.
 
 ## 3. 백테스트 동작 순서
 

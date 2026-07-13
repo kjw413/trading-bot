@@ -11,6 +11,8 @@ dependencies = [
     "matplotlib>=3.9",
     "finance-datareader>=0.9.96",
     "yfinance>=0.2.40,<1",
+    "requests>=2.32",
+    "truststore>=0.10",
 ]
 
 [project.optional-dependencies]
