@@ -2,7 +2,21 @@
 
 국내(KOSPI/KOSDAQ)와 미국 주식을 같은 이벤트 기반 엔진으로 백테스트하고, 모의투자 상태를 파일로 보존하며, 이후 실전 브로커를 붙일 수 있게 만든 프로젝트입니다.
 
-## 현재 범위: M5 (v1 완료)
+## 현재 범위: M5 (v1 완료) + 퀀트 시스템 확장 착수
+
+v1 이후 [`trading_bot_agentic_ai_execution_plan_260714.md`](trading_bot_agentic_ai_execution_plan_260714.md)에
+따라 퀀트 투자 시스템으로 확장 중입니다. 현재까지 반영된 확장:
+
+- 퀀트 연구 기준 문서(`docs/quant_research_spec.md`)와 설정(`config/research.toml`) — M6
+- KR/US 거래소 캘린더(`exchange_calendars` XKRX/XNYS): 공휴일·조기폐장·지연개장을
+  세션 클록에 반영 — M7 일부
+- 전략 상태 영속화(`strategies/state.py`): `rsi_reversion` 보유일 카운터가
+  재시작 후 복구됨 — M14 일부
+- `signal_id` 멱등성 원장(`strategies/signals.py`): 동일 신호 재실행 시 중복 주문 방지 — M14 일부
+- 횡단면 Factor 인터페이스·레지스트리와 3·6·12개월(및 12-1) 모멘텀 팩터
+  (`factors/`, `data/store.py` Point-in-Time 조회) — M9 일부
+
+### v1 완료 항목
 
 - parquet 기반 일봉 캐시와 증분 업데이트
 - `HistoricalDataFeed` 이벤트 루프

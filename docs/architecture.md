@@ -343,6 +343,9 @@ flowchart TD
 | 거래소 캘린더 (휴장일·조기폐장) | `src/tradingbot/engine/calendar.py` |
 | 전략 공통 인터페이스 | `src/tradingbot/strategies/base.py` |
 | 전략 상태 영속화 | `src/tradingbot/strategies/state.py` |
+| signal_id 멱등성 원장 | `src/tradingbot/strategies/signals.py` |
+| Point-in-Time 가격 조회 | `src/tradingbot/data/store.py` |
+| 횡단면 팩터 (모멘텀 등) | `src/tradingbot/factors/` |
 | 주문·체결 시뮬레이션 | `src/tradingbot/broker/backtest.py` |
 | 모의 계좌 영속화 | `src/tradingbot/broker/paper.py` |
 | 향후 KIS 연동 슬롯 | `src/tradingbot/broker/kis.py` |
