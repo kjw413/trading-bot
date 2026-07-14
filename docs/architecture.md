@@ -22,8 +22,8 @@ flowchart TB
     end
 
     subgraph EXTERNAL["외부 데이터 / 향후 외부 주문"]
-        FDR["FinanceDataReader<br/>일봉·한국 주식/ETF 목록"]
-        YF["yfinance<br/>미국 일봉·KR/US 폴링 가격"]
+        FDR["FinanceDataReader<br/>KR/US 일봉·한국 주식/ETF 목록"]
+        YF["yfinance<br/>KR/US 장중 폴링 가격"]
         Nasdaq["NASDAQ Trader<br/>미국 상장 주식·ETF 목록"]
         KISAPI["KIS Developers REST<br/>실전/모의 API"]
     end
@@ -123,7 +123,7 @@ flowchart TD
     OlderStart["요청 시작일부터 앞 구간 보충"]
     Market{"시장"}
     KR["FinanceDataReader.DataReader"]
-    US["yfinance.download<br/>auto_adjust=True"]
+    US["FinanceDataReader.DataReader<br/>시스템 인증서 + 수정주가 보정"]
     Normalize["열 이름·날짜·타입 정규화<br/>OHLCV만 유지"]
     Merge["기존 + 신규 결합<br/>날짜 정렬·중복 제거"]
     Write["data/cache/MARKET/SYMBOL.parquet 저장"]
@@ -247,7 +247,7 @@ sequenceDiagram
         Broker->>State: 체결·평가 상태 자동 저장
     else 장 마감 후
         Engine->>Cache: 당일 확정 일봉 증분 업데이트
-        Cache->>Source: KR=FinanceDataReader / US=yfinance
+        Cache->>Source: KR/US=FinanceDataReader
         alt 오늘 확정 일봉 있음
             Engine->>Broker: MOC 체결·DAY 만료
             Engine->>Strategy: on_bar(...)

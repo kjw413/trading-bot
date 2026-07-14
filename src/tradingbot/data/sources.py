@@ -6,6 +6,7 @@ import pandas as pd
 
 
 OHLCV_COLUMNS = ["open", "high", "low", "close", "volume"]
+OHLCV_DTYPES = {column: "float64" for column in OHLCV_COLUMNS}
 
 
 def fetch_ohlcv(
@@ -33,39 +34,42 @@ def _fetch_kr(symbol: str, start: str | date, end: str | date | None) -> pd.Data
 
 
 def _fetch_us(symbol: str, start: str | date, end: str | date | None) -> pd.DataFrame:
+    # yfinance의 curl_cffi는 일부 Windows 프록시/보안 프로그램이 설치한 시스템
+    # 인증서를 읽지 못한다. FinanceDataReader + truststore 경로는 SSL 검증을
+    # 유지하면서 Windows 인증서 저장소를 사용한다.
     try:
-        import yfinance as yf
-    except ImportError as exc:
-        raise RuntimeError("yfinance is required for US data") from exc
+        import truststore
 
-    df = yf.download(
-        symbol,
-        start=str(start),
-        end=str(end) if end else None,
-        auto_adjust=True,
-        progress=False,
-        group_by="column",
-    )
+        truststore.inject_into_ssl()
+        import FinanceDataReader as fdr
+    except ImportError as exc:
+        raise RuntimeError("FinanceDataReader and truststore are required for US data") from exc
+
+    df = fdr.DataReader(symbol, start, end)
     return normalize_ohlcv(df)
 
 
 def normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
-        return pd.DataFrame(columns=OHLCV_COLUMNS)
+        empty = pd.DataFrame(columns=OHLCV_COLUMNS, index=pd.DatetimeIndex([], name=df.index.name))
+        return empty.astype(OHLCV_DTYPES)
 
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [col[0] for col in df.columns]
+    if pd.api.types.is_numeric_dtype(df.index.dtype):
+        raise ValueError("OHLCV data must use a date index")
 
-    normalized = df.rename(columns={col: str(col).lower().replace(" ", "_") for col in df.columns})
-    rename_map = {
-        "adj_close": "close",
-        "open": "open",
-        "high": "high",
-        "low": "low",
-        "close": "close",
-        "volume": "volume",
-    }
-    normalized = normalized.rename(columns=rename_map)
+    normalized = df.copy()
+    if isinstance(normalized.columns, pd.MultiIndex):
+        normalized.columns = [col[0] for col in normalized.columns]
+
+    normalized = normalized.rename(columns={col: str(col).lower().replace(" ", "_") for col in normalized.columns})
+    if "adj_close" in normalized.columns and "close" in normalized.columns:
+        adjustment = normalized["adj_close"] / normalized["close"].replace(0, float("nan"))
+        for column in ("open", "high", "low", "close"):
+            if column in normalized.columns:
+                normalized[column] = normalized[column] * adjustment
+        normalized = normalized.drop(columns=["adj_close"])
+    elif "adj_close" in normalized.columns:
+        normalized = normalized.rename(columns={"adj_close": "close"})
 
     missing = [col for col in OHLCV_COLUMNS if col not in normalized.columns]
     if missing:
@@ -75,12 +79,4 @@ def normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     normalized.index = pd.to_datetime(normalized.index).tz_localize(None).normalize()
     normalized = normalized.sort_index()
     normalized = normalized[~normalized.index.duplicated(keep="last")]
-    return normalized.astype(
-        {
-            "open": "float64",
-            "high": "float64",
-            "low": "float64",
-            "close": "float64",
-            "volume": "float64",
-        }
-    )
+    return normalized.astype(OHLCV_DTYPES)

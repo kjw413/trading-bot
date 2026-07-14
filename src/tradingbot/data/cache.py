@@ -56,6 +56,11 @@ class ParquetCache:
             fetch_start = start or "2015-01-01"
 
         fresh = fetch_ohlcv(market, symbol, fetch_start, end)
+        if fresh.empty and (existing is None or existing.empty):
+            raise ValueError(
+                f"No OHLCV data returned for {market.upper()} {symbol}; "
+                "the empty response was not cached. Check the symbol and network connection."
+            )
         if existing is None:
             combined = fresh
         elif fresh.empty:
