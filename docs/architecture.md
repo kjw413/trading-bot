@@ -342,6 +342,7 @@ flowchart TD
 | 세션 시간 | `src/tradingbot/engine/clock.py` |
 | 거래소 캘린더 (휴장일·조기폐장) | `src/tradingbot/engine/calendar.py` |
 | 전략 공통 인터페이스 | `src/tradingbot/strategies/base.py` |
+| 전략 상태 영속화 | `src/tradingbot/strategies/state.py` |
 | 주문·체결 시뮬레이션 | `src/tradingbot/broker/backtest.py` |
 | 모의 계좌 영속화 | `src/tradingbot/broker/paper.py` |
 | 향후 KIS 연동 슬롯 | `src/tradingbot/broker/kis.py` |
@@ -377,7 +378,8 @@ Mermaid 렌더러 확장을 여러 개 동시에 활성화하면 미리보기에
 - 세션 클록은 `exchange_calendars`(XKRX/XNYS) 기반 거래소 캘린더를 사용해
   공휴일·조기폐장·지연개장(예: KRX 신년 첫 거래일 10시 개장)을 반영한다.
   캘린더 데이터 범위를 벗어난 날짜는 평일 규칙으로 폴백하고 경고를 남긴다.
-- `rsi_reversion`의 보유일 카운터는 전략 메모리에만 있어 프로세스 재시작 시
-  초기화될 수 있다.
+- 전략 내부 상태(예: `rsi_reversion`의 보유일 카운터)는 모의투자에서
+  `state/{이름}.strategy.json`에 저장되어 프로세스 재시작 후 복구된다.
+  상태 파일이 손상되면 조용히 초기화하지 않고 오류를 발생시킨다.
 - 현재는 한 프로세스가 한 시장·한 통화를 담당하며 환율 변환이 없다.
 - KIS 브로커는 실제 주문이 불가능한 미구현 슬롯이다.

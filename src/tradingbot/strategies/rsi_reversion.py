@@ -20,6 +20,13 @@ class RsiReversionStrategy(Strategy):
         super().__init__(**params)
         self.holding_days: dict[str, int] = {}
 
+    def snapshot_state(self) -> dict:
+        return {"holding_days": dict(self.holding_days)}
+
+    def restore_state(self, state: dict) -> None:
+        raw = state.get("holding_days", {})
+        self.holding_days = {str(symbol): int(days) for symbol, days in raw.items()}
+
     def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
         period = int(self.params["period"])
         buy_below = float(self.params["buy_below"])
@@ -51,6 +58,7 @@ class RsiReversionStrategy(Strategy):
             self.holding_days[fill.symbol] = 0
         elif fill.side is OrderSide.SELL:
             self.holding_days.pop(fill.symbol, None)
+        self.persist_state()
 
 
 def _wilder_rsi(closes: pd.Series, period: int) -> float:

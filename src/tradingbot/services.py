@@ -15,6 +15,7 @@ from tradingbot.data.polling import PollingDataFeed
 from tradingbot.engine.clock import TradingSessionClock
 from tradingbot.engine.engine import BacktestEngine, BacktestResult
 from tradingbot.engine.paper import PaperTradingEngine
+from tradingbot.strategies.state import JsonStateStore
 from tradingbot.risk import RiskManager
 from tradingbot.strategies.base import Strategy
 from tradingbot.strategies.registry import get_strategy
@@ -135,11 +136,13 @@ def build_paper_session(
         fee_model=FeeModel.from_config(market, config),
         slippage_bps=float(config.get("execution", {}).get("slippage_bps", 0.0)),
     )
+    state_store = JsonStateStore(resolved_state_dir / f"{name}.strategy.json")
     engine = PaperTradingEngine(
         history_feed=history_feed,
         polling_feed=polling_feed,
         broker=broker,
         strategy=strategy,
         risk_manager=RiskManager.from_config(config),
+        state_store=state_store,
     )
     return PaperSession(engine=engine, broker=broker, poll_interval_seconds=poll_interval_seconds)

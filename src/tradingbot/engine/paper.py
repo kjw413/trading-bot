@@ -12,6 +12,7 @@ from tradingbot.engine.engine import EngineContext
 from tradingbot.models import Bar, Fill, OrderPhase
 from tradingbot.risk import RiskManager
 from tradingbot.strategies.base import Strategy
+from tradingbot.strategies.state import StrategyStateStore
 from tradingbot.utils.log import get_logger
 
 LOGGER = get_logger(__name__)
@@ -25,6 +26,7 @@ class PaperTradingEngine:
         broker: PaperBroker,
         strategy: Strategy,
         risk_manager: RiskManager | None = None,
+        state_store: StrategyStateStore | None = None,
     ) -> None:
         self.history_feed = history_feed
         self.polling_feed = polling_feed
@@ -32,6 +34,8 @@ class PaperTradingEngine:
         self.broker = broker
         self.strategy = strategy
         self.risk_manager = risk_manager
+        if state_store is not None:
+            self.strategy.bind_state_store(state_store)
         self.context = EngineContext(
             feed=history_feed,
             broker=broker,
@@ -64,6 +68,9 @@ class PaperTradingEngine:
                 if bars:
                     self._handle_close(current, bars)
                     actions.append("close" if source == "confirmed" else "close_fallback")
+
+        if actions:
+            self.strategy.persist_state()
 
         return {
             "now": current.isoformat(),

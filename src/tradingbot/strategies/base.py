@@ -6,6 +6,7 @@ from typing import ClassVar, Protocol
 import pandas as pd
 
 from tradingbot.models import Bar, Fill, Order, OrderType, Position, TimeInForce
+from tradingbot.strategies.state import StrategyStateStore
 
 
 class StrategyContext(Protocol):
@@ -54,6 +55,23 @@ class Strategy(ABC):
 
     def __init__(self, **params) -> None:
         self.params = {**self.default_params, **params}
+        self._state_store: StrategyStateStore | None = None
+
+    def bind_state_store(self, store: StrategyStateStore) -> None:
+        """Attach a persistence store and restore any previously saved state."""
+        self._state_store = store
+        self.restore_state(store.load(self.name))
+
+    def snapshot_state(self) -> dict:
+        """Return the strategy's persistable state. Override in subclasses."""
+        return {}
+
+    def restore_state(self, state: dict) -> None:
+        """Restore state produced by snapshot_state. Override in subclasses."""
+
+    def persist_state(self) -> None:
+        if self._state_store is not None:
+            self._state_store.save(self.name, self.snapshot_state())
 
     def init(self, ctx: StrategyContext) -> None:
         pass
