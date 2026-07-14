@@ -340,6 +340,7 @@ flowchart TD
 | 과거 이벤트 / 장중 폴링 | `src/tradingbot/data/feed.py`, `data/polling.py` |
 | 백테스트 / 모의 엔진 | `src/tradingbot/engine/engine.py`, `engine/paper.py` |
 | 세션 시간 | `src/tradingbot/engine/clock.py` |
+| 거래소 캘린더 (휴장일·조기폐장) | `src/tradingbot/engine/calendar.py` |
 | 전략 공통 인터페이스 | `src/tradingbot/strategies/base.py` |
 | 주문·체결 시뮬레이션 | `src/tradingbot/broker/backtest.py` |
 | 모의 계좌 영속화 | `src/tradingbot/broker/paper.py` |
@@ -373,7 +374,9 @@ Mermaid 렌더러 확장을 여러 개 동시에 활성화하면 미리보기에
 
 - 모의투자 폴링 가격은 지연될 수 있어 실시간 체결 재현이 아니다.
 - 일봉 기반 백테스트는 봉 내부의 실제 가격 경로와 부분 체결·호가 깊이를 모른다.
-- 세션 클록은 평일만 판정한다. 공휴일은 확정 일봉 유무로 마감 처리를 건너뛴다.
+- 세션 클록은 `exchange_calendars`(XKRX/XNYS) 기반 거래소 캘린더를 사용해
+  공휴일·조기폐장·지연개장(예: KRX 신년 첫 거래일 10시 개장)을 반영한다.
+  캘린더 데이터 범위를 벗어난 날짜는 평일 규칙으로 폴백하고 경고를 남긴다.
 - `rsi_reversion`의 보유일 카운터는 전략 메모리에만 있어 프로세스 재시작 시
   초기화될 수 있다.
 - 현재는 한 프로세스가 한 시장·한 통화를 담당하며 환율 변환이 없다.

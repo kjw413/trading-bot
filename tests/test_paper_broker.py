@@ -10,6 +10,7 @@ from tradingbot.broker.paper import PaperBroker
 from tradingbot.data.cache import ParquetCache
 from tradingbot.data.feed import HistoricalDataFeed
 from tradingbot.data.polling import PollingDataFeed
+from tradingbot.engine.calendar import WeekdayCalendar
 from tradingbot.engine.clock import TradingSessionClock
 from tradingbot.engine.paper import PaperTradingEngine
 from tradingbot.models import Bar, Order, OrderPhase, OrderSide, OrderType
@@ -101,7 +102,7 @@ def test_paper_trading_engine_runs_with_injected_clock_and_prices(tmp_path):
     )
     cache.write("KR", "AAA", df)
 
-    clock = TradingSessionClock("KR", poll_interval=timedelta(minutes=5))
+    clock = TradingSessionClock("KR", poll_interval=timedelta(minutes=5), calendar=WeekdayCalendar("KR"))
     fetcher = StaticFetcher(100)
     polling_feed = PollingDataFeed("KR", ["AAA"], clock, price_fetcher=fetcher)
     history_feed = HistoricalDataFeed(cache, "KR", ["AAA"], start="2020-01-02")
@@ -223,7 +224,7 @@ def test_paper_close_refreshes_confirmed_daily_bar_and_reloads_history(tmp_path)
     )
     seed_cache(cache)
     history_feed = HistoricalDataFeed(cache, "KR", ["AAA"], start="2020-01-02")
-    clock = TradingSessionClock("KR", poll_interval=timedelta(minutes=5))
+    clock = TradingSessionClock("KR", poll_interval=timedelta(minutes=5), calendar=WeekdayCalendar("KR"))
     polling_feed = PollingDataFeed("KR", ["AAA"], clock, price_fetcher=RaisingFetcher())
     broker = PaperBroker("close", tmp_path / "state", 1_000, market="KR", fee_model=FeeModel("KR"), slippage_bps=0)
     strategy = RecordingCloseStrategy()
@@ -244,7 +245,7 @@ def test_paper_close_falls_back_to_polling_snapshot_when_daily_update_fails(tmp_
     cache = FailingUpdateCache(tmp_path / "cache")
     seed_cache(cache)
     history_feed = HistoricalDataFeed(cache, "KR", ["AAA"], start="2020-01-02")
-    clock = TradingSessionClock("KR", poll_interval=timedelta(minutes=5))
+    clock = TradingSessionClock("KR", poll_interval=timedelta(minutes=5), calendar=WeekdayCalendar("KR"))
     polling_feed = PollingDataFeed("KR", ["AAA"], clock, price_fetcher=StaticFetcher(123))
     broker = PaperBroker("fallback", tmp_path / "state", 1_000, market="KR", fee_model=FeeModel("KR"), slippage_bps=0)
     strategy = RecordingCloseStrategy()
@@ -264,7 +265,7 @@ def test_paper_close_skips_when_no_confirmed_bars_available(tmp_path):
     cache = NoopUpdateCache(tmp_path / "cache")
     seed_cache(cache)
     history_feed = HistoricalDataFeed(cache, "KR", ["AAA"], start="2020-01-02")
-    clock = TradingSessionClock("KR", poll_interval=timedelta(minutes=5))
+    clock = TradingSessionClock("KR", poll_interval=timedelta(minutes=5), calendar=WeekdayCalendar("KR"))
     polling_feed = PollingDataFeed("KR", ["AAA"], clock, price_fetcher=RaisingFetcher())
     broker = PaperBroker("holiday", tmp_path / "state", 1_000, market="KR", fee_model=FeeModel("KR"), slippage_bps=0)
     strategy = RecordingCloseStrategy()

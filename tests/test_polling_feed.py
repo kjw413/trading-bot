@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from tradingbot.data.polling import PollingDataFeed, YFinancePriceFetcher
+from tradingbot.engine.calendar import WeekdayCalendar
 from tradingbot.engine.clock import TradingSessionClock
 
 
@@ -23,7 +24,7 @@ def dt(hour: int, minute: int = 0):
 
 def test_polling_feed_honors_session_and_interval():
     fetcher = FakeFetcher()
-    clock = TradingSessionClock("KR", poll_interval=timedelta(minutes=5))
+    clock = TradingSessionClock("KR", poll_interval=timedelta(minutes=5), calendar=WeekdayCalendar("KR"))
     feed = PollingDataFeed("KR", ["aaa"], clock, price_fetcher=fetcher)
 
     assert feed.poll(dt(8, 59)) is None

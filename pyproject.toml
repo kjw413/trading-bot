@@ -13,6 +13,7 @@ dependencies = [
     "yfinance>=0.2.40,<1",
     "requests>=2.32",
     "truststore>=0.10",
+    "exchange-calendars>=4.13.2",
 ]
 
 [project.optional-dependencies]

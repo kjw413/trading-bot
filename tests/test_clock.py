@@ -3,12 +3,15 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from tradingbot.engine.calendar import WeekdayCalendar
 from tradingbot.engine.clock import TradingSessionClock
 
 
 def test_kr_session_clock_boundaries():
     tz = ZoneInfo("Asia/Seoul")
-    clock = TradingSessionClock("KR")
+    # WeekdayCalendar keeps this test about clock boundary logic only;
+    # real-calendar behavior (holidays, late opens) is covered in test_calendar.py.
+    clock = TradingSessionClock("KR", calendar=WeekdayCalendar("KR"))
 
     assert clock.is_before_open(datetime(2020, 1, 2, 8, 59, tzinfo=tz))
     assert clock.is_session_open(datetime(2020, 1, 2, 9, 0, tzinfo=tz))
