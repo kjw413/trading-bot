@@ -1,0 +1,58 @@
+# 퀀트 연구 기준 설정 — 근거와 규칙은 docs/quant_research_spec.md 참조.
+# Out-of-sample 구간은 파라미터 조정에 사용하지 않는다.
+
+[universe]
+market = "US"
+symbols = [
+    "SPY",  # 미국 대형주
+    "QQQ",  # 미국 기술주
+    "IWM",  # 미국 소형주
+    "EFA",  # 선진국 주식
+    "EEM",  # 신흥국 주식
+    "TLT",  # 미국 장기국채
+    "IEF",  # 미국 중기국채
+    "LQD",  # 투자등급 회사채
+    "GLD",  # 금
+    "DBC",  # 원자재
+    "VNQ",  # 미국 리츠
+]
+safe_asset = "IEF"
+
+[benchmark]
+primary = "SPY"
+secondary_weights = { SPY = 0.6, IEF = 0.4 }  # 60/40, 월간 리밸런싱
+
+[periods]
+in_sample_start = "2010-01-01"
+in_sample_end = "2018-12-31"
+validation_start = "2019-01-01"
+validation_end = "2021-12-31"
+out_of_sample_start = "2022-01-01"  # 파라미터 조정 사용 금지
+
+[walk_forward]
+train_years = 3
+test_years = 1
+step_years = 1
+
+[strategy.etf_momentum]
+rebalance = "monthly"           # 월말 신호 → 다음 달 첫 거래일 시가 집행
+top_n = 3
+momentum_weights = { m3 = 0.2, m6 = 0.3, m12 = 0.5 }
+abs_momentum_ma_days = 200      # 가격 > 200일 이동평균
+min_listing_days = 400          # 최소 상장기간 (거래일)
+min_avg_value_20d = 10000000    # 20일 평균 거래대금 하한 (USD)
+weighting = "inverse_volatility"  # 또는 "equal"
+volatility_days = 60
+
+[promotion]
+min_excess_return = 0.0        # 연율화 벤치마크 초과수익 (비용 반영 후)
+min_sharpe = 0.5
+max_mdd = 0.25                 # 허용 상한 (목표 0.20)
+target_mdd = 0.20
+max_annual_turnover = 6.0      # 편도 600%
+min_walk_forward_win_rate = 0.6
+cost_multiplier_check = 2.0    # 비용 2배에서도 초과수익 > 0
+
+[risk_limits]
+max_position_weight = 0.40
+min_cash_weight = 0.02
