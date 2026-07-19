@@ -35,6 +35,14 @@ class TestSpearmanIC:
         forward = pd.Series({"A": 0.01, "B": 0.02, "C": 0.03})
         assert math.isnan(spearman_ic(scores, forward))
 
+    def test_spearman_does_not_require_scipy(self):
+        import sys
+
+        scores = pd.Series({"A": 1.0, "B": 2.0, "C": 3.0, "D": 4.0})
+        forward = pd.Series({"A": 0.03, "B": 0.01, "C": 0.02, "D": 0.04})
+        spearman_ic(scores, forward)
+        assert "scipy" not in sys.modules
+
 
 class TestICSeries:
     def test_series_and_summary(self, us_store, write_prices, fixed_factor):

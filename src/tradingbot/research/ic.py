@@ -22,7 +22,7 @@ def spearman_ic(factor_values: pd.Series, forward: pd.Series) -> float:
     scores, returns = frame.iloc[:, 0], frame.iloc[:, 1]
     if scores.nunique() < 2 or returns.nunique() < 2:
         return float("nan")
-    return float(scores.corr(returns, method="spearman"))
+    return float(frame.corr(method="spearman").iloc[0, 1])
 
 
 def ic_series(
