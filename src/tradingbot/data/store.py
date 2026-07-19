@@ -32,3 +32,19 @@ class ParquetDataStore:
         df = self.cache.read(self.market, symbol)
         cutoff = pd.Timestamp(end)
         return df.loc[df.index <= cutoff].tail(lookback)
+
+    def close_series(self, symbol: str) -> pd.Series:
+        """Full close history for research labels (look-ahead by design)."""
+        return self.cache.read(self.market, symbol)["close"].dropna()
+
+
+class ResearchDataStore(PriceDataStore, Protocol):
+    """PriceDataStore + full-history close access for research labels.
+
+    close_series intentionally sees past any as-of date — labels are
+    evaluation targets, never factor inputs. Factor code must keep using
+    price_history, which enforces the point-in-time cutoff.
+    """
+
+    def close_series(self, symbol: str) -> pd.Series:
+        ...
