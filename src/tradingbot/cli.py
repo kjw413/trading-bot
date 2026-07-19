@@ -4,6 +4,8 @@ import argparse
 import sys
 import time
 from collections import Counter
+from datetime import date as _date
+from datetime import datetime as _datetime
 
 from tradingbot.broker.paper import PaperBroker
 from tradingbot.config import load_config, resolve_project_path
@@ -69,6 +71,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     strategies_parser = subparsers.add_parser("strategies", help="List built-in strategies")
     strategies_parser.set_defaults(handler=cmd_strategies)
+
+    research_parser = subparsers.add_parser("research", help="Factor research commands")
+    research_subparsers = research_parser.add_subparsers(dest="research_command")
+    factor_report_parser = research_subparsers.add_parser(
+        "report", help="IC / quantile / walk-forward factor report"
+    )
+    factor_report_parser.add_argument("--research-config", default=None, help="research.toml path")
+    factor_report_parser.add_argument(
+        "--factors", nargs="+", default=None, help="Factor names (default: all registered)"
+    )
+    factor_report_parser.add_argument("--start", default=None, help="Evaluation start (default: in_sample_start)")
+    factor_report_parser.add_argument("--end", default=None, help="Evaluation end (default: validation_end)")
+    factor_report_parser.add_argument("--data-root", default=None)
+    factor_report_parser.add_argument("--out", default="reports/research")
+    factor_report_parser.set_defaults(handler=cmd_research_report)
 
     gui_parser = subparsers.add_parser("gui", help="Launch the desktop GUI")
     gui_parser.set_defaults(handler=cmd_gui)
@@ -212,3 +229,73 @@ def cmd_gui(args) -> int:
     from tradingbot.gui import run_gui
 
     return run_gui(config_path=args.config)
+
+
+def cmd_research_report(args) -> int:
+    from tradingbot.data.cache import ParquetCache
+    from tradingbot.data.store import ParquetDataStore
+    from tradingbot.factors import get_factor, list_factors
+    from tradingbot.research.dates import month_end_trading_days
+    from tradingbot.research.experiment import record_experiment
+    from tradingbot.research.gate import load_gate_thresholds, load_research_config
+    from tradingbot.research.report import build_factor_report, render_markdown
+    from tradingbot.research.walk_forward import walk_forward_windows
+
+    research = load_research_config(args.research_config)
+    market = research["universe"]["market"]
+    universe = research["universe"]["symbols"]
+    thresholds = load_gate_thresholds(research)
+    periods = research["periods"]
+    start = _date.fromisoformat(args.start or periods["in_sample_start"])
+    end = _date.fromisoformat(args.end or periods["validation_end"])
+
+    store = ParquetDataStore(ParquetCache(resolve_project_path(args.data_root or "data/cache")), market)
+    factor_names = args.factors or list_factors()
+    factors = [get_factor(name) for name in factor_names]
+    dates = month_end_trading_days(market, start, end)
+    wf_config = research["walk_forward"]
+    windows = walk_forward_windows(
+        start,
+        end,
+        train_years=int(wf_config["train_years"]),
+        test_years=int(wf_config["test_years"]),
+        step_years=int(wf_config["step_years"]),
+    )
+
+    report = build_factor_report(
+        store=store,
+        market=market,
+        universe=universe,
+        factors=factors,
+        dates=dates,
+        windows=windows,
+        thresholds=thresholds,
+    )
+    markdown = render_markdown(report)
+    print(markdown)
+
+    out_dir = resolve_project_path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{_datetime.now():%Y%m%d_%H%M%S}_factor_report.md"
+    out_path.write_text(markdown, encoding="utf-8")
+    print(f"리포트 저장: {out_path}")
+
+    experiment_path = record_experiment(
+        resolve_project_path("data/experiments"),
+        kind="factor_report",
+        params={
+            "market": market,
+            "universe": universe,
+            "factors": factor_names,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "horizon_days": thresholds.horizon_days,
+            "n_quantiles": thresholds.n_quantiles,
+        },
+        metrics={
+            name: data["ic"] | {"gate_passed": data["gate"]["passed"]}
+            for name, data in report["factors"].items()
+        },
+    )
+    print(f"실험 기록: {experiment_path}")
+    return 0

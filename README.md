@@ -15,6 +15,9 @@ v1 이후 [`trading_bot_agentic_ai_execution_plan_260714.md`](trading_bot_agenti
 - `signal_id` 멱등성 원장(`strategies/signals.py`): 동일 신호 재실행 시 중복 주문 방지 — M14 일부
 - 횡단면 Factor 인터페이스·레지스트리와 3·6·12개월(및 12-1) 모멘텀 팩터
   (`factors/`, `data/store.py` Point-in-Time 조회) — M9 일부
+- 연구·검증 프레임워크(`research/`): forward return 라벨, Spearman IC,
+  분위수 분석, Walk-forward, 실험 기록, 팩터 채택 게이트와
+  `research report` CLI — M10
 
 ### v1 완료 항목
 

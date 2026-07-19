@@ -345,6 +345,7 @@ flowchart TD
 | 전략 상태 영속화 | `src/tradingbot/strategies/state.py` |
 | signal_id 멱등성 원장 | `src/tradingbot/strategies/signals.py` |
 | Point-in-Time 가격 조회 | `src/tradingbot/data/store.py` |
+| 연구·검증 (IC/분위수/Walk-forward) | `src/tradingbot/research/` |
 | 횡단면 팩터 (모멘텀 등) | `src/tradingbot/factors/` |
 | 주문·체결 시뮬레이션 | `src/tradingbot/broker/backtest.py` |
 | 모의 계좌 영속화 | `src/tradingbot/broker/paper.py` |
