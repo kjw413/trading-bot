@@ -38,7 +38,7 @@ def record_experiment(
     record = {
         "experiment_id": experiment_id,
         "kind": kind,
-        "git_commit": current_git_commit(),
+        "git_commit": current_git_commit(cwd=root),
         "created_at": created.isoformat(),
         "params": params,
         "metrics": metrics,

@@ -29,3 +29,9 @@ def test_record_experiment_ids_are_unique_even_at_same_timestamp(tmp_path):
 
 def test_current_git_commit_outside_repo_is_unknown(tmp_path):
     assert current_git_commit(cwd=tmp_path) == "unknown"
+
+
+def test_record_experiment_git_hash_resolved_from_root(tmp_path):
+    path = record_experiment(tmp_path / "experiments", kind="x", params={}, metrics={})
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert record["git_commit"] == "unknown"  # tmp root lives outside any repo
