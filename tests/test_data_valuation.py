@@ -80,3 +80,16 @@ class TestUpdateValuation:
         assert update_valuation(
             store, symbols=["BAD", "005930"], start=date(2024, 1, 1), fetcher=flaky
         ) == 2
+
+    def test_missing_credentials_propagates_not_swallowed(self, store, monkeypatch):
+        from tradingbot.data.credentials import MissingCredentialsError
+
+        def unauthenticated(symbol, start, end):
+            raise MissingCredentialsError("KRX_ID is not set.")
+
+        # A missing credential is a batch-level config problem: it must surface,
+        # not be absorbed per-symbol into a silent zero-row result.
+        with pytest.raises(MissingCredentialsError):
+            update_valuation(
+                store, symbols=["005930"], start=date(2024, 1, 1), fetcher=unauthenticated
+            )

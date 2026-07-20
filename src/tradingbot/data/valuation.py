@@ -5,6 +5,7 @@ from typing import Callable, Sequence
 
 import pandas as pd
 
+from tradingbot.data.credentials import MissingCredentialsError, krx_credentials
 from tradingbot.data.panel import PanelStore, attach_metadata, next_trading_day_availability
 from tradingbot.utils.log import get_logger
 
@@ -51,6 +52,8 @@ def normalize_valuation(raw: pd.DataFrame, symbol: str) -> pd.DataFrame:
 
 def fetch_valuation(symbol: str, start: date, end: date) -> pd.DataFrame:
     """Daily valuation ratios for one symbol."""
+    krx_credentials()
+
     from pykrx import stock
 
     raw = stock.get_market_fundamental(
@@ -77,6 +80,8 @@ def update_valuation(
             continue
         try:
             frame = fetcher(symbol, fetch_start, fetch_end)
+        except MissingCredentialsError:
+            raise
         except Exception:
             LOGGER.exception("Valuation collection failed for %s; skipping this symbol", symbol)
             continue

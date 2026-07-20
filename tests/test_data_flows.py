@@ -84,3 +84,16 @@ class TestUpdateFlows:
 
     def test_empty_symbol_list_writes_nothing(self, store):
         assert update_flows(store, symbols=[], start=date(2024, 1, 1), fetcher=fake_fetcher) == 0
+
+    def test_missing_credentials_propagates_not_swallowed(self, store, monkeypatch):
+        from tradingbot.data.credentials import MissingCredentialsError
+
+        def unauthenticated(symbol, start, end):
+            raise MissingCredentialsError("KRX_ID is not set.")
+
+        # A missing credential is a batch-level config problem: it must surface,
+        # not be absorbed per-symbol into a silent zero-row result.
+        with pytest.raises(MissingCredentialsError):
+            update_flows(
+                store, symbols=["005930"], start=date(2024, 1, 1), fetcher=unauthenticated
+            )

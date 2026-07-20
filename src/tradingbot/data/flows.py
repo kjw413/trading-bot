@@ -5,6 +5,7 @@ from typing import Callable, Sequence
 
 import pandas as pd
 
+from tradingbot.data.credentials import MissingCredentialsError, krx_credentials
 from tradingbot.data.panel import PanelStore, attach_metadata, next_trading_day_availability
 from tradingbot.utils.log import get_logger
 
@@ -47,6 +48,8 @@ def normalize_flows(raw: pd.DataFrame, symbol: str) -> pd.DataFrame:
 
 def fetch_flows(symbol: str, start: date, end: date) -> pd.DataFrame:
     """Daily investor net-buy values for one symbol."""
+    krx_credentials()
+
     from pykrx import stock
 
     raw = stock.get_market_trading_value_by_date(
@@ -74,6 +77,8 @@ def update_flows(
             continue
         try:
             frame = fetcher(symbol, fetch_start, fetch_end)
+        except MissingCredentialsError:
+            raise
         except Exception:
             LOGGER.exception("Flow collection failed for %s; skipping this symbol", symbol)
             continue
