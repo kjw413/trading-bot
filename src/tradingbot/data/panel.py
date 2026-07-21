@@ -76,7 +76,13 @@ class PanelStore:
         return sorted(int(p.stem) for p in self.directory.glob("*.parquet") if p.stem.isdigit())
 
     def append(self, frame: pd.DataFrame) -> int:
-        """Merge rows into their year partitions; (date, symbol) keeps the newest."""
+        """Merge rows into their year partitions; (date, symbol) keeps the newest.
+
+        Returns the number of rows actually added, not the size of the
+        incoming frame: a re-run over already-collected data must report 0,
+        not the row count it happened to re-fetch, or an operator watching
+        the log would think collection is still making progress when it
+        is not."""
         if frame.empty:
             return 0
         missing = [c for c in PANEL_KEY_COLUMNS + PANEL_META_COLUMNS if c not in frame.columns]
@@ -87,19 +93,22 @@ class PanelStore:
         incoming["date"] = pd.to_datetime(incoming["date"]).dt.normalize()
         incoming["symbol"] = incoming["symbol"].astype(str).str.upper()
 
-        written = 0
+        added = 0
         for year, chunk in incoming.groupby(incoming["date"].dt.year):
             path = self.path(int(year))
             if path.exists():
-                combined = pd.concat([pd.read_parquet(path), chunk], ignore_index=True)
+                existing = pd.read_parquet(path)
+                combined = pd.concat([existing, chunk], ignore_index=True)
+                before = len(existing)
             else:
                 combined = chunk
+                before = 0
             combined = combined.drop_duplicates(subset=PANEL_KEY_COLUMNS, keep="last")
             combined = combined.sort_values(PANEL_KEY_COLUMNS).reset_index(drop=True)
             path.parent.mkdir(parents=True, exist_ok=True)
             combined.to_parquet(path)
-            written += len(chunk)
-        return written
+            added += len(combined) - before
+        return added
 
     def read(
         self,

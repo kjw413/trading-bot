@@ -45,3 +45,11 @@ buy_below = 30
 exit_above = 55
 max_hold_days = 10
 weight = 0.20
+
+[pipeline]
+# 일일 배치 수집 대상. 작업 스케줄러가 장 마감 후 하루 1회 실행한다.
+processed_dir = "data/processed"
+log_dir = "state/pipeline_log"
+symbols = ["005930", "000660", "035420", "051910", "005380"]
+fundamental_years = 3
+retry_attempts = 3

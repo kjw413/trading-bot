@@ -47,6 +47,17 @@ def build_parser() -> argparse.ArgumentParser:
     update_parser.add_argument("--end", default=None)
     update_parser.set_defaults(handler=cmd_data_update)
 
+    pipeline_parser = data_subparsers.add_parser(
+        "pipeline", help="Run the daily collection batch (prices, flows, valuation, macro, fundamentals)"
+    )
+    pipeline_parser.add_argument("--market", choices=["KR", "US"], required=True)
+    pipeline_parser.add_argument(
+        "--symbols", nargs="+", default=None, help="Override config pipeline.symbols"
+    )
+    pipeline_parser.add_argument("--processed-root", default=None)
+    pipeline_parser.add_argument("--log-root", default=None)
+    pipeline_parser.set_defaults(handler=cmd_data_pipeline)
+
     backtest_parser = subparsers.add_parser("backtest", help="Run offline backtest")
     add_market_symbols(backtest_parser)
     backtest_parser.add_argument("--strategy", required=True)
@@ -299,3 +310,26 @@ def cmd_research_report(args) -> int:
     )
     print(f"실험 기록: {experiment_path}")
     return 0
+
+
+def cmd_data_pipeline(args) -> int:
+    from tradingbot.data.pipeline import run_pipeline
+
+    config = load_config(args.config)
+    result = run_pipeline(
+        config,
+        market=args.market,
+        symbols=args.symbols,
+        processed_root=args.processed_root,
+        log_root=args.log_root,
+    )
+
+    print(f"데이터 수집 배치: {result.market}")
+    for source in result.results:
+        label = {"ok": "성공", "failed": "실패", "skipped": "생략"}.get(source.status, source.status)
+        line = f"  - {source.name}: {label} ({source.rows}행)"
+        if source.message:
+            line += f" — {source.message}"
+        print(line)
+    print(f"전체 결과: {'정상' if result.ok else '일부 실패'}")
+    return 0 if result.ok else 1

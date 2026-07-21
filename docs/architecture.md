@@ -352,6 +352,9 @@ flowchart TD
 | 향후 KIS 연동 슬롯 | `src/tradingbot/broker/kis.py` |
 | 포트폴리오 / 리스크 | `src/tradingbot/portfolio.py`, `src/tradingbot/risk.py` |
 | 메트릭 / HTML 리포트 | `src/tradingbot/report/metrics.py`, `report/report.py` |
+| PIT 패널 저장소 | `src/tradingbot/data/panel.py` |
+| 수급·밸류에이션·재무·거시 수집 | `src/tradingbot/data/{flows,valuation,fundamentals,macro}.py` |
+| 데이터 품질 검사 / 일일 배치 | `src/tradingbot/data/quality.py`, `data/pipeline.py` |
 
 ## 8. VS Code에서 보는 방법
 

@@ -103,6 +103,13 @@ class TestPanelStoreRoundTrip:
         assert len(result) == 1
         assert result.loc[0, "value"] == 9.0
 
+    def test_append_returns_rows_actually_added_not_incoming_count(self, store):
+        frame = tagged(make_frame([("2024-01-02", "005930", 1.0)]), "2024-01-03")
+        first = store.append(frame)
+        second = store.append(frame)
+        assert first == 1
+        assert second == 0
+
     def test_read_missing_dataset_is_empty_not_error(self, tmp_path):
         empty_store = PanelStore(tmp_path, "nothing", "KR")
         assert empty_store.read().empty
