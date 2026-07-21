@@ -17,7 +17,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import date
-from typing import Callable
+from typing import Callable, Iterable, Sequence
+
+from tradingbot.engine.calendar import get_calendar
 
 DEFAULT_BASE_URL = "https://opendart.fss.or.kr/api"
 
@@ -151,6 +153,120 @@ def _parse_dart_date(text: str) -> date:
     """Parse a DART YYYYMMDD date string."""
     cleaned = text.strip()
     return date(int(cleaned[0:4]), int(cleaned[4:6]), int(cleaned[6:8]))
+
+
+# --- Point-in-time normalization and FCFF-input mapping --------------------
+
+# Interest-bearing debt lines that sum into gross borrowings.
+_BORROWING_NAMES = ("단기차입금", "장기차입금", "사채", "유동성장기부채")
+
+
+@dataclass(frozen=True)
+class FundamentalRecord:
+    """One point-in-time snapshot of a company's fundamentals.
+
+    report_period is the accounting period end; announcement_date is when the
+    filing was received (DART rcept_dt); available_at is the first date the bot
+    may use it (next trading day). Component amounts are None when the source
+    account is absent — never silently 0, so downstream valuation can tell
+    "genuinely zero" from "unknown".
+    """
+
+    corp_code: str
+    report_period: date
+    announcement_date: date
+    available_at: date
+    currency: str
+    revenue: float | None
+    operating_income: float | None
+    depreciation_amortization: float | None
+    capex: float | None
+    cash_and_equivalents: float | None
+    total_borrowings: float | None
+    net_debt: float | None
+
+
+def available_at(rcept_dt: date, market: str) -> date:
+    """First date disclosed data may be used: the next trading day (framework §8)."""
+    return get_calendar(market).next_trading_day(rcept_dt)
+
+
+def _first_amount(accounts: Iterable[RawAccount], name: str) -> float | None:
+    for account in accounts:
+        if account.account_name == name and account.amount is not None:
+            return account.amount
+    return None
+
+
+def _sum_amounts(accounts: Sequence[RawAccount], names: Sequence[str]) -> float | None:
+    present = [a.amount for a in accounts if a.account_name in names and a.amount is not None]
+    return float(sum(present)) if present else None
+
+
+def to_fundamental_record(
+    corp_code: str,
+    accounts: Sequence[RawAccount],
+    disclosure: Disclosure,
+    market: str,
+) -> FundamentalRecord:
+    """Map raw DART accounts into a point-in-time fundamentals record.
+
+    Only accounts with clear, stable names are mapped; the rest stay None until
+    richer parsing is added. net_debt is derived only when both borrowings and
+    cash are present.
+    """
+    period = accounts[0].report_period if accounts else disclosure.rcept_dt
+    currency = accounts[0].currency if accounts else "KRW"
+
+    cash = _first_amount(accounts, "현금및현금성자산")
+    borrowings = _sum_amounts(accounts, _BORROWING_NAMES)
+    net_debt = borrowings - cash if (borrowings is not None and cash is not None) else None
+
+    return FundamentalRecord(
+        corp_code=corp_code,
+        report_period=period,
+        announcement_date=disclosure.rcept_dt,
+        available_at=available_at(disclosure.rcept_dt, market),
+        currency=currency,
+        revenue=_first_amount(accounts, "매출액"),
+        operating_income=_first_amount(accounts, "영업이익"),
+        depreciation_amortization=next(
+            (a.amount for a in accounts if "감가상각" in a.account_name and a.amount is not None),
+            None,
+        ),
+        capex=_first_amount(accounts, "유형자산의 취득"),
+        cash_and_equivalents=cash,
+        total_borrowings=borrowings,
+        net_debt=net_debt,
+    )
+
+
+class FundamentalStore:
+    """In-memory point-in-time store of fundamentals records.
+
+    as_of() never returns a record disclosed after the query date — the same
+    look-ahead guard the price data store enforces, applied to fundamentals.
+    """
+
+    def __init__(self) -> None:
+        self._by_corp: dict[str, list[FundamentalRecord]] = {}
+
+    def add(self, record: FundamentalRecord) -> None:
+        self._by_corp.setdefault(record.corp_code, []).append(record)
+
+    def records(self, corp_code: str) -> list[FundamentalRecord]:
+        return list(self._by_corp.get(corp_code, []))
+
+    def as_of(self, corp_code: str, as_of_date: date) -> FundamentalRecord | None:
+        """Latest record available on or before as_of_date, or None."""
+        available = [
+            record
+            for record in self._by_corp.get(corp_code, [])
+            if record.available_at <= as_of_date
+        ]
+        if not available:
+            return None
+        return max(available, key=lambda r: (r.available_at, r.report_period))
 
 
 def requests_transport(timeout: float = 10.0) -> Transport:
