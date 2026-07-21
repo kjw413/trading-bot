@@ -97,3 +97,17 @@ class TestUpdateFlows:
             update_flows(
                 store, symbols=["005930"], start=date(2024, 1, 1), fetcher=unauthenticated
             )
+
+
+class TestFetchFlowsCredentialGate:
+    def test_missing_credentials_raise_before_any_network_call(self, monkeypatch):
+        from tradingbot.data.credentials import MissingCredentialsError
+        from tradingbot.data.flows import fetch_flows
+
+        monkeypatch.delenv("KRX_ID", raising=False)
+        monkeypatch.delenv("KRX_PW", raising=False)
+
+        # The guard must fire in the real fetcher, not just via an injected
+        # fake — otherwise moving it below the pykrx call would go unnoticed.
+        with pytest.raises(MissingCredentialsError, match="KRX_ID"):
+            fetch_flows("005930", date(2024, 1, 1), date(2024, 1, 10))
