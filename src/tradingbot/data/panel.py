@@ -108,6 +108,10 @@ class PanelStore:
         added = 0
         for year, chunk in incoming.groupby(incoming["date"].dt.year):
             path = self.path(int(year))
+            # Two rows in the same call sharing a key collapse to one stored
+            # row (keep last); count and concat against that deduplicated
+            # frame so an intra-chunk duplicate isn't counted twice.
+            chunk = chunk.drop_duplicates(subset=PANEL_KEY_COLUMNS, keep="last")
             comparable = [c for c in chunk.columns if c != "ingested_at"]
             if path.exists():
                 existing = pd.read_parquet(path)

@@ -38,12 +38,6 @@ class QualityReport:
     def ok(self) -> bool:
         return self.severity != FAIL
 
-    def summary(self) -> str:
-        if not self.issues:
-            return f"{self.dataset}: pass"
-        details = "; ".join(f"{i.check}({i.count})" for i in self.issues)
-        return f"{self.dataset}: {self.severity} — {details}"
-
 
 def check_ohlcv(
     frame: pd.DataFrame, *, dataset: str, market: str, max_jump: float = 0.5

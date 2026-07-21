@@ -52,10 +52,6 @@ class PipelineResult:
             "results": [asdict(result) for result in self.results],
         }
 
-    def summary(self) -> str:
-        parts = [f"{r.name}={r.status}({r.rows})" for r in self.results]
-        return " ".join(parts)
-
 
 def with_retry(
     fn: Callable[[], Any],

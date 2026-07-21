@@ -129,6 +129,17 @@ class TestPanelStoreRoundTrip:
         resent = tagged(make_frame([("2024-01-02", "005930", 1.0)]), "2024-01-03")
         assert store.append(resent) == 0
 
+    def test_append_counts_intra_chunk_duplicate_key_once(self, store):
+        # Two rows for the same key in one call collapse to one stored row,
+        # so the operator-facing count must be 1, not 2.
+        frame = tagged(
+            make_frame([("2024-01-02", "005930", 1.0), ("2024-01-02", "005930", 9.0)]),
+            "2024-01-03",
+        )
+        assert store.append(frame) == 1
+        assert len(store.read()) == 1
+        assert store.read().loc[0, "value"] == 9.0
+
     def test_append_treats_missing_values_as_equal(self, store):
         rows = make_frame([("2024-01-02", "005930", float("nan"))])
         assert store.append(tagged(rows, "2024-01-03")) == 1

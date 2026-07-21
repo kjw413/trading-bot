@@ -68,12 +68,21 @@ class TestParseFinancials:
         # Announcement date comes from the receipt number's leading date.
         assert row["announcement_date"] == pd.Timestamp("2024-03-15")
 
-    def test_quarterly_report_period_end(self):
+    @pytest.mark.parametrize(
+        "report_code,expected",
+        [
+            ("11013", "2023-03-31"),
+            ("11012", "2023-06-30"),
+            ("11014", "2023-09-30"),
+            ("11011", "2023-12-31"),
+        ],
+    )
+    def test_report_code_maps_to_fiscal_period_end(self, report_code, expected):
         data = payload()
         for item in data["list"]:
-            item["reprt_code"] = "11013"  # 1분기
+            item["reprt_code"] = report_code
         frame = parse_financials(data, "005930")
-        assert frame.iloc[0]["date"] == pd.Timestamp("2023-03-31")
+        assert frame.iloc[0]["date"] == pd.Timestamp(expected)
 
     def test_negative_amount_in_parentheses(self):
         data = payload()
