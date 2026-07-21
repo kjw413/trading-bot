@@ -87,6 +87,19 @@ def build_parser() -> argparse.ArgumentParser:
     factor_report_parser.add_argument("--out", default="reports/research")
     factor_report_parser.set_defaults(handler=cmd_research_report)
 
+    fundamentals_parser = subparsers.add_parser("fundamentals", help="DART fundamentals commands")
+    fundamentals_subparsers = fundamentals_parser.add_subparsers(dest="fundamentals_command")
+    fund_update_parser = fundamentals_subparsers.add_parser(
+        "update", help="Fetch one DART financial report into a point-in-time record"
+    )
+    fund_update_parser.add_argument("--corp-code", required=True, help="8-digit DART corp_code")
+    fund_update_parser.add_argument("--year", type=int, required=True, help="Business year")
+    fund_update_parser.add_argument(
+        "--report", choices=["annual", "q1", "half", "q3"], default="annual"
+    )
+    fund_update_parser.add_argument("--market", choices=["KR", "US"], default="KR")
+    fund_update_parser.set_defaults(handler=cmd_fundamentals_update)
+
     gui_parser = subparsers.add_parser("gui", help="Launch the desktop GUI")
     gui_parser.set_defaults(handler=cmd_gui)
     return parser
@@ -229,6 +242,39 @@ def cmd_gui(args) -> int:
     from tradingbot.gui import run_gui
 
     return run_gui(config_path=args.config)
+
+
+def cmd_fundamentals_update(args) -> int:
+    from datetime import date as _d
+
+    from tradingbot.data.fundamentals import (
+        REPORT_CODES,
+        DartClient,
+        api_key_from_env,
+        fetch_fundamental_record,
+        requests_transport,
+    )
+
+    client = DartClient(api_key=api_key_from_env(), transport=requests_transport())
+    record = fetch_fundamental_record(
+        client,
+        args.corp_code,
+        args.year,
+        REPORT_CODES[args.report],
+        args.market,
+        # Wide window: reports for a business year are filed within the next year.
+        search_start=_d(args.year, 1, 1),
+        search_end=_d(args.year + 1, 6, 30),
+    )
+    print(f"기업: {record.corp_code} ({record.currency})")
+    print(f"보고서 기준일: {record.report_period}")
+    print(f"공시일: {record.announcement_date}  사용가능일(available_at): {record.available_at}")
+    print(f"매출액: {record.revenue}")
+    print(f"영업이익: {record.operating_income}")
+    print(f"감가상각: {record.depreciation_amortization}")
+    print(f"CAPEX: {record.capex}")
+    print(f"순차입금: {record.net_debt}")
+    return 0
 
 
 def cmd_research_report(args) -> int:

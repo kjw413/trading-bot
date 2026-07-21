@@ -31,6 +31,14 @@ _REPORT_PERIOD_END: dict[str, tuple[int, int]] = {
     "11011": (12, 31),  # annual
 }
 
+# Human-friendly aliases for DART report codes (used by the CLI).
+REPORT_CODES: dict[str, str] = {
+    "q1": "11013",
+    "half": "11012",
+    "q3": "11014",
+    "annual": "11011",
+}
+
 # Transport maps (url, params) -> parsed JSON dict. The real implementation
 # uses requests; tests inject a fake that returns a canned dict.
 Transport = Callable[[str, dict], dict]
@@ -55,6 +63,7 @@ class RawAccount:
     currency: str
     statement: str          # sj_div: BS / IS / CIS / CF
     account_id: str
+    rcept_no: str = ""      # filing that carried this statement
 
 
 @dataclass(frozen=True)
@@ -125,6 +134,7 @@ class DartClient:
                 currency=row.get("currency", "KRW"),
                 statement=row.get("sj_div", ""),
                 account_id=row.get("account_id", ""),
+                rcept_no=row.get("rcept_no", ""),
             )
             for row in response.get("list", [])
         ]
@@ -239,6 +249,38 @@ def to_fundamental_record(
         total_borrowings=borrowings,
         net_debt=net_debt,
     )
+
+
+def fetch_fundamental_record(
+    client: DartClient,
+    corp_code: str,
+    year: int,
+    report_code: str,
+    market: str,
+    *,
+    search_start: date,
+    search_end: date,
+) -> FundamentalRecord:
+    """Fetch statements and tie them to their disclosure into one PIT record.
+
+    The financial-statement rows carry the filing's rcept_no; matching it to the
+    disclosure list gives the receipt date that drives available_at. Raises when
+    no statements are returned for the period.
+    """
+    accounts = client.financial_statements(corp_code, year, report_code)
+    if not accounts:
+        raise ValueError(
+            f"no financial statements for corp={corp_code} year={year} report={report_code}"
+        )
+    rcept_no = accounts[0].rcept_no
+    disclosures = client.disclosure_list(corp_code, search_start, search_end)
+    disclosure = next((d for d in disclosures if d.rcept_no == rcept_no), None)
+    if disclosure is None:
+        raise ValueError(
+            f"filing {rcept_no} not found in disclosures {search_start}..{search_end}; "
+            "widen the search window"
+        )
+    return to_fundamental_record(corp_code, accounts, disclosure, market)
 
 
 class FundamentalStore:

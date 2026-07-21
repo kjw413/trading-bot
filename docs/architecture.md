@@ -347,6 +347,7 @@ flowchart TD
 | Point-in-Time 가격 조회 | `src/tradingbot/data/store.py` |
 | 연구·검증 (IC/분위수/Walk-forward) | `src/tradingbot/research/` |
 | 가치평가·의사결정 코어 (DCF/IRR/역산/신호) | `src/tradingbot/valuation/` |
+| DART 재무 수집·PIT 정규화 (`fundamentals update` CLI) | `src/tradingbot/data/fundamentals.py` |
 | 횡단면 팩터 (모멘텀 등) | `src/tradingbot/factors/` |
 | 주문·체결 시뮬레이션 | `src/tradingbot/broker/backtest.py` |
 | 모의 계좌 영속화 | `src/tradingbot/broker/paper.py` |
