@@ -1131,7 +1131,7 @@ git commit -m "M7(part): Add KRX investor-flow and valuation collection"
 - Produces:
   - `fundamentals.FUNDAMENTAL_COLUMNS = ["revenue", "operating_income", "net_income", "total_assets", "total_equity"]`
   - `fundamentals.REPORT_CODES: dict[str, str]` (분기 → DART reprt_code)
-  - `fundamentals.MissingApiKeyError`
+  - `fundamentals.MissingApiKeyError` — **`data/credentials.py`의 `MissingCredentialsError`를 상속한다** (Task 3 수정에서 도입된 공용 타입)
   - `fundamentals.dart_api_key() -> str` (환경변수 `DART_API_KEY`, 없으면 `MissingApiKeyError`)
   - `fundamentals.parse_financials(payload: dict, symbol: str) -> pd.DataFrame` (컬럼: `date`(=보고서 기준 분기말), `symbol`, `announcement_date`, + FUNDAMENTAL_COLUMNS)
   - `fundamentals.update_fundamentals(store, *, symbols, corp_codes: dict[str, str], years: Sequence[int], fetcher=fetch_financials) -> int`
@@ -1316,12 +1316,12 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'tradingbot.data.fundam
 ```python
 from __future__ import annotations
 
-import os
 from datetime import date
 from typing import Any, Callable, Sequence
 
 import pandas as pd
 
+from tradingbot.data.credentials import MissingCredentialsError, require_env
 from tradingbot.data.panel import PanelStore, attach_metadata, next_trading_day_availability
 from tradingbot.utils.log import get_logger
 
@@ -1362,18 +1362,19 @@ _EMPTY_COLUMNS = ["date", "symbol", "announcement_date"] + FUNDAMENTAL_COLUMNS
 _NO_DATA_STATUS = "013"
 
 
-class MissingApiKeyError(RuntimeError):
+class MissingApiKeyError(MissingCredentialsError):
     """Raised when DART_API_KEY is not set."""
 
 
 def dart_api_key() -> str:
-    key = os.environ.get("DART_API_KEY", "").strip()
-    if not key:
-        raise MissingApiKeyError(
-            "DART_API_KEY is not set. Get a key at https://opendart.fss.or.kr and set it as an "
-            "environment variable; never commit it to the repository."
+    try:
+        return require_env(
+            "DART_API_KEY",
+            hint="Get a free key at https://opendart.fss.or.kr and set it as an environment "
+            "variable; never commit it to the repository.",
         )
-    return key
+    except MissingCredentialsError as exc:
+        raise MissingApiKeyError(str(exc)) from exc
 
 
 def _parse_amount(raw: Any) -> float:
@@ -1990,11 +1991,11 @@ class TestRunPipeline:
         assert record["results"][0]["name"] == "macro"
         assert record["results"][0]["status"] == "ok"
 
-    def test_missing_dart_key_skips_fundamentals_without_failing(self, config, monkeypatch):
-        from tradingbot.data.fundamentals import MissingApiKeyError
+    def test_missing_credentials_skips_source_without_failing(self, config, monkeypatch):
+        from tradingbot.data.credentials import MissingCredentialsError
 
         def needs_key(**kwargs):
-            raise MissingApiKeyError("no key")
+            raise MissingCredentialsError("no key")
 
         result = run_pipeline(
             config,
@@ -2048,7 +2049,8 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from tradingbot.config import resolve_project_path
-from tradingbot.data.fundamentals import MissingApiKeyError, update_fundamentals
+from tradingbot.data.credentials import MissingCredentialsError
+from tradingbot.data.fundamentals import update_fundamentals
 from tradingbot.data.flows import update_flows
 from tradingbot.data.macro import update_macro
 from tradingbot.data.panel import PanelStore
@@ -2188,11 +2190,11 @@ def run_pipeline(
             rows = with_retry(
                 lambda c=collector: c(market=market, symbols=active_symbols),
                 attempts=attempts,
-                no_retry=(MissingApiKeyError,),
+                no_retry=(MissingCredentialsError,),
             )
             results.append(SourceResult(name, STATUS_OK, int(rows), ""))
             LOGGER.info("Pipeline source %s collected %s rows", name, rows)
-        except MissingApiKeyError as exc:
+        except MissingCredentialsError as exc:
             results.append(SourceResult(name, STATUS_SKIPPED, 0, str(exc)))
             LOGGER.warning("Pipeline source %s skipped: %s", name, exc)
         except Exception as exc:  # noqa: BLE001 - recorded, never swallowed
