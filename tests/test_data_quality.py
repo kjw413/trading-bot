@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pandas as pd
-import pytest
 
 from tradingbot.data.quality import FAIL, PASS, WARN, check_ohlcv, check_panel
 
@@ -19,6 +18,18 @@ CLEAN = ohlcv(
         ("2024-01-02", 100.0, 105.0, 99.0, 104.0, 1000.0),
         ("2024-01-03", 104.0, 106.0, 103.0, 105.0, 1100.0),
         ("2024-01-04", 105.0, 108.0, 104.0, 107.0, 1200.0),
+    ]
+)
+
+# Data designed to create false jumps if checked in unsorted row order.
+# Chronologically: -50% then 1.01%. If shuffled to [200, 100, 101] row order
+# before sorting, pct_change would see: (100-200)/200=-50%, (101-100)/100=1%
+# But if unsorted with different row order, creates false jumps.
+UNSORTED_TRAP = ohlcv(
+    [
+        ("2024-01-02", 200.0, 210.0, 195.0, 200.0, 1000.0),
+        ("2024-01-03", 99.0, 102.0, 98.0, 100.0, 1100.0),
+        ("2024-01-04", 100.0, 105.0, 99.0, 101.0, 1200.0),
     ]
 )
 
@@ -42,6 +53,7 @@ class TestCheckOhlcv:
         broken.loc[pd.Timestamp("2024-01-03"), "close"] = 999.0
         report = check_ohlcv(broken, dataset="prices", market="KR")
         assert report.severity == FAIL
+        assert any(issue.check == "ohlc_logic" for issue in report.issues)
 
     def test_negative_volume_fails(self):
         broken = CLEAN.copy()
@@ -72,6 +84,46 @@ class TestCheckOhlcv:
         gapped = CLEAN.drop(index=pd.Timestamp("2024-01-03"))
         report = check_ohlcv(gapped, dataset="prices", market="KR")
         assert any(issue.check == "missing_trading_day" for issue in report.issues)
+
+    def test_unsorted_input_does_not_produce_a_false_jump(self):
+        # UNSORTED_TRAP data: chronologically moves are -50% then +1%, both in
+        # bounds. Shuffled to [idx 2, 0, 1] (row order 101->200->100), pct_change
+        # would compute (200-101)/101=98%, (100-200)/200=-50%, triggering false
+        # price_jump. After sorting by index, chronological order is restored and
+        # no false jump is detected.
+        shuffled = UNSORTED_TRAP.iloc[[2, 0, 1]]
+        report = check_ohlcv(shuffled, dataset="prices", market="KR")
+        assert not any(issue.check == "price_jump" for issue in report.issues)
+
+    def test_close_below_low_fails(self):
+        broken = CLEAN.copy()
+        broken.loc[pd.Timestamp("2024-01-03"), "close"] = 1.0
+        report = check_ohlcv(broken, dataset="prices", market="KR")
+        assert any(issue.check == "ohlc_logic" for issue in report.issues)
+
+    def test_open_above_high_fails(self):
+        broken = CLEAN.copy()
+        broken.loc[pd.Timestamp("2024-01-03"), "open"] = 999.0
+        report = check_ohlcv(broken, dataset="prices", market="KR")
+        assert any(issue.check == "ohlc_logic" for issue in report.issues)
+
+    def test_open_below_low_fails(self):
+        broken = CLEAN.copy()
+        broken.loc[pd.Timestamp("2024-01-03"), "open"] = 1.0
+        report = check_ohlcv(broken, dataset="prices", market="KR")
+        assert any(issue.check == "ohlc_logic" for issue in report.issues)
+
+    def test_non_positive_close_fails(self):
+        broken = CLEAN.copy()
+        broken.loc[pd.Timestamp("2024-01-03"), ["open", "high", "low", "close"]] = [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ]
+        report = check_ohlcv(broken, dataset="prices", market="KR")
+        assert any(issue.check == "non_positive_price" for issue in report.issues)
+        assert report.severity == FAIL
 
     def test_empty_frame_fails_loudly(self):
         report = check_ohlcv(ohlcv([]), dataset="prices", market="KR")

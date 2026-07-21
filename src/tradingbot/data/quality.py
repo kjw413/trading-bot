@@ -53,6 +53,10 @@ def check_ohlcv(
     if frame.empty:
         return QualityReport(dataset, [QualityIssue("empty", FAIL, "No rows", 0)])
 
+    # A validator must not assume its input is ordered — an unsorted frame
+    # would make pct_change compare economically unrelated rows.
+    frame = frame.sort_index()
+
     duplicates = int(frame.index.duplicated().sum())
     if duplicates:
         issues.append(QualityIssue("duplicate_date", FAIL, "Duplicate dates", duplicates))
