@@ -18,6 +18,10 @@ v1 이후 [`trading_bot_agentic_ai_execution_plan_260714.md`](trading_bot_agenti
 - 연구·검증 프레임워크(`research/`): forward return 라벨, Spearman IC,
   분위수 분석, Walk-forward, 실험 기록, 팩터 채택 게이트와
   `research report` CLI — M10
+- 가치투자 프레임워크(`valuation/`, `docs/valuation-framework.md`): FCFF DCF
+  엔진(말기가치 g 클램프), CAPM식 요구수익률·IRR·MaxBuyPrice, 시나리오
+  3-튜플(보수·기준·낙관), 역산 DCF(내포 성장률), 4구간 의사결정 신호와
+  3조건 추가매수 게이트 — 순수 코어(네트워크 0). 설계: `docs/superpowers/`
 
 ### v1 완료 항목
 
