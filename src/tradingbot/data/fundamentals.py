@@ -154,6 +154,8 @@ def update_fundamentals(
                 try:
                     payload = fetcher(corp_code, year, report_code)
                     frame = parse_financials(payload, symbol)
+                except MissingCredentialsError:
+                    raise
                 except Exception:
                     LOGGER.exception(
                         "Fundamentals fetch failed for %s %s %s; skipping",

@@ -159,3 +159,18 @@ class TestUpdateFundamentals:
             fetcher=flaky,
         )
         assert written == 1
+
+    def test_missing_api_key_propagates_not_swallowed(self, store):
+        def keyless(corp_code, year, report_code):
+            raise MissingApiKeyError("DART_API_KEY is not set.")
+
+        # A missing key is a batch-level config problem: it must surface, not be
+        # absorbed once per (symbol, year, report) into a silent zero-row result.
+        with pytest.raises(MissingApiKeyError):
+            update_fundamentals(
+                store,
+                symbols=["005930"],
+                corp_codes={"005930": "00126380"},
+                years=[2023],
+                fetcher=keyless,
+            )
