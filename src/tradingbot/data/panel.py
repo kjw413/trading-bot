@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 import pandas as pd
 
@@ -10,6 +10,13 @@ from tradingbot.engine.calendar import get_calendar
 
 PANEL_KEY_COLUMNS = ["date", "symbol"]
 PANEL_META_COLUMNS = ["source", "available_at", "ingested_at", "data_version"]
+
+
+def _values_equal(left: Any, right: Any) -> bool:
+    """NaN-tolerant equality: two missing values are the same value."""
+    if pd.isna(left) and pd.isna(right):
+        return True
+    return bool(left == right)
 
 
 def next_trading_day_availability(dates: pd.Series, market: str) -> pd.Series:
@@ -78,11 +85,16 @@ class PanelStore:
     def append(self, frame: pd.DataFrame) -> int:
         """Merge rows into their year partitions; (date, symbol) keeps the newest.
 
-        Returns the number of rows actually added, not the size of the
-        incoming frame: a re-run over already-collected data must report 0,
-        not the row count it happened to re-fetch, or an operator watching
-        the log would think collection is still making progress when it
-        is not."""
+        Returns the number of rows actually added or changed, not the size of
+        the incoming frame: a re-run over already-collected, unchanged data
+        must report 0, not the row count it happened to re-fetch, or an
+        operator watching the log would think collection is still making
+        progress when it is not. A row whose (date, symbol) key already
+        exists but whose value changed (e.g. a DART restatement correcting a
+        prior figure) counts as changed, not as 0 -- silently reporting 0
+        there would hide real data being overwritten. The comparison ignores
+        `ingested_at`, since that column is a fresh timestamp on every run
+        and would otherwise make every re-collected row look changed."""
         if frame.empty:
             return 0
         missing = [c for c in PANEL_KEY_COLUMNS + PANEL_META_COLUMNS if c not in frame.columns]
@@ -96,18 +108,33 @@ class PanelStore:
         added = 0
         for year, chunk in incoming.groupby(incoming["date"].dt.year):
             path = self.path(int(year))
+            comparable = [c for c in chunk.columns if c != "ingested_at"]
             if path.exists():
                 existing = pd.read_parquet(path)
                 combined = pd.concat([existing, chunk], ignore_index=True)
-                before = len(existing)
+                before_keys = existing.set_index(PANEL_KEY_COLUMNS)
+                unchanged = 0
+                for _, row in chunk.iterrows():
+                    key = (row["date"], row["symbol"])
+                    if key not in before_keys.index:
+                        continue
+                    prior = before_keys.loc[key]
+                    if isinstance(prior, pd.DataFrame):  # duplicate keys in a corrupt file
+                        prior = prior.iloc[-1]
+                    if all(
+                        _values_equal(prior.get(c), row[c])
+                        for c in comparable
+                        if c in before_keys.columns
+                    ):
+                        unchanged += 1
+                added += len(chunk) - unchanged
             else:
                 combined = chunk
-                before = 0
+                added += len(chunk)
             combined = combined.drop_duplicates(subset=PANEL_KEY_COLUMNS, keep="last")
             combined = combined.sort_values(PANEL_KEY_COLUMNS).reset_index(drop=True)
             path.parent.mkdir(parents=True, exist_ok=True)
             combined.to_parquet(path)
-            added += len(combined) - before
         return added
 
     def read(

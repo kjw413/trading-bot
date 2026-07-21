@@ -110,6 +110,32 @@ class TestPanelStoreRoundTrip:
         assert first == 1
         assert second == 0
 
+    def test_append_counts_changed_rows_not_just_new_ones(self, store):
+        first = tagged(make_frame([("2024-01-02", "005930", 1.0)]), "2024-01-03")
+        assert store.append(first) == 1
+
+        # Same key, corrected value — a restatement. The operator must see that
+        # something actually changed, not a silent zero.
+        revised = tagged(make_frame([("2024-01-02", "005930", 9.0)]), "2024-01-03")
+        assert store.append(revised) == 1
+        assert store.read().loc[0, "value"] == 9.0
+
+    def test_append_ignores_ingested_at_when_counting_changes(self, store):
+        frame = tagged(make_frame([("2024-01-02", "005930", 1.0)]), "2024-01-03")
+        assert store.append(frame) == 1
+
+        # Re-collecting identical data stamps a new ingested_at; that alone is
+        # not a change and must not be reported as one.
+        resent = tagged(make_frame([("2024-01-02", "005930", 1.0)]), "2024-01-03")
+        assert store.append(resent) == 0
+
+    def test_append_treats_missing_values_as_equal(self, store):
+        rows = make_frame([("2024-01-02", "005930", float("nan"))])
+        assert store.append(tagged(rows, "2024-01-03")) == 1
+        # NaN == NaN must count as unchanged, or a field that is legitimately
+        # empty would report as changed on every single run.
+        assert store.append(tagged(make_frame([("2024-01-02", "005930", float("nan"))]), "2024-01-03")) == 0
+
     def test_read_missing_dataset_is_empty_not_error(self, tmp_path):
         empty_store = PanelStore(tmp_path, "nothing", "KR")
         assert empty_store.read().empty
