@@ -72,5 +72,4 @@ min_monotonicity = 0.60  # 인접 분위 쌍 중 단조 증가 비율
 kospi = "KS11"
 kosdaq = "KQ11"
 usdkrw = "USD/KRW"
-kr_treasury_3y = "KR3YT=RR"
 vix = "VIX"

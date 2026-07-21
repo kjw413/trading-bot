@@ -63,6 +63,20 @@ class TestUpdateMacro:
         assert update_macro(store, series=["kospi"], start=date(2024, 1, 1), fetcher=empty_fetcher) == 0
         assert store.read().empty
 
+    def test_one_failing_series_does_not_stop_the_rest(self, store):
+        def flaky(series, start, end=None):
+            if series == "kospi":
+                raise RuntimeError("dead ticker")
+            return fake_fetcher(series, start, end)
+
+        # A single dead series must not take down the whole macro source —
+        # a batch that reports red every day trains the operator to ignore it.
+        written = update_macro(
+            store, series=["kospi", "kosdaq"], start=date(2024, 1, 1), fetcher=flaky
+        )
+        assert written == 2
+        assert set(store.read()["symbol"]) == {"KOSDAQ"}
+
     def test_incremental_resumes_after_last_stored_date(self, store):
         captured: list[date] = []
 

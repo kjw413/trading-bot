@@ -5,6 +5,7 @@ from typing import Callable, Sequence
 
 import pandas as pd
 
+from tradingbot.data.credentials import MissingCredentialsError
 from tradingbot.data.panel import PanelStore, attach_metadata, next_trading_day_availability
 from tradingbot.utils.log import get_logger
 
@@ -16,11 +17,13 @@ MACRO_DEFAULT_START = date(2010, 1, 1)
 
 # Series name -> FinanceDataReader symbol. Used as regime filters and risk
 # context, not as per-stock factors.
+#
+# kr_treasury_3y (KR3YT=RR) was dropped: the Yahoo-backed ticker 404s and no
+# equivalent 3-year KR treasury yield was found in FinanceDataReader.
 MACRO_SERIES: dict[str, str] = {
     "kospi": "KS11",
     "kosdaq": "KQ11",
     "usdkrw": "USD/KRW",
-    "kr_treasury_3y": "KR3YT=RR",
     "vix": "VIX",
 }
 
@@ -71,7 +74,13 @@ def update_macro(
     for name in names:
         last = store.last_date(name)
         fetch_start = last + timedelta(days=1) if last else (start or MACRO_DEFAULT_START)
-        frame = fetcher(name, fetch_start, end)
+        try:
+            frame = fetcher(name, fetch_start, end)
+        except MissingCredentialsError:
+            raise
+        except Exception:
+            LOGGER.exception("Macro collection failed for %s; skipping this series", name)
+            continue
         if frame.empty:
             LOGGER.info("Macro series %s returned no new rows from %s", name, fetch_start)
             continue
