@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Protocol
+from pathlib import Path
+from typing import Protocol, Sequence
 
 import pandas as pd
 
@@ -21,12 +22,35 @@ class PriceDataStore(Protocol):
         ...
 
 
-class ParquetDataStore:
-    """PriceDataStore over the local Parquet cache. No network access."""
+class PanelDataStore(Protocol):
+    """Point-in-time access to the non-price panels the pipeline collects."""
 
-    def __init__(self, cache: ParquetCache, market: str) -> None:
+    def panel(
+        self,
+        dataset: str,
+        as_of: date,
+        symbols: Sequence[str] | None = None,
+        *,
+        start: date | None = None,
+    ) -> pd.DataFrame:
+        ...
+
+
+class ParquetDataStore:
+    """Local-only store: Parquet price cache plus the point-in-time panels.
+
+    `processed_root` is optional so existing price-only callers keep working;
+    without it the panel methods return empty results rather than failing,
+    which lets a price-only factor run on a machine that has never run the
+    data pipeline.
+    """
+
+    def __init__(
+        self, cache: ParquetCache, market: str, processed_root: str | Path | None = None
+    ) -> None:
         self.cache = cache
         self.market = market.upper()
+        self.processed_root = Path(processed_root) if processed_root else None
 
     def price_history(self, symbol: str, end: date, lookback: int) -> pd.DataFrame:
         df = self.cache.read(self.market, symbol)
@@ -36,6 +60,47 @@ class ParquetDataStore:
     def close_series(self, symbol: str) -> pd.Series:
         """Full close history for research labels (look-ahead by design)."""
         return self.cache.read(self.market, symbol)["close"].dropna()
+
+    def panel(
+        self,
+        dataset: str,
+        as_of: date,
+        symbols: Sequence[str] | None = None,
+        *,
+        start: date | None = None,
+    ) -> pd.DataFrame:
+        """Panel rows knowable at `as_of`. Empty when the dataset is absent."""
+        if self.processed_root is None:
+            return pd.DataFrame()
+        from tradingbot.data.panel import PanelStore
+
+        return PanelStore(self.processed_root, dataset, self.market).read(
+            as_of=as_of, start=start, symbols=symbols
+        )
+
+    def panel_latest(
+        self, dataset: str, as_of: date, symbols: Sequence[str], column: str
+    ) -> pd.Series:
+        """Each symbol's most recent knowable value of `column`.
+
+        Symbols with no observation get NaN so callers can tell "no data" from
+        a real value.
+        """
+        result = pd.Series(
+            [float("nan")] * len(symbols),
+            index=[str(s).upper() for s in symbols],
+            dtype=float,
+        )
+        frame = self.panel(dataset, as_of, symbols)
+        if frame.empty:
+            return result
+        if column not in frame.columns:
+            raise KeyError(f"Panel {dataset} has no column {column}: {list(frame.columns)}")
+        newest = frame.sort_values("date").groupby("symbol")[column].last()
+        for symbol, value in newest.items():
+            if symbol in result.index:
+                result.loc[symbol] = float(value)
+        return result
 
 
 class ResearchDataStore(PriceDataStore, Protocol):
