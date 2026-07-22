@@ -20,6 +20,14 @@ v1 이후 [`trading_bot_agentic_ai_execution_plan_260714.md`](trading_bot_agenti
   `research report` CLI — M10
 - 자동 데이터 파이프라인(`data/`): Point-in-Time 패널 저장소, KRX 수급·밸류에이션,
   DART 재무, 시장·거시 시리즈 수집과 품질 검사, `data pipeline` 일일 배치 — M7
+- 가치투자 프레임워크(`valuation/`, `docs/valuation-framework.md`): FCFF DCF
+  엔진(말기가치 g 클램프), CAPM식 요구수익률·IRR·MaxBuyPrice, 시나리오
+  3-튜플(보수·기준·낙관), 역산 DCF(내포 성장률), 4구간 의사결정 신호와
+  3조건 추가매수 게이트 — 순수 코어(네트워크 0). 설계: `docs/superpowers/`
+
+두 갈래는 `data/fundamentals.py`의 DART 클라이언트를 공유합니다. 밸류에이션은
+`FundamentalRecord`(FCFF 입력)로, 팩터 연구는 `data/fundamentals_panel.py`가
+Point-in-Time 패널 행으로 각각 소비합니다 — 조회 경로·발표일 판정은 한 벌입니다.
 
 ### v1 완료 항목
 

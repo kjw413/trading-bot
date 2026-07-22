@@ -9,7 +9,7 @@ from typing import Any, Callable, Sequence
 
 from tradingbot.config import resolve_project_path
 from tradingbot.data.credentials import MissingCredentialsError
-from tradingbot.data.fundamentals import update_fundamentals
+from tradingbot.data.fundamentals_panel import update_fundamentals
 from tradingbot.data.flows import update_flows
 from tradingbot.data.macro import update_macro
 from tradingbot.data.panel import PanelStore
@@ -96,7 +96,7 @@ def _default_collectors(
         return update_valuation(PanelStore(processed_root, "valuation", market), symbols=symbols)
 
     def fundamentals(**_: Any) -> int:
-        from tradingbot.data.fundamentals import dart_api_key
+        from tradingbot.data.fundamentals_panel import dart_api_key
 
         dart_api_key()  # raises MissingApiKeyError -> reported as skipped
         this_year = date.today().year
