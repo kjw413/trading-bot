@@ -88,3 +88,19 @@ class TestPanelLatest:
     def test_empty_dataset_yields_all_nan(self, store):
         latest = store.panel_latest("nope", date(2024, 1, 4), ["005930"], "value")
         assert np.isnan(latest.loc["005930"])
+
+    def test_missing_value_on_the_newest_row_is_nan_not_the_older_value(self, store):
+        # Sparse panels are normal: KRX publishes no PER for a loss-making
+        # quarter. Returning last quarter's number as if it were current would
+        # be a silent substitution of stale data.
+        panel = PanelStore(store.processed_root, "flows", "KR")
+        panel.append(
+            attach_metadata(
+                panel_frame([("2024-01-05", "005930", float("nan"))]),
+                source="test",
+                available_at=pd.Timestamp("2024-01-08"),
+                data_version="1",
+            )
+        )
+        latest = store.panel_latest("flows", date(2024, 1, 8), ["005930"], "value")
+        assert np.isnan(latest.loc["005930"])

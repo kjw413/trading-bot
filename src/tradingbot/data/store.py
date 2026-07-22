@@ -7,6 +7,7 @@ from typing import Protocol, Sequence
 import pandas as pd
 
 from tradingbot.data.cache import ParquetCache
+from tradingbot.data.panel import PanelStore
 
 
 class PriceDataStore(Protocol):
@@ -72,8 +73,6 @@ class ParquetDataStore:
         """Panel rows knowable at `as_of`. Empty when the dataset is absent."""
         if self.processed_root is None:
             return pd.DataFrame()
-        from tradingbot.data.panel import PanelStore
-
         return PanelStore(self.processed_root, dataset, self.market).read(
             as_of=as_of, start=start, symbols=symbols
         )
@@ -96,9 +95,12 @@ class ParquetDataStore:
             return result
         if column not in frame.columns:
             raise KeyError(f"Panel {dataset} has no column {column}: {list(frame.columns)}")
-        newest = frame.sort_values("date").groupby("symbol")[column].last()
-        for symbol, value in newest.items():
-            if symbol in result.index:
+        # Select the newest row per symbol positionally, then read the column
+        # from that row. This preserves NaN on the newest row; GroupBy.last()
+        # with default skipna=True would return the last non-null value instead.
+        newest_rows = frame.sort_values(["symbol", "date"]).groupby("symbol").tail(1)
+        for symbol, value in zip(newest_rows["symbol"], newest_rows[column]):
+            if symbol in result.index and not pd.isna(value):
                 result.loc[symbol] = float(value)
         return result
 
