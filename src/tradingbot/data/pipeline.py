@@ -187,7 +187,9 @@ def run_pipeline(
                 attempts=attempts,
                 no_retry=(MissingCredentialsError,),
             )
-            message = _panel_quality_message(processed, name, market.upper())
+            message = _panel_quality_message(
+                processed, name, market.upper(), symbols=active_symbols, cache_root=cache
+            )
             results.append(SourceResult(name, STATUS_OK, int(rows), message))
             LOGGER.info("Pipeline source %s collected %s rows%s", name, rows, f" ({message})" if message else "")
         except MissingCredentialsError as exc:
@@ -206,12 +208,18 @@ def run_pipeline(
     return result
 
 
-def _panel_quality_message(processed_root: Path, dataset: str, market: str) -> str:
-    """Quality summary for a freshly collected panel, or '' when not applicable.
+def _panel_quality_message(
+    processed_root: Path,
+    dataset: str,
+    market: str,
+    *,
+    symbols: Sequence[str] | None = None,
+    cache_root: Path | None = None,
+) -> str:
+    """Quality summary for a freshly collected source, or '' when not applicable.
 
-    Only FAIL-severity issues (duplicate keys, availability inversions) are
-    surfaced here, matching the FAIL-only logging already used for the
-    `prices` collector's OHLCV check. WARN-level issues (e.g. an "empty"
+    Only FAIL-severity issues (duplicate keys, availability inversions, OHLC
+    bounds violations) are surfaced here. WARN-level issues (e.g. an "empty"
     panel before a dataset has ever collected anything, or a missing
     trading day) are expected transient states, not operator-actionable
     batch problems, and would otherwise make every early run of a fresh
@@ -220,7 +228,7 @@ def _panel_quality_message(processed_root: Path, dataset: str, market: str) -> s
     from tradingbot.data.quality import check_panel
 
     if dataset == "prices":
-        return ""
+        return _price_quality_message(cache_root, symbols, market)
     try:
         panel = PanelStore(processed_root, dataset, market).read()
     except Exception:
@@ -232,3 +240,37 @@ def _panel_quality_message(processed_root: Path, dataset: str, market: str) -> s
     return f"quality={report.severity}: " + "; ".join(
         f"{issue.check}({issue.count})" for issue in report.issues
     )
+
+
+def _price_quality_message(
+    cache_root: Path | None, symbols: Sequence[str] | None, market: str
+) -> str:
+    """FAIL-severity OHLCV issues in each symbol's current cache file.
+
+    Re-reads the cache from disk rather than reusing the frame the `prices`
+    collector saw in-flight: a symbol whose fetch failed or was skipped this
+    run (network hiccup, rate limit, a test-injected collector that never
+    touches the cache) keeps whatever was already written to disk, and the
+    operator still needs to see a pre-existing quality problem, not just one
+    introduced by this run's fetch."""
+    from tradingbot.data.cache import ParquetCache
+    from tradingbot.data.quality import FAIL, check_ohlcv
+
+    if not symbols or cache_root is None:
+        return ""
+    cache = ParquetCache(cache_root)
+    problems: list[str] = []
+    for symbol in symbols:
+        try:
+            frame = cache.read(market, symbol)
+        except Exception:
+            continue
+        report = check_ohlcv(frame, dataset=f"prices/{symbol}", market=market)
+        fails = [issue for issue in report.issues if issue.severity == FAIL]
+        if fails:
+            problems.append(
+                f"{symbol} " + "; ".join(f"{issue.check}({issue.count})" for issue in fails)
+            )
+    if not problems:
+        return ""
+    return "quality=fail: " + "; ".join(problems)

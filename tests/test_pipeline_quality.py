@@ -59,3 +59,48 @@ def test_duplicate_keys_surface_in_the_result_message(config, tmp_path):
     assert source.status == "ok"
     assert "quality=fail" in source.message
     assert "duplicate_key" in source.message
+
+
+def write_bad_price_cache(cache_root, market="KR", symbol="005930"):
+    """Write an OHLCV file with a FAIL-severity bounds violation directly to
+    the cache, bypassing any network fetch. This is network-free and mirrors
+    the real scenario the reviewer found: a cache file already on disk with
+    bad rows, regardless of whether this run's collector re-fetches it."""
+    from tradingbot.data.cache import ParquetCache
+
+    index = pd.bdate_range("2024-01-02", periods=2)
+    frame = pd.DataFrame(
+        {
+            "open": [10.0, 10.0],
+            "high": [11.0, 9.0],  # second row: high < low -> ohlc_logic FAIL
+            "low": [9.0, 11.0],
+            "close": [10.0, 10.0],
+            "volume": [100.0, 100.0],
+        },
+        index=index,
+    )
+    ParquetCache(cache_root).write(market, symbol, frame)
+
+
+def test_clean_price_cache_reports_no_quality_message(config, tmp_path):
+    result = run_pipeline(
+        config, market="KR", symbols=["005930"], collectors={"prices": lambda **_: 1}
+    )
+    assert result.results[0].message == ""
+
+
+def test_price_ohlc_violation_surfaces_in_the_result_message(config, tmp_path):
+    write_bad_price_cache(tmp_path / "cache")
+
+    # A fake collector that never touches the cache: the quality problem must
+    # surface even when this run's "collection" did nothing but confirm the
+    # cache is present, since a symbol whose fetch is skipped or fails still
+    # keeps whatever bad data was already cached.
+    result = run_pipeline(
+        config, market="KR", symbols=["005930"], collectors={"prices": lambda **_: 0}
+    )
+    source = result.results[0]
+    assert source.status == "ok"
+    assert "quality=fail" in source.message
+    assert "005930" in source.message
+    assert "ohlc_logic" in source.message

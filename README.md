@@ -27,6 +27,11 @@ v1 이후 [`trading_bot_agentic_ai_execution_plan_260714.md`](trading_bot_agenti
 - 테마 유니버스와 팩터 확장(`data/universe.py`, `factors/{flow,value,transform}.py`,
   `research/regime.py`): 날짜별 테마 멤버, 수급·가치 팩터, 표준화·가중결합,
   200일선 국면 필터와 `research report --theme` — M8/M9
+  - `--theme`/`--factors` 없이 `research report`를 실행하면 전역 등록된 모든
+    팩터(`list_factors()`)가 `config/research.toml`의 유니버스를 대상으로
+    돌아갑니다. 원본 데이터를 아직 수집하지 않은 팩터(예: `data pipeline`을
+    돌리지 않은 유니버스에서의 수급·가치 팩터)는 NaN을 내고 게이트에서
+    FAIL 처리됩니다 — 이는 팩터가 기각된 것이 아니라 데이터가 없다는 뜻입니다.
 
 두 갈래는 `data/fundamentals.py`의 DART 클라이언트를 공유합니다. 밸류에이션은
 `FundamentalRecord`(FCFF 입력)로, 팩터 연구는 `data/fundamentals_panel.py`가
