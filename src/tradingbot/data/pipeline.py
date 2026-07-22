@@ -84,7 +84,11 @@ def with_retry(
 
 
 def _default_collectors(
-    processed_root: Path, symbols: Sequence[str], market: str, fundamental_years: int
+    processed_root: Path,
+    symbols: Sequence[str],
+    market: str,
+    fundamental_years: int,
+    cache_root: Path,
 ) -> dict[str, Callable[..., int]]:
     def macro(**_: Any) -> int:
         return update_macro(PanelStore(processed_root, "macro", market))
@@ -96,15 +100,19 @@ def _default_collectors(
         return update_valuation(PanelStore(processed_root, "valuation", market), symbols=symbols)
 
     def fundamentals(**_: Any) -> int:
+        from tradingbot.data.corp_codes import CorpCodeStore
         from tradingbot.data.fundamentals_panel import dart_api_key
 
         dart_api_key()  # raises MissingApiKeyError -> reported as skipped
         this_year = date.today().year
         years = list(range(this_year - fundamental_years + 1, this_year + 1))
+        corp_codes = CorpCodeStore(cache_root).corp_code_for(symbols)
+        if not corp_codes:
+            LOGGER.warning("No DART corp_code resolved for any of %s symbols", len(symbols))
         return update_fundamentals(
             PanelStore(processed_root, "fundamentals", market),
             symbols=symbols,
-            corp_codes={},
+            corp_codes=corp_codes,
             years=years,
         )
 
@@ -131,11 +139,18 @@ def run_pipeline(
     logs = Path(log_root or settings.get("log_dir", "state/pipeline_log"))
     if not logs.is_absolute():
         logs = resolve_project_path(logs)
+    cache = Path(config.get("data", {}).get("cache_dir", "data/cache"))
+    if not cache.is_absolute():
+        cache = resolve_project_path(cache)
 
     active_symbols = list(symbols) if symbols else list(settings.get("symbols", []))
     attempts = int(settings.get("retry_attempts", 3))
     active = collectors or _default_collectors(
-        processed, active_symbols, market.upper(), int(settings.get("fundamental_years", 3))
+        processed,
+        active_symbols,
+        market.upper(),
+        int(settings.get("fundamental_years", 3)),
+        cache,
     )
 
     started = datetime.now(timezone.utc)
