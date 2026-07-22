@@ -132,3 +132,25 @@ class TestNetBuyIntensityFactor:
     def test_empty_universe(self, store):
         result = NetBuyIntensityFactor("foreign", 20).compute(AS_OF, [], store)
         assert result.empty
+
+    def test_partial_flow_history_is_nan_not_a_shrunken_score(self, store):
+        # Only 5 days of flows but 20 days of prices: summing 5 days of buying
+        # over 20 days of turnover would look like weak accumulation rather
+        # than missing data.
+        write_flows(store, "AAA", [100.0] * 5)
+        write_prices(store, "AAA", [10.0] * 20, volume=100.0)
+        result = NetBuyIntensityFactor("foreign", 20).compute(AS_OF, ["AAA"], store)
+        assert np.isnan(result.loc["AAA"])
+
+    def test_partial_price_history_is_nan(self, store):
+        write_flows(store, "AAA", [100.0] * 20)
+        write_prices(store, "AAA", [10.0] * 5, volume=100.0)
+        result = NetBuyIntensityFactor("foreign", 20).compute(AS_OF, ["AAA"], store)
+        assert np.isnan(result.loc["AAA"])
+
+    def test_individual_investor_variant(self, store):
+        write_flows(store, "AAA", [100.0] * 20)
+        write_prices(store, "AAA", [10.0] * 20, volume=100.0)
+        result = NetBuyIntensityFactor("individual", 20).compute(AS_OF, ["AAA"], store)
+        assert result.name == "individual_net_20d"
+        assert not np.isnan(result.loc["AAA"])

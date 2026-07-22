@@ -32,6 +32,12 @@ class NetBuyIntensityFactor(Factor):
 
     Positive means the investor group was a net buyer relative to how much of
     the stock changed hands.
+
+    A symbol is only scored if it has a full `days`-long window in both
+    flows and prices. A partial flow window paired with a full price window
+    (or vice versa) would mismatch the numerator's and denominator's periods
+    and silently understate or overstate the ratio, so such symbols are
+    left as NaN rather than scored on a shrunken window.
     """
 
     def __init__(self, investor: str, days: int) -> None:
@@ -59,11 +65,15 @@ class NetBuyIntensityFactor(Factor):
 
         for symbol in values.index:
             rows = flows[flows["symbol"] == symbol].sort_values("date").tail(self.days)
-            if rows.empty:
+            if len(rows) < self.days:
+                # A partial flow window over a full price window would understate
+                # the ratio — report nothing rather than a quietly biased score.
                 continue
             try:
                 prices = data_store.price_history(symbol, dt, self.days)
             except (FileNotFoundError, KeyError):
+                continue
+            if len(prices) < self.days:
                 continue
             traded_value = float((prices["close"] * prices["volume"]).sum())
             if traded_value <= 0:
