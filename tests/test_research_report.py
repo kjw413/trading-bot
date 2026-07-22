@@ -63,3 +63,9 @@ def test_cli_parser_wires_research_report():
     args = parser.parse_args(["research", "report", "--factors", "momentum_3m"])
     assert args.handler is cmd_research_report
     assert args.factors == ["momentum_3m"]
+
+
+def test_cli_parser_accepts_theme():
+    parser = build_parser()
+    args = parser.parse_args(["research", "report", "--theme", "ai_semiconductor"])
+    assert args.theme == "ai_semiconductor"

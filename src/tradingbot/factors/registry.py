@@ -31,3 +31,12 @@ register_factor("momentum_3m", lambda: MomentumFactor(3))
 register_factor("momentum_6m", lambda: MomentumFactor(6))
 register_factor("momentum_12m", lambda: MomentumFactor(12))
 register_factor("momentum_12m_ex1m", lambda: MomentumFactor(12, skip_months=1))
+
+from tradingbot.factors.flow import NetBuyIntensityFactor
+from tradingbot.factors.value import BookToMarketFactor, EarningsYieldFactor
+
+register_factor("foreign_net_20d", lambda: NetBuyIntensityFactor("foreign", 20))
+register_factor("foreign_net_60d", lambda: NetBuyIntensityFactor("foreign", 60))
+register_factor("institution_net_20d", lambda: NetBuyIntensityFactor("institution", 20))
+register_factor("earnings_yield", lambda: EarningsYieldFactor())
+register_factor("book_to_market", lambda: BookToMarketFactor())

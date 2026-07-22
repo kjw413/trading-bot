@@ -357,6 +357,9 @@ flowchart TD
 | PIT 패널 저장소 | `src/tradingbot/data/panel.py` |
 | 수급·밸류에이션·재무·거시 수집 | `src/tradingbot/data/{flows,valuation,fundamentals,macro}.py` |
 | 데이터 품질 검사 / 일일 배치 | `src/tradingbot/data/quality.py`, `data/pipeline.py` |
+| 테마 유니버스 | `src/tradingbot/data/universe.py` |
+| 수급·가치 팩터 / 표준화 | `src/tradingbot/factors/{flow,value,transform}.py` |
+| 시장 국면 필터 | `src/tradingbot/research/regime.py` |
 
 ## 8. VS Code에서 보는 방법
 

@@ -73,3 +73,12 @@ kospi = "KS11"
 kosdaq = "KQ11"
 usdkrw = "USD/KRW"
 vix = "VIX"
+
+[factor_weights]
+# 종합점수 결합 가중치. 게이트를 통과한 팩터만 여기에 올린다
+# (docs/quant_research_spec.md 5장). 합이 1일 필요는 없다 — 종목별로
+# 존재하는 팩터에 대해 재정규화된다.
+momentum_6m = 0.3
+momentum_12m_ex1m = 0.3
+foreign_net_20d = 0.2
+earnings_yield = 0.2

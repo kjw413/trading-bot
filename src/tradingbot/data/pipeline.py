@@ -90,6 +90,25 @@ def _default_collectors(
     fundamental_years: int,
     cache_root: Path,
 ) -> dict[str, Callable[..., int]]:
+    def prices(**_: Any) -> int:
+        """Refresh the OHLCV cache the factor layer reads."""
+        from tradingbot.data.cache import ParquetCache
+        from tradingbot.data.quality import FAIL, check_ohlcv
+
+        cache = ParquetCache(cache_root)
+        rows = 0
+        for symbol in symbols:
+            try:
+                frame = cache.update(market, symbol)
+            except Exception:
+                LOGGER.exception("Price update failed for %s; skipping", symbol)
+                continue
+            report = check_ohlcv(frame, dataset=f"prices/{symbol}", market=market)
+            if report.severity == FAIL:
+                LOGGER.error("Price quality check failed for %s: %s", symbol, report.issues)
+            rows += len(frame)
+        return rows
+
     def macro(**_: Any) -> int:
         return update_macro(PanelStore(processed_root, "macro", market))
 
@@ -116,7 +135,13 @@ def _default_collectors(
             years=years,
         )
 
-    return {"macro": macro, "flows": flows, "valuation": valuation, "fundamentals": fundamentals}
+    return {
+        "prices": prices,
+        "macro": macro,
+        "flows": flows,
+        "valuation": valuation,
+        "fundamentals": fundamentals,
+    }
 
 
 def run_pipeline(
@@ -162,8 +187,9 @@ def run_pipeline(
                 attempts=attempts,
                 no_retry=(MissingCredentialsError,),
             )
-            results.append(SourceResult(name, STATUS_OK, int(rows), ""))
-            LOGGER.info("Pipeline source %s collected %s rows", name, rows)
+            message = _panel_quality_message(processed, name, market.upper())
+            results.append(SourceResult(name, STATUS_OK, int(rows), message))
+            LOGGER.info("Pipeline source %s collected %s rows%s", name, rows, f" ({message})" if message else "")
         except MissingCredentialsError as exc:
             results.append(SourceResult(name, STATUS_SKIPPED, 0, str(exc)))
             LOGGER.warning("Pipeline source %s skipped: %s", name, exc)
@@ -178,3 +204,31 @@ def run_pipeline(
         json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
     )
     return result
+
+
+def _panel_quality_message(processed_root: Path, dataset: str, market: str) -> str:
+    """Quality summary for a freshly collected panel, or '' when not applicable.
+
+    Only FAIL-severity issues (duplicate keys, availability inversions) are
+    surfaced here, matching the FAIL-only logging already used for the
+    `prices` collector's OHLCV check. WARN-level issues (e.g. an "empty"
+    panel before a dataset has ever collected anything, or a missing
+    trading day) are expected transient states, not operator-actionable
+    batch problems, and would otherwise make every early run of a fresh
+    dataset look broken."""
+    from tradingbot.data.panel import PanelStore
+    from tradingbot.data.quality import check_panel
+
+    if dataset == "prices":
+        return ""
+    try:
+        panel = PanelStore(processed_root, dataset, market).read()
+    except Exception:
+        LOGGER.exception("Quality check could not read panel %s", dataset)
+        return "quality check unavailable"
+    report = check_panel(panel, dataset=dataset)
+    if report.ok:
+        return ""
+    return f"quality={report.severity}: " + "; ".join(
+        f"{issue.check}({issue.count})" for issue in report.issues
+    )

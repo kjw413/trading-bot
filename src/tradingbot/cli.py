@@ -96,6 +96,9 @@ def build_parser() -> argparse.ArgumentParser:
     factor_report_parser.add_argument("--end", default=None, help="Evaluation end (default: validation_end)")
     factor_report_parser.add_argument("--data-root", default=None)
     factor_report_parser.add_argument("--out", default="reports/research")
+    factor_report_parser.add_argument(
+        "--theme", default=None, help="Resolve the universe from config/themes.toml"
+    )
     factor_report_parser.set_defaults(handler=cmd_research_report)
 
     fundamentals_parser = subparsers.add_parser("fundamentals", help="DART fundamentals commands")
@@ -299,14 +302,29 @@ def cmd_research_report(args) -> int:
     from tradingbot.research.walk_forward import walk_forward_windows
 
     research = load_research_config(args.research_config)
-    market = research["universe"]["market"]
-    universe = research["universe"]["symbols"]
     thresholds = load_gate_thresholds(research)
     periods = research["periods"]
     start = _date.fromisoformat(args.start or periods["in_sample_start"])
     end = _date.fromisoformat(args.end or periods["validation_end"])
 
-    store = ParquetDataStore(ParquetCache(resolve_project_path(args.data_root or "data/cache")), market)
+    if args.theme:
+        from tradingbot.data.universe import get_theme, members as theme_members
+
+        theme = get_theme(args.theme)
+        market = theme.market
+        universe = theme_members(theme, end)
+        if not universe:
+            print(f"테마 {args.theme}에 {end} 기준 종목이 없습니다.")
+            return 1
+    else:
+        market = research["universe"]["market"]
+        universe = research["universe"]["symbols"]
+
+    store = ParquetDataStore(
+        ParquetCache(resolve_project_path(args.data_root or "data/cache")),
+        market,
+        processed_root=resolve_project_path("data/processed"),
+    )
     factor_names = args.factors or list_factors()
     factors = [get_factor(name) for name in factor_names]
     dates = month_end_trading_days(market, start, end)
