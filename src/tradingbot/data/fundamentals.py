@@ -140,23 +140,40 @@ class DartClient:
         ]
 
     def disclosure_list(self, corp_code: str, start: date, end: date) -> list[Disclosure]:
-        """Filings for a company between two dates (inclusive)."""
-        response = self._get(
-            "list.json",
-            {
-                "corp_code": corp_code,
-                "bgn_de": start.strftime("%Y%m%d"),
-                "end_de": end.strftime("%Y%m%d"),
-            },
-        )
-        return [
-            Disclosure(
-                rcept_no=row.get("rcept_no", ""),
-                report_name=row.get("report_nm", ""),
-                rcept_dt=_parse_dart_date(row["rcept_dt"]),
+        """Filings for a company between two dates (inclusive).
+
+        DART's list.json paginates at 100 rows per page. A large-cap easily
+        files more than that in a year-long window, so a single unpaginated
+        request can silently miss the specific filing a caller is looking
+        for. This walks every page the response's total_count implies.
+        """
+        disclosures: list[Disclosure] = []
+        page_no = 1
+        while True:
+            response = self._get(
+                "list.json",
+                {
+                    "corp_code": corp_code,
+                    "bgn_de": start.strftime("%Y%m%d"),
+                    "end_de": end.strftime("%Y%m%d"),
+                    "page_no": str(page_no),
+                    "page_count": "100",
+                },
             )
-            for row in response.get("list", [])
-        ]
+            rows = response.get("list", [])
+            disclosures.extend(
+                Disclosure(
+                    rcept_no=row.get("rcept_no", ""),
+                    report_name=row.get("report_nm", ""),
+                    rcept_dt=_parse_dart_date(row["rcept_dt"]),
+                )
+                for row in rows
+            )
+            total_count = int(response.get("total_count", len(disclosures)))
+            if not rows or len(disclosures) >= total_count:
+                break
+            page_no += 1
+        return disclosures
 
 
 def _parse_dart_date(text: str) -> date:

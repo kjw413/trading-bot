@@ -123,6 +123,66 @@ class TestDisclosureList:
         assert disclosure.rcept_no == "20240315000123"
         assert disclosure.rcept_dt == date(2024, 3, 15)
 
+    def test_requests_the_maximum_page_size(self):
+        transport = fake_transport({**LIST_RESPONSE, "total_count": 1})
+        DartClient(api_key="KEY", transport=transport).disclosure_list(
+            "00126380", date(2024, 1, 1), date(2024, 3, 31)
+        )
+        _, params = transport.calls[0]
+        assert params["page_count"] == "100"
+
+    def test_follows_pagination_beyond_the_first_page(self):
+        # A large-cap can easily have more filings in a year than one page
+        # holds; without pagination the target filing silently goes missing.
+        page1 = {
+            "status": "000",
+            "message": "정상",
+            "total_count": 3,
+            "list": [
+                {"rcept_no": "1", "report_nm": "a", "rcept_dt": "20240101"},
+                {"rcept_no": "2", "report_nm": "b", "rcept_dt": "20240102"},
+            ],
+        }
+        page2 = {
+            "status": "000",
+            "message": "정상",
+            "total_count": 3,
+            "list": [{"rcept_no": "3", "report_nm": "c", "rcept_dt": "20240103"}],
+        }
+        pages = {"1": page1, "2": page2}
+        calls: list[dict] = []
+
+        def transport(url: str, params: dict) -> dict:
+            calls.append(dict(params))
+            return pages[params["page_no"]]
+
+        disclosures = DartClient(api_key="KEY", transport=transport).disclosure_list(
+            "00126380", date(2024, 1, 1), date(2024, 3, 31)
+        )
+        assert [d.rcept_no for d in disclosures] == ["1", "2", "3"]
+        assert len(calls) == 2
+
+    def test_missing_total_count_stops_after_first_page(self):
+        # Some responses omit total_count; the loop must not spin forever.
+        transport = fake_transport(
+            {"status": "000", "message": "정상", "list": LIST_RESPONSE["list"]}
+        )
+        disclosures = DartClient(api_key="KEY", transport=transport).disclosure_list(
+            "00126380", date(2024, 1, 1), date(2024, 3, 31)
+        )
+        assert len(disclosures) == 1
+        assert len(transport.calls) == 1
+
+    def test_empty_page_stops_the_loop(self):
+        # A total_count that overstates the real row count (or a server that
+        # simply runs out of rows) must not cause an infinite empty-page loop.
+        transport = fake_transport({"status": "000", "message": "정상", "total_count": 99, "list": []})
+        disclosures = DartClient(api_key="KEY", transport=transport).disclosure_list(
+            "00126380", date(2024, 1, 1), date(2024, 3, 31)
+        )
+        assert disclosures == []
+        assert len(transport.calls) == 1
+
 
 class TestErrors:
     def test_non_success_status_raises(self):
