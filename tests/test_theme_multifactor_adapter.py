@@ -162,6 +162,20 @@ class TestOnBarAdapter:
         strategy.on_bar(ctx, bar("WIN1", REBALANCE_DAY))
         assert ctx.orders == []
 
+    def test_one_symbol_failure_does_not_abort_the_rest_of_the_plan(self, env):
+        ctx = FakeContext()
+
+        def flaky_buy(symbol, qty=None, weight=None, **kwargs):
+            if symbol == "WIN1":
+                raise RuntimeError("no price for WIN1")
+            ctx.orders.append(("BUY", symbol, qty, weight))
+
+        ctx.buy = flaky_buy
+        strategy = make_strategy(env)
+        # A crash on one symbol must not stop WIN2's order or the day's bookkeeping.
+        strategy.on_bar(ctx, bar("WIN1", REBALANCE_DAY))
+        assert ("BUY", "WIN2", None, pytest.approx(0.40)) in ctx.orders
+
     def test_state_round_trip(self, env):
         strategy = make_strategy(env)
         ctx = FakeContext()

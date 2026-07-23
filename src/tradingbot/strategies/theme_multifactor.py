@@ -217,10 +217,19 @@ class ThemeMultifactorStrategy(Strategy):
             )
             if not ledger.claim(signal_id):
                 continue
-            if intent.side == "SELL":
-                ctx.sell(intent.symbol, qty=intent.qty)
-            else:
-                ctx.buy(intent.symbol, weight=intent.weight)
+            try:
+                if intent.side == "SELL":
+                    ctx.sell(intent.symbol, qty=intent.qty)
+                else:
+                    ctx.buy(intent.symbol, weight=intent.weight)
+            except Exception:
+                LOGGER.exception(
+                    "theme_multifactor: order submission failed for %s %s; "
+                    "continuing with the rest of the plan",
+                    intent.side,
+                    intent.symbol,
+                )
+                continue
 
         self._last_rebalance_date = dt
         self._last_targets = dict(targets)

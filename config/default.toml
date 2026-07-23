@@ -23,7 +23,10 @@ finra_taf_cap = 8.30
 slippage_bps = 5
 
 [risk]
-max_position_pct = 0.20
+# theme_multifactor의 자체 집중도 상한(apply_constraints, max_position_weight=0.40)이
+# 이미 0.40을 강제한다. 이 값이 그보다 낮으면 같은 매수가 두 번 거부당한다 — 엔진
+# 리스크 캡은 전략 상한 위의 백스톱이어야지, 더 타이트한 거부권이면 안 된다.
+max_position_pct = 0.40
 max_positions = 5
 max_daily_loss_pct = 0.03
 stop_loss_pct = 0.05
@@ -59,6 +62,6 @@ bear_exposure = 0.5
 # 일일 배치 수집 대상. 작업 스케줄러가 장 마감 후 하루 1회 실행한다.
 processed_dir = "data/processed"
 log_dir = "state/pipeline_log"
-symbols = ["005930", "000660", "035420", "051910", "005380"]
+symbols = ["005930", "000660", "035420", "051910", "005380", "042700", "058470", "240810"]
 fundamental_years = 3
 retry_attempts = 3
