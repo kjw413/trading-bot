@@ -190,6 +190,9 @@ class ThemeMultifactorStrategy(Strategy):
             return
 
         equity = ctx.equity()
+        # Scan the whole theme universe, not just targets ∪ last_targets:
+        # after a state-loss restart last_targets is empty, and an exit for a
+        # held-but-unselected symbol must still be evaluated.
         candidates = sorted(set(universe) | set(self._last_targets))
         current_weights: dict[str, float] = {}
         positions: dict[str, int] = {}
