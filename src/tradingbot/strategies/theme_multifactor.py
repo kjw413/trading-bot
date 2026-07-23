@@ -53,7 +53,7 @@ class ThemeMultifactorStrategy(Strategy):
         "top_n": 3,
         "weighting": "inverse_volatility",
         "volatility_days": 60,
-        "band": 0.001,
+        "band": 0.005,
         "min_factors": 1,
         "bear_exposure": 0.5,
         "regime_series": "kospi",

@@ -148,11 +148,11 @@ class TestOnBarAdapter:
     def test_trims_and_exits_existing_positions(self, env):
         ctx = FakeContext()
         # Holding LOSE (not selected) -> full exit sell before buys.
-        ctx.positions["LOSE"] = Position(symbol="LOSE", qty=50, avg_price=100.0, last_price=100.0)
+        ctx.positions["LOSE"] = Position(symbol="LOSE", qty=500, avg_price=100.0, last_price=100.0)
         strategy = make_strategy(env)
         strategy.on_bar(ctx, bar("WIN1", REBALANCE_DAY))
-        assert ("SELL", "LOSE", 50, None) in ctx.orders
-        sell_index = ctx.orders.index(("SELL", "LOSE", 50, None))
+        assert ("SELL", "LOSE", 500, None) in ctx.orders
+        sell_index = ctx.orders.index(("SELL", "LOSE", 500, None))
         buy_indices = [i for i, order in enumerate(ctx.orders) if order[0] == "BUY"]
         assert all(sell_index < i for i in buy_indices)
 
