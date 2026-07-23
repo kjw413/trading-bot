@@ -21,6 +21,7 @@ from typing import Sequence
 
 from tradingbot.allocation.constraints import apply_constraints
 from tradingbot.allocation.ranking import select_top
+from tradingbot.allocation.rebalance import is_rebalance_date, plan_rebalance
 from tradingbot.allocation.weights import (
     equal_weights,
     inverse_volatility_weights,
@@ -28,11 +29,14 @@ from tradingbot.allocation.weights import (
     scale_weights,
 )
 from tradingbot.config import resolve_project_path
+from tradingbot.data.universe import get_theme, members as theme_members
+from tradingbot.engine.calendar import get_calendar
 from tradingbot.factors.registry import get_factor
 from tradingbot.factors.transform import combine, standardize
 from tradingbot.research.gate import load_research_config
 from tradingbot.research.regime import equity_exposure, market_regime
 from tradingbot.strategies.base import Strategy
+from tradingbot.strategies.signals import SignalLedger, make_signal_id
 from tradingbot.utils.log import get_logger
 
 LOGGER = get_logger(__name__)
@@ -49,7 +53,7 @@ class ThemeMultifactorStrategy(Strategy):
         "top_n": 3,
         "weighting": "inverse_volatility",
         "volatility_days": 60,
-        "band": 0.005,
+        "band": 0.001,
         "min_factors": 1,
         "bear_exposure": 0.5,
         "regime_series": "kospi",
@@ -70,6 +74,10 @@ class ThemeMultifactorStrategy(Strategy):
         self._research: dict | None = None
         self._factor_weights: dict[str, float] | None = None
         self._data_store = None
+        self._last_seen_date: date | None = None
+        self._last_rebalance_date: date | None = None
+        self._last_targets: dict[str, float] = {}
+        self._ledger: SignalLedger | None = None
 
     @property
     def research(self) -> dict:
@@ -158,5 +166,83 @@ class ThemeMultifactorStrategy(Strategy):
             )
         return self._data_store
 
-    def on_bar(self, ctx, bar) -> None:  # pragma: no cover - completed in Task 4
-        raise NotImplementedError("on_bar adapter lands in the next task")
+    def on_bar(self, ctx, bar) -> None:
+        """Once-per-day driver: the engine calls this per symbol, so the
+        first call of a new date does the day's work and the rest no-op.
+
+        Orders are plain MARKET at the CLOSE phase — the engine fills them
+        at the next session open, which is the established no-lookahead flow.
+        """
+        dt = bar.dt
+        if dt == self._last_seen_date:
+            return
+        self._last_seen_date = dt
+
+        calendar = get_calendar(str(self.params["market"]))
+        if not is_rebalance_date(dt, str(self.params["rebalance"]), calendar):
+            return
+
+        theme = get_theme(str(self.params["theme"]), self.params["themes_path"])
+        universe = theme_members(theme, dt)
+        targets = self.generate_targets(dt, universe, self._store())
+        if not targets:
+            self.persist_state()
+            return
+
+        equity = ctx.equity()
+        candidates = sorted(set(universe) | set(self._last_targets))
+        current_weights: dict[str, float] = {}
+        positions: dict[str, int] = {}
+        for symbol in candidates:
+            position = ctx.position(symbol)
+            positions[symbol] = position.qty
+            current_weights[symbol] = (
+                position.market_value / equity if equity > 0 and position.qty > 0 else 0.0
+            )
+
+        plan = plan_rebalance(
+            targets=targets,
+            current_weights=current_weights,
+            positions=positions,
+            band=float(self.params["band"]),
+        )
+        ledger = self._signal_ledger()
+        for intent in plan:
+            target_weight = targets.get(intent.symbol, 0.0)
+            signal_id = make_signal_id(
+                self.name, dt, intent.symbol, intent.side, target_weight
+            )
+            if not ledger.claim(signal_id):
+                continue
+            if intent.side == "SELL":
+                ctx.sell(intent.symbol, qty=intent.qty)
+            else:
+                ctx.buy(intent.symbol, weight=intent.weight)
+
+        self._last_rebalance_date = dt
+        self._last_targets = dict(targets)
+        self.persist_state()
+
+    def _signal_ledger(self) -> SignalLedger:
+        if self._ledger is None:
+            self._ledger = SignalLedger(self.name, self._state_store)
+        return self._ledger
+
+    def snapshot_state(self) -> dict:
+        return {
+            "last_seen_date": self._last_seen_date.isoformat() if self._last_seen_date else None,
+            "last_rebalance_date": (
+                self._last_rebalance_date.isoformat() if self._last_rebalance_date else None
+            ),
+            "last_targets": dict(self._last_targets),
+        }
+
+    def restore_state(self, state: dict) -> None:
+        seen = state.get("last_seen_date")
+        rebalanced = state.get("last_rebalance_date")
+        self._last_seen_date = date.fromisoformat(seen) if seen else None
+        self._last_rebalance_date = date.fromisoformat(rebalanced) if rebalanced else None
+        self._last_targets = {
+            str(symbol): float(weight)
+            for symbol, weight in (state.get("last_targets") or {}).items()
+        }

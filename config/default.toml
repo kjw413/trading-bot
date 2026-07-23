@@ -46,6 +46,15 @@ exit_above = 55
 max_hold_days = 10
 weight = 0.20
 
+[strategies.theme_multifactor]
+theme = "ai_semiconductor"
+market = "KR"
+rebalance = "monthly"
+top_n = 3
+weighting = "inverse_volatility"
+volatility_days = 60
+bear_exposure = 0.5
+
 [pipeline]
 # 일일 배치 수집 대상. 작업 스케줄러가 장 마감 후 하루 1회 실행한다.
 processed_dir = "data/processed"
