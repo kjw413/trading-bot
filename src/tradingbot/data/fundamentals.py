@@ -20,6 +20,9 @@ from datetime import date
 from typing import Callable, Iterable, Sequence
 
 from tradingbot.engine.calendar import get_calendar
+from tradingbot.utils.log import get_logger
+
+LOGGER = get_logger(__name__)
 
 DEFAULT_BASE_URL = "https://opendart.fss.or.kr/api"
 
@@ -115,7 +118,28 @@ class DartClient:
     def financial_statements(
         self, corp_code: str, year: int, report_code: str, fs_div: str = "CFS"
     ) -> list[RawAccount]:
-        """Full financial statement accounts for a company and report period."""
+        """Full financial statement accounts for a company and report period.
+
+        Defaults to consolidated statements (CFS) and falls back to separate
+        ones (OFS) when none exist: a company with no subsidiaries never files
+        consolidated statements, so reading the empty response as "no data"
+        would silently drop it from the universe. An explicitly requested
+        fs_div is taken at face value and never retried.
+        """
+        accounts = self._fetch_statements(corp_code, year, report_code, fs_div)
+        if accounts or fs_div != "CFS":
+            return accounts
+        LOGGER.info(
+            "No consolidated statements for corp=%s %s %s; using separate statements",
+            corp_code,
+            year,
+            report_code,
+        )
+        return self._fetch_statements(corp_code, year, report_code, "OFS")
+
+    def _fetch_statements(
+        self, corp_code: str, year: int, report_code: str, fs_div: str
+    ) -> list[RawAccount]:
         response = self._get(
             "fnlttSinglAcntAll.json",
             {

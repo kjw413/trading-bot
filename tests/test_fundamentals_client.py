@@ -96,6 +96,36 @@ class TestFinancialStatements:
         assert params["corp_code"] == "x"
         assert params["bsns_year"] == "2023"
 
+    def test_falls_back_to_separate_statements_when_consolidated_are_empty(self):
+        # A company with no subsidiaries files no consolidated (CFS) statements,
+        # only separate (OFS) ones — common among mid-cap KOSDAQ names. Treating
+        # the empty CFS response as "no data" would drop the company entirely.
+        calls: list[dict] = []
+
+        def transport(url: str, params: dict) -> dict:
+            calls.append(dict(params))
+            if params["fs_div"] == "CFS":
+                return {"status": "013", "message": "조회된 데이타가 없습니다.", "list": []}
+            return FIN_RESPONSE
+
+        accounts = DartClient(api_key="KEY", transport=transport).financial_statements(
+            "00369657", 2023, "11011"
+        )
+        assert [call["fs_div"] for call in calls] == ["CFS", "OFS"]
+        assert accounts
+
+    def test_no_fallback_when_consolidated_statements_exist(self):
+        transport = fake_transport(FIN_RESPONSE)
+        DartClient(api_key="KEY", transport=transport).financial_statements("c", 2023, "11011")
+        assert [params["fs_div"] for _, params in transport.calls] == ["CFS"]
+
+    def test_explicitly_requested_fs_div_is_not_second_guessed(self):
+        transport = fake_transport({"status": "013", "message": "none", "list": []})
+        DartClient(api_key="KEY", transport=transport).financial_statements(
+            "c", 2023, "11011", fs_div="OFS"
+        )
+        assert [params["fs_div"] for _, params in transport.calls] == ["OFS"]
+
     def test_quarterly_report_period(self):
         response = {
             "status": "000",
