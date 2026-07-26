@@ -15,16 +15,37 @@ MACRO_DATA_VERSION = "1"
 MACRO_SOURCE = "financedatareader"
 MACRO_DEFAULT_START = date(2010, 1, 1)
 
-# Series name -> FinanceDataReader symbol. Used as regime filters and risk
-# context, not as per-stock factors.
+# Market -> {series name: FinanceDataReader symbol}. Used as regime filters and
+# risk context, not as per-stock factors. The panel storage path is
+# market-scoped (macro/{MARKET}/), so one market's panel must never be filled
+# with another market's indices.
 #
 # kr_treasury_3y (KR3YT=RR) was dropped: the Yahoo-backed ticker 404s and no
 # equivalent 3-year KR treasury yield was found in FinanceDataReader.
+#
+# us_treasury_10y uses ^TNX, not US10YT=X: the latter 404s against the
+# Yahoo-backed endpoint FinanceDataReader falls back to for that symbol.
+MACRO_SERIES_BY_MARKET: dict[str, dict[str, str]] = {
+    "KR": {
+        "kospi": "KS11",
+        "kosdaq": "KQ11",
+        "usdkrw": "USD/KRW",
+        "vix": "VIX",
+    },
+    "US": {
+        "sp500": "US500",
+        "nasdaq": "IXIC",
+        "us_treasury_10y": "^TNX",
+        "vix": "VIX",
+    },
+}
+
+# Union of symbols across all markets. Used by fetch_macro_series to look up a
+# symbol by name.
 MACRO_SERIES: dict[str, str] = {
-    "kospi": "KS11",
-    "kosdaq": "KQ11",
-    "usdkrw": "USD/KRW",
-    "vix": "VIX",
+    name: symbol
+    for series in MACRO_SERIES_BY_MARKET.values()
+    for name, symbol in series.items()
 }
 
 
@@ -63,8 +84,21 @@ def update_macro(
     end: date | None = None,
     fetcher: Callable[..., pd.DataFrame] = fetch_macro_series,
 ) -> int:
-    """Incrementally collect macro series into the panel store."""
-    names = list(series) if series is not None else list(MACRO_SERIES)
+    """Incrementally collect macro series into the panel store.
+
+    Without an explicit `series`, collects the ones defined for the store's
+    own market — a US panel must not be filled with Korean indices.
+    """
+    if series is not None:
+        names = list(series)
+    else:
+        try:
+            names = list(MACRO_SERIES_BY_MARKET[store.market])
+        except KeyError as exc:
+            available = ", ".join(sorted(MACRO_SERIES_BY_MARKET))
+            raise ValueError(
+                f"No macro series defined for market {store.market}. Available: {available}"
+            ) from exc
     unknown = [name for name in names if name not in MACRO_SERIES]
     if unknown:
         available = ", ".join(sorted(MACRO_SERIES))

@@ -25,6 +25,22 @@ class TestMacroSeries:
         for expected in ["kospi", "kosdaq", "usdkrw", "vix"]:
             assert expected in MACRO_SERIES
 
+    def test_series_are_scoped_by_market(self):
+        from tradingbot.data.macro import MACRO_SERIES_BY_MARKET
+
+        assert "kospi" in MACRO_SERIES_BY_MARKET["KR"]
+        assert "sp500" in MACRO_SERIES_BY_MARKET["US"]
+        # A US panel must never be filled with Korean indices.
+        assert "kospi" not in MACRO_SERIES_BY_MARKET["US"]
+        assert "sp500" not in MACRO_SERIES_BY_MARKET["KR"]
+
+    def test_flat_lookup_covers_every_market(self):
+        from tradingbot.data.macro import MACRO_SERIES, MACRO_SERIES_BY_MARKET
+
+        for series in MACRO_SERIES_BY_MARKET.values():
+            for name, symbol in series.items():
+                assert MACRO_SERIES[name] == symbol
+
 
 class TestUpdateMacro:
     def test_writes_rows_with_availability_shifted_forward(self, store):
@@ -48,9 +64,11 @@ class TestUpdateMacro:
         update_macro(store, series=["kospi"], start=date(2024, 1, 1), fetcher=fake_fetcher)
         assert len(store.read()) == 2
 
-    def test_defaults_to_all_registered_series(self, store):
+    def test_defaults_to_the_markets_own_series(self, store):
+        from tradingbot.data.macro import MACRO_SERIES_BY_MARKET
+
         update_macro(store, start=date(2024, 1, 1), fetcher=fake_fetcher)
-        assert len(set(store.read()["symbol"])) == len(MACRO_SERIES)
+        assert len(set(store.read()["symbol"])) == len(MACRO_SERIES_BY_MARKET["KR"])
 
     def test_unknown_series_raises_with_available_names(self, store):
         with pytest.raises(ValueError, match="Available:"):
@@ -107,3 +125,31 @@ class TestFetchMacroSeries:
         monkeypatch.setattr("FinanceDataReader.DataReader", lambda *a, **k: raw)
         with pytest.raises(ValueError, match="close"):
             fetch_macro_series("kospi", date(2024, 1, 1))
+
+
+class TestMarketScopedCollection:
+    def test_us_store_collects_only_us_series(self, tmp_path):
+        from tradingbot.data.macro import MACRO_SERIES_BY_MARKET
+
+        store = PanelStore(tmp_path, "macro", "US")
+        update_macro(store, start=date(2024, 1, 1), fetcher=fake_fetcher)
+        collected = {symbol.upper() for symbol in store.read()["symbol"]}
+        assert collected == {name.upper() for name in MACRO_SERIES_BY_MARKET["US"]}
+
+    def test_kr_store_collects_only_kr_series(self, store):
+        from tradingbot.data.macro import MACRO_SERIES_BY_MARKET
+
+        update_macro(store, start=date(2024, 1, 1), fetcher=fake_fetcher)
+        collected = {symbol.upper() for symbol in store.read()["symbol"]}
+        assert collected == {name.upper() for name in MACRO_SERIES_BY_MARKET["KR"]}
+
+    def test_unknown_market_fails_loudly(self, tmp_path):
+        store = PanelStore(tmp_path, "macro", "JP")
+        # Silently collecting nothing would look like a quiet day forever.
+        with pytest.raises(ValueError, match="JP"):
+            update_macro(store, start=date(2024, 1, 1), fetcher=fake_fetcher)
+
+    def test_explicit_series_still_honored(self, tmp_path):
+        store = PanelStore(tmp_path, "macro", "US")
+        update_macro(store, series=["vix"], start=date(2024, 1, 1), fetcher=fake_fetcher)
+        assert set(store.read()["symbol"]) == {"VIX"}
