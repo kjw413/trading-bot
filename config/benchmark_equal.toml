@@ -1,0 +1,81 @@
+# 테마 동일비중 벤치마크 (docs/superpowers/specs 설계 §8의 보조 벤치마크).
+#
+# theme_multifactor와 같은 엔진·같은 비용·같은 기간으로 돌리되, 종목 선별과
+# 국면 조절만 끈다: 테마 전체를 동일비중으로 들고 하락장에도 노출을 줄이지
+# 않는다. 전략이 이 벤치마크를 못 이기면 "테마를 그냥 사는 것"보다 나을 게
+# 없다는 뜻이므로, 승격 판단의 핵심 대조군이다.
+#
+# 사용법 (한 줄):
+#   python -m tradingbot --config config/benchmark_equal.toml backtest
+#   --strategy theme_multifactor --market KR
+#   --symbols 005930 000660 042700 058470 240810 --start 2023-01-01
+#
+# default.toml과의 차이는 [strategies.theme_multifactor]의 세 줄뿐이다.
+
+[data]
+cache_dir = "data/cache"
+
+[backtest]
+initial_cash_kr = 10000000
+initial_cash_us = 10000
+
+[paper]
+state_dir = "state"
+poll_interval_seconds = 300
+
+[fees.KR]
+commission_rate = 0.00015
+sell_tax_rate = 0.0015
+
+[fees.US]
+commission_rate = 0.0
+sec_fee_rate = 0.0000278
+finra_taf_per_share = 0.000166
+finra_taf_cap = 8.30
+
+[execution]
+slippage_bps = 5
+
+[risk]
+# theme_multifactor의 자체 집중도 상한(apply_constraints, max_position_weight=0.40)이
+# 이미 0.40을 강제한다. 이 값이 그보다 낮으면 같은 매수가 두 번 거부당한다 — 엔진
+# 리스크 캡은 전략 상한 위의 백스톱이어야지, 더 타이트한 거부권이면 안 된다.
+max_position_pct = 0.40
+max_positions = 5
+max_daily_loss_pct = 0.03
+stop_loss_pct = 0.05
+min_cash_buffer_pct = 0.02
+
+[strategies.ma_cross]
+fast = 20
+slow = 60
+weight = 0.20
+
+[strategies.vol_breakout]
+k = 0.5
+weight = 0.20
+exit = "moc"
+
+[strategies.rsi_reversion]
+period = 14
+buy_below = 30
+exit_above = 55
+max_hold_days = 10
+weight = 0.20
+
+[strategies.theme_multifactor]
+theme = "ai_semiconductor"
+market = "KR"
+rebalance = "monthly"
+top_n = 5
+weighting = "equal"
+volatility_days = 60
+bear_exposure = 1.0
+
+[pipeline]
+# 일일 배치 수집 대상. 작업 스케줄러가 장 마감 후 하루 1회 실행한다.
+processed_dir = "data/processed"
+log_dir = "state/pipeline_log"
+symbols = ["005930", "000660", "035420", "051910", "005380", "042700", "058470", "240810"]
+fundamental_years = 3
+retry_attempts = 3
