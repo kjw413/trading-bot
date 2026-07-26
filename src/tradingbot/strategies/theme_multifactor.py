@@ -54,6 +54,11 @@ class ThemeMultifactorStrategy(Strategy):
         "weighting": "inverse_volatility",
         "volatility_days": 60,
         "band": 0.005,
+        # Trading days of price staleness tolerated before a rebalance is
+        # skipped. 3 absorbs a long weekend plus one failed collection run
+        # while still catching a pipeline that has been dead for a week.
+        # Negative disables the check.
+        "max_staleness_days": 3,
         "min_factors": 1,
         "bear_exposure": 0.5,
         "regime_series": "kospi",
@@ -104,6 +109,9 @@ class ThemeMultifactorStrategy(Strategy):
         if not universe:
             return {}
 
+        if self._is_price_data_stale(dt, universe, data_store):
+            return {}
+
         scores = {
             name: standardize(get_factor(name).compute(dt, universe, data_store))
             for name in self.factor_weights
@@ -152,6 +160,50 @@ class ThemeMultifactorStrategy(Strategy):
             max_weight=float(limits.get("max_position_weight", 0.40)),
             cash_buffer=float(limits.get("min_cash_weight", 0.02)),
         )
+
+    def _is_price_data_stale(self, dt: date, universe: Sequence[str], data_store) -> bool:
+        """True when the newest bar anywhere in the universe is too old to trade on.
+
+        The all-NaN score check cannot catch this: a cache frozen a week ago
+        still produces perfectly computable factor scores, so a paper-trading
+        deployment whose update job died would keep rebalancing on last week's
+        prices. Freshness is judged across the whole universe rather than
+        per symbol — one halted ticker is not a dead pipeline.
+
+        `max_staleness_days` counts trading days; a negative value disables
+        the check.
+        """
+        max_stale = int(self.params["max_staleness_days"])
+        if max_stale < 0:
+            return False
+
+        newest: date | None = None
+        for symbol in universe:
+            try:
+                history = data_store.price_history(symbol, dt, 1)
+            except (FileNotFoundError, KeyError):
+                continue
+            if history.empty:
+                continue
+            last = history.index[-1].date()
+            if newest is None or last > newest:
+                newest = last
+        if newest is None:
+            return False  # nothing at all: the all-NaN score gate reports it
+
+        # trading_days is inclusive of both ends, so a same-day bar gives 1.
+        gap = max(0, len(get_calendar(str(self.params["market"])).trading_days(newest, dt)) - 1)
+        if gap > max_stale:
+            LOGGER.warning(
+                "theme_multifactor: newest price bar is %s, %s trading days before %s "
+                "(limit %s); skipping rebalance rather than trading on stale data",
+                newest,
+                gap,
+                dt,
+                max_stale,
+            )
+            return True
+        return False
 
     def _store(self):
         """Lazily built local-only data store (prices + PIT panels)."""

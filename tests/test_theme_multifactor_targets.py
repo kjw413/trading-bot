@@ -39,9 +39,11 @@ def store(tmp_path):
     )
 
 
-def write_prices(store, symbol: str, start_price: float, end_price: float) -> None:
+def write_prices(
+    store, symbol: str, start_price: float, end_price: float, end: date = AS_OF
+) -> None:
     closes = list(np.linspace(start_price, end_price, HISTORY_DAYS))
-    index = pd.bdate_range(end=pd.Timestamp(AS_OF), periods=HISTORY_DAYS)
+    index = pd.bdate_range(end=pd.Timestamp(end), periods=HISTORY_DAYS)
     store.cache.write(
         "KR",
         symbol,
@@ -155,3 +157,66 @@ class TestGenerateTargets:
 
     def test_empty_universe_returns_empty(self, store, research_config):
         assert make_strategy(research_config).generate_targets(AS_OF, [], store) == {}
+
+
+class TestStalenessGate:
+    """The strategy must not trade on prices the data pipeline stopped updating.
+
+    Spec §10 requires skipping a rebalance rather than acting on stale data;
+    the all-NaN score check alone cannot catch this, because a cache frozen a
+    week ago still produces perfectly computable factor scores.
+    """
+
+    def test_fresh_data_produces_targets(self, store, research_config):
+        write_prices(store, "WIN1", 100.0, 200.0)
+        write_prices(store, "WIN2", 100.0, 150.0)
+        assert make_strategy(research_config).generate_targets(
+            AS_OF, ["WIN1", "WIN2"], store
+        )
+
+    def test_stale_cache_skips_the_rebalance(self, store, research_config):
+        # The update job died two weeks ago; scores still compute cleanly.
+        stale_end = date(2024, 6, 12)
+        write_prices(store, "WIN1", 100.0, 200.0, end=stale_end)
+        write_prices(store, "WIN2", 100.0, 150.0, end=stale_end)
+        assert (
+            make_strategy(research_config).generate_targets(
+                AS_OF, ["WIN1", "WIN2"], store
+            )
+            == {}
+        )
+
+    def test_gap_at_the_limit_is_still_traded(self, store, research_config):
+        # 2024-06-27 is the trading day right before AS_OF (Fri 2024-06-28).
+        write_prices(store, "WIN1", 100.0, 200.0, end=date(2024, 6, 27))
+        write_prices(store, "WIN2", 100.0, 150.0, end=date(2024, 6, 27))
+        assert make_strategy(research_config, max_staleness_days=1).generate_targets(
+            AS_OF, ["WIN1", "WIN2"], store
+        )
+
+    def test_gap_one_past_the_limit_is_skipped(self, store, research_config):
+        write_prices(store, "WIN1", 100.0, 200.0, end=date(2024, 6, 26))
+        write_prices(store, "WIN2", 100.0, 150.0, end=date(2024, 6, 26))
+        assert (
+            make_strategy(research_config, max_staleness_days=1).generate_targets(
+                AS_OF, ["WIN1", "WIN2"], store
+            )
+            == {}
+        )
+
+    def test_one_halted_symbol_does_not_block_the_others(self, store, research_config):
+        # Freshness is a property of the pipeline, not of one ticker: a single
+        # suspended name must not stop the whole portfolio from rebalancing.
+        write_prices(store, "WIN1", 100.0, 200.0)
+        write_prices(store, "HALTED", 100.0, 150.0, end=date(2024, 5, 2))
+        assert make_strategy(research_config).generate_targets(
+            AS_OF, ["WIN1", "HALTED"], store
+        )
+
+    def test_check_can_be_disabled(self, store, research_config):
+        stale_end = date(2024, 6, 12)
+        write_prices(store, "WIN1", 100.0, 200.0, end=stale_end)
+        write_prices(store, "WIN2", 100.0, 150.0, end=stale_end)
+        assert make_strategy(research_config, max_staleness_days=-1).generate_targets(
+            AS_OF, ["WIN1", "WIN2"], store
+        )

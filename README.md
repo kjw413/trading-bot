@@ -36,6 +36,10 @@ v1 이후 [`trading_bot_agentic_ai_execution_plan_260714.md`](trading_bot_agenti
   종합점수 상위 N종목 선정 → 동일/변동성 역가중 → 국면 노출 조절 →
   제약 적용 → 월간/주간 리밸런싱. 종가 신호는 다음 거래일 시가에 체결되고,
   `signal_id` 원장이 재실행 중복 주문을 차단 — M11/M12
+  - 가격 캐시가 `max_staleness_days`(기본 3거래일)보다 오래되면 리밸런싱을
+    건너뜁니다. 수집 작업이 멈춘 채로 옛날 가격에 매매하는 것을 막습니다.
+  - 승격 판정 결과는 [docs/theme_multifactor_promotion_review.md](docs/theme_multifactor_promotion_review.md)
+    참고 — 현재 기준 미달로 **모의투자 승격 보류** 상태입니다.
 
 두 갈래는 `data/fundamentals.py`의 DART 클라이언트를 공유합니다. 밸류에이션은
 `FundamentalRecord`(FCFF 입력)로, 팩터 연구는 `data/fundamentals_panel.py`가
