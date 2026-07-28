@@ -220,3 +220,79 @@ class TestStalenessGate:
         assert make_strategy(research_config, max_staleness_days=-1).generate_targets(
             AS_OF, ["WIN1", "WIN2"], store
         )
+
+
+class TestExplicitFactorSelection:
+    MULTI_TOML = """
+[factor_weights]
+momentum_3m = 0.5
+momentum_6m = 0.5
+
+[risk_limits]
+max_position_weight = 0.40
+min_cash_weight = 0.02
+"""
+
+    @pytest.fixture
+    def multi_config(self, tmp_path):
+        path = tmp_path / "multi.toml"
+        path.write_text(self.MULTI_TOML, encoding="utf-8")
+        return path
+
+    def test_default_uses_every_weighted_factor(self, multi_config):
+        strategy = ThemeMultifactorStrategy(research_config=str(multi_config))
+        assert set(strategy.factor_weights) == {"momentum_3m", "momentum_6m"}
+
+    def test_explicit_list_restricts_the_set(self, multi_config):
+        strategy = ThemeMultifactorStrategy(
+            research_config=str(multi_config), factors=["momentum_3m"]
+        )
+        # A US run declares momentum-only instead of silently degrading when
+        # the flow and value panels come back all-NaN.
+        assert set(strategy.factor_weights) == {"momentum_3m"}
+
+    def test_weights_still_come_from_the_config(self, multi_config):
+        strategy = ThemeMultifactorStrategy(
+            research_config=str(multi_config), factors=["momentum_6m"]
+        )
+        assert strategy.factor_weights["momentum_6m"] == pytest.approx(0.5)
+
+    def test_factor_without_a_weight_raises(self, multi_config):
+        strategy = ThemeMultifactorStrategy(
+            research_config=str(multi_config), factors=["momentum_12m"]
+        )
+        # momentum_12m is a real registered factor but carries no weight here;
+        # running it at an implicit zero would be the silent trap Phase 3 closed.
+        with pytest.raises(ValueError, match="momentum_12m"):
+            strategy.factor_weights
+
+    def test_unregistered_factor_name_still_raises(self, tmp_path):
+        path = tmp_path / "typo.toml"
+        path.write_text(
+            "[factor_weights]\nmomentum_3m_typo = 1.0\n"
+            "[risk_limits]\nmax_position_weight = 0.4\nmin_cash_weight = 0.02\n",
+            encoding="utf-8",
+        )
+        strategy = ThemeMultifactorStrategy(
+            research_config=str(path), factors=["momentum_3m_typo"]
+        )
+        with pytest.raises(ValueError, match="momentum_3m_typo"):
+            strategy.factor_weights
+
+    def test_unused_config_weights_are_not_an_error(self, multi_config):
+        # One config file must be able to carry both markets' weights.
+        strategy = ThemeMultifactorStrategy(
+            research_config=str(multi_config), factors=["momentum_3m"]
+        )
+        assert "momentum_6m" not in strategy.factor_weights
+
+    def test_selected_factors_drive_the_targets(self, store, multi_config):
+        write_prices(store, "WIN", 100.0, 200.0)
+        write_prices(store, "LOSE", 100.0, 80.0)
+        targets = ThemeMultifactorStrategy(
+            research_config=str(multi_config),
+            factors=["momentum_3m"],
+            top_n=1,
+            weighting="equal",
+        ).generate_targets(AS_OF, ["WIN", "LOSE"], store)
+        assert set(targets) == {"WIN"}

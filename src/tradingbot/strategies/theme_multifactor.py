@@ -60,6 +60,10 @@ class ThemeMultifactorStrategy(Strategy):
         # Negative disables the check.
         "max_staleness_days": 3,
         "min_factors": 1,
+        # 사용할 팩터를 명시적으로 제한한다. None이면 [factor_weights]의 모든
+        # 키를 쓴다(현행). 미국처럼 수급·가치 패널이 없는 시장은 여기에
+        # 모멘텀만 적어, 조용히 퇴화하는 대신 무엇을 돌리는지 선언한다.
+        "factors": None,
         "bear_exposure": 0.5,
         "regime_series": "kospi",
         "regime_ma_days": 200,
@@ -92,11 +96,26 @@ class ThemeMultifactorStrategy(Strategy):
 
     @property
     def factor_weights(self) -> dict[str, float]:
-        """[factor_weights] keys drive which factors run; typos fail loudly."""
+        """[factor_weights] keys drive which factors run; typos fail loudly.
+
+        `factors` narrows that set without moving the weights: one config file
+        can carry both markets' weights while each market declares the subset
+        it actually has data for.
+        """
         if self._factor_weights is None:
             raw = self.research.get("factor_weights", {})
             if not raw:
                 raise ValueError("research config has no [factor_weights] section")
+            selected = self.params.get("factors")
+            if selected:
+                missing = [name for name in selected if name not in raw]
+                if missing:
+                    available = ", ".join(sorted(raw))
+                    raise ValueError(
+                        f"factors {missing} have no weight in [factor_weights]. "
+                        f"Available: {available}"
+                    )
+                raw = {name: raw[name] for name in selected}
             for factor_name in raw:
                 get_factor(factor_name)  # raises ValueError on unknown names
             self._factor_weights = {name: float(value) for name, value in raw.items()}
