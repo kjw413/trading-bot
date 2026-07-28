@@ -296,3 +296,101 @@ min_cash_weight = 0.02
             weighting="equal",
         ).generate_targets(AS_OF, ["WIN", "LOSE"], store)
         assert set(targets) == {"WIN"}
+
+
+class TestAbsoluteMomentumFilter:
+    def write_falling_then_flat(self, store, symbol: str) -> None:
+        """A name well below its own moving average at AS_OF."""
+        closes = [200.0] * (HISTORY_DAYS - 10) + [100.0] * 10
+        index = pd.bdate_range(end=pd.Timestamp(AS_OF), periods=HISTORY_DAYS)
+        store.cache.write(
+            "KR",
+            symbol,
+            pd.DataFrame(
+                {"open": closes, "high": [c * 1.01 for c in closes],
+                 "low": [c * 0.99 for c in closes], "close": closes,
+                 "volume": [1000.0] * HISTORY_DAYS},
+                index=index,
+            ),
+        )
+
+    def test_disabled_by_default(self, store, research_config):
+        write_prices(store, "RISER", 100.0, 200.0)
+        self.write_falling_then_flat(store, "FALLER")
+        targets = make_strategy(research_config).generate_targets(
+            AS_OF, ["RISER", "FALLER"], store
+        )
+        # Default 0 must preserve the Korean strategy's recorded behavior.
+        assert set(targets) == {"RISER", "FALLER"}
+
+    def test_excludes_a_name_below_its_moving_average(self, store, research_config):
+        write_prices(store, "RISER", 100.0, 200.0)
+        self.write_falling_then_flat(store, "FALLER")
+        targets = make_strategy(
+            research_config, abs_momentum_ma_days=60
+        ).generate_targets(AS_OF, ["RISER", "FALLER"], store)
+        # Relative momentum alone would still buy the least-bad asset.
+        assert set(targets) == {"RISER"}
+
+    def test_all_names_filtered_skips_the_rebalance(self, store, research_config):
+        self.write_falling_then_flat(store, "FALLER1")
+        self.write_falling_then_flat(store, "FALLER2")
+        assert (
+            make_strategy(research_config, abs_momentum_ma_days=60).generate_targets(
+                AS_OF, ["FALLER1", "FALLER2"], store
+            )
+            == {}
+        )
+
+    def test_short_history_is_excluded_not_admitted(self, store, research_config):
+        # Long enough to be judged by a 200-day filter window.
+        long_closes = list(np.linspace(100.0, 200.0, 250))
+        long_index = pd.bdate_range(end=pd.Timestamp(AS_OF), periods=250)
+        store.cache.write(
+            "KR",
+            "RISER",
+            pd.DataFrame(
+                {"open": long_closes, "high": long_closes, "low": long_closes,
+                 "close": long_closes, "volume": [1000.0] * 250},
+                index=long_index,
+            ),
+        )
+        # Scoreable by momentum_3m (needs 64 closes) and the STRONGER mover,
+        # so without the filter it would certainly be picked — but it has too
+        # little history to judge, and admitting it would let a new listing
+        # bypass the filter entirely.
+        short_closes = list(np.linspace(100.0, 300.0, 70))
+        short_index = pd.bdate_range(end=pd.Timestamp(AS_OF), periods=70)
+        store.cache.write(
+            "KR",
+            "NEW",
+            pd.DataFrame(
+                {"open": short_closes, "high": short_closes, "low": short_closes,
+                 "close": short_closes, "volume": [1000.0] * 70},
+                index=short_index,
+            ),
+        )
+        targets = make_strategy(
+            research_config, abs_momentum_ma_days=200, top_n=2
+        ).generate_targets(AS_OF, ["RISER", "NEW"], store)
+        assert set(targets) == {"RISER"}
+
+    def test_fewer_survivors_than_top_n_holds_what_remains(self, store, research_config):
+        write_prices(store, "RISER", 100.0, 200.0)
+        self.write_falling_then_flat(store, "FALLER")
+        targets = make_strategy(
+            research_config, abs_momentum_ma_days=60, top_n=2
+        ).generate_targets(AS_OF, ["RISER", "FALLER"], store)
+        assert set(targets) == {"RISER"}
+
+    def test_unscoreable_names_stay_excluded(self, store, research_config):
+        write_prices(store, "RISER", 100.0, 200.0)
+        # GHOST has no data at all, so the factor already scored it NaN; the
+        # filter must not resurrect it. (The filter's own missing-data branch
+        # is unreachable in practice — a symbol with a score necessarily has
+        # price history — so it stays as defensive code, matching the
+        # convention in factors/momentum.py.)
+        targets = make_strategy(
+            research_config, abs_momentum_ma_days=60, top_n=2
+        ).generate_targets(AS_OF, ["RISER", "GHOST"], store)
+        assert set(targets) == {"RISER"}

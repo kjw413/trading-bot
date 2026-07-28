@@ -19,6 +19,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Sequence
 
+import pandas as pd
+
 from tradingbot.allocation.constraints import apply_constraints
 from tradingbot.allocation.ranking import select_top
 from tradingbot.allocation.rebalance import is_rebalance_date, plan_rebalance
@@ -64,6 +66,10 @@ class ThemeMultifactorStrategy(Strategy):
         # 키를 쓴다(현행). 미국처럼 수급·가치 패널이 없는 시장은 여기에
         # 모멘텀만 적어, 조용히 퇴화하는 대신 무엇을 돌리는지 선언한다.
         "factors": None,
+        # 종가가 자기 N일 이동평균 아래인 자산을 선정에서 제외한다. 0이면 비활성.
+        # 상대 모멘텀만으로는 전 자산 하락장에서 "가장 덜 나쁜 것"을 강제로 사게
+        # 된다 — 채권·원자재가 섞인 ETF 유니버스에서 특히 위험하다.
+        "abs_momentum_ma_days": 0,
         "bear_exposure": 0.5,
         "regime_series": "kospi",
         "regime_ma_days": 200,
@@ -146,6 +152,7 @@ class ThemeMultifactorStrategy(Strategy):
             )
             return {}
 
+        combined = self._apply_absolute_momentum(dt, combined, data_store)
         selected = select_top(combined, int(self.params["top_n"]))
         if not selected:
             return {}
@@ -179,6 +186,36 @@ class ThemeMultifactorStrategy(Strategy):
             max_weight=float(limits.get("max_position_weight", 0.40)),
             cash_buffer=float(limits.get("min_cash_weight", 0.02)),
         )
+
+    def _apply_absolute_momentum(self, dt: date, scores: pd.Series, data_store) -> pd.Series:
+        """NaN out names trading below their own moving average.
+
+        Relative momentum ranks names against each other, so in a broad
+        selloff it still buys the least-bad asset. This is the per-asset
+        floor: a name has to be in its own uptrend to be eligible at all.
+
+        Exclusion is expressed as NaN so `select_top` drops it the same way
+        it drops an unscoreable name. A name with less history than the
+        window is excluded too — admitting it would let a new listing bypass
+        the filter entirely.
+        """
+        ma_days = int(self.params["abs_momentum_ma_days"])
+        if ma_days <= 0:
+            return scores
+
+        filtered = scores.copy()
+        for symbol in scores.index:
+            if pd.isna(scores.loc[symbol]):
+                continue
+            try:
+                history = data_store.price_history(symbol, dt, ma_days)
+            except (FileNotFoundError, KeyError):
+                filtered.loc[symbol] = float("nan")
+                continue
+            closes = history["close"].dropna()
+            if len(closes) < ma_days or float(closes.iloc[-1]) <= float(closes.mean()):
+                filtered.loc[symbol] = float("nan")
+        return filtered
 
     def _is_price_data_stale(self, dt: date, universe: Sequence[str], data_store) -> bool:
         """True when the newest bar anywhere in the universe is too old to trade on.
