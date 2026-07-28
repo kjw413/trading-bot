@@ -148,6 +148,74 @@ class TestRunPipeline:
         assert "macro" in payload
 
 
+class TestMarketGuards:
+    def test_kr_only_sources_are_skipped_on_us(self, config):
+        called: list[str] = []
+
+        def recording(name):
+            def collect(**kwargs):
+                called.append(name)
+                return 1
+
+            return collect
+
+        result = run_pipeline(
+            config,
+            market="US",
+            symbols=["SPY"],
+            collectors={
+                "prices": recording("prices"),
+                "flows": recording("flows"),
+                "valuation": recording("valuation"),
+                "fundamentals": recording("fundamentals"),
+            },
+        )
+        by_name = {r.name: r for r in result.results}
+        assert by_name["prices"].status == "ok"
+        for kr_only in ["flows", "valuation", "fundamentals"]:
+            assert by_name[kr_only].status == "skipped"
+        # The guard must prevent the call, not just relabel the result —
+        # otherwise US tickers still get sent to KRX APIs.
+        assert called == ["prices"]
+
+    def test_skipping_is_not_a_failure(self, config):
+        result = run_pipeline(
+            config,
+            market="US",
+            symbols=["SPY"],
+            collectors={"flows": ok_collector("flows")},
+        )
+        assert result.ok
+
+    def test_skip_reason_names_the_market(self, config):
+        result = run_pipeline(
+            config, market="US", symbols=["SPY"], collectors={"flows": ok_collector("flows")}
+        )
+        message = result.results[0].message
+        assert "KR" in message and "US" in message
+
+    def test_skip_reaches_the_run_log(self, config, tmp_path):
+        run_pipeline(
+            config, market="US", symbols=["SPY"], collectors={"flows": ok_collector("flows")}
+        )
+        log = json.loads(next((tmp_path / "log").glob("*.json")).read_text(encoding="utf-8"))
+        assert log["results"][0]["status"] == "skipped"
+
+    def test_kr_run_is_unaffected(self, config):
+        result = run_pipeline(
+            config, market="KR", symbols=["005930"], collectors={"flows": ok_collector("flows", 7)}
+        )
+        assert result.results[0].status == "ok"
+        assert result.results[0].rows == 7
+
+    def test_unknown_collector_name_is_not_guarded(self, config):
+        # Injected test collectors and any future source default to running.
+        result = run_pipeline(
+            config, market="US", symbols=["SPY"], collectors={"custom": ok_collector("custom")}
+        )
+        assert result.results[0].status == "ok"
+
+
 class TestCli:
     def test_parser_wires_data_pipeline(self):
         parser = build_parser()

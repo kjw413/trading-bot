@@ -22,6 +22,20 @@ STATUS_OK = "ok"
 STATUS_FAILED = "failed"
 STATUS_SKIPPED = "skipped"
 
+# 수집기명 -> 적용 가능한 시장. 여기 없는 이름(주입된 테스트 수집기, 향후 신규
+# 소스)은 가드 없이 실행된다.
+#
+# flows/valuation은 pykrx(KRX 회원 데이터), fundamentals는 DART로 모두 한국
+# 전용이다. 가드가 없으면 --market US 실행이 미국 티커를 KRX API에 보내고 그
+# 결과가 data/processed/{dataset}/US/에 기록된다.
+COLLECTOR_MARKETS: dict[str, tuple[str, ...]] = {
+    "prices": ("KR", "US"),
+    "macro": ("KR", "US"),
+    "flows": ("KR",),
+    "valuation": ("KR",),
+    "fundamentals": ("KR",),
+}
+
 
 @dataclass(frozen=True)
 class SourceResult:
@@ -181,6 +195,14 @@ def run_pipeline(
     started = datetime.now(timezone.utc)
     results: list[SourceResult] = []
     for name, collector in active.items():
+        supported = COLLECTOR_MARKETS.get(name)
+        if supported is not None and market.upper() not in supported:
+            reason = (
+                f"{name} is {'/'.join(supported)}-only and does not apply to {market.upper()}"
+            )
+            results.append(SourceResult(name, STATUS_SKIPPED, 0, reason))
+            LOGGER.info("Pipeline source %s skipped: %s", name, reason)
+            continue
         try:
             rows = with_retry(
                 lambda c=collector: c(market=market, symbols=active_symbols),
