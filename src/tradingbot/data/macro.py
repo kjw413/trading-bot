@@ -40,13 +40,28 @@ MACRO_SERIES_BY_MARKET: dict[str, dict[str, str]] = {
     },
 }
 
-# Union of symbols across all markets. Used by fetch_macro_series to look up a
-# symbol by name.
-MACRO_SERIES: dict[str, str] = {
-    name: symbol
-    for series in MACRO_SERIES_BY_MARKET.values()
-    for name, symbol in series.items()
-}
+def _build_symbol_lookup() -> dict[str, str]:
+    """Flatten every market's series into one name -> symbol lookup.
+
+    A name reused across markets must resolve to the same symbol (vix does).
+    A conflicting redefinition would silently repoint every market's lookup
+    at the last one defined, so it fails here instead.
+    """
+    lookup: dict[str, str] = {}
+    for market, series in MACRO_SERIES_BY_MARKET.items():
+        for name, symbol in series.items():
+            existing = lookup.get(name)
+            if existing is not None and existing != symbol:
+                raise ValueError(
+                    f"Macro series {name!r} is defined as {existing!r} and as {symbol!r} "
+                    f"(in {market}); one name must mean one symbol across markets."
+                )
+            lookup[name] = symbol
+    return lookup
+
+
+# 전 시장 심볼의 합집합. fetch_macro_series가 이름으로 심볼을 찾을 때 쓴다.
+MACRO_SERIES: dict[str, str] = _build_symbol_lookup()
 
 
 def fetch_macro_series(series: str, start: date, end: date | None = None) -> pd.DataFrame:

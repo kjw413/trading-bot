@@ -5,7 +5,12 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from tradingbot.data.macro import MACRO_SERIES, fetch_macro_series, update_macro
+from tradingbot.data.macro import (
+    MACRO_SERIES,
+    MACRO_SERIES_BY_MARKET,
+    fetch_macro_series,
+    update_macro,
+)
 from tradingbot.data.panel import PanelStore
 
 
@@ -26,8 +31,6 @@ class TestMacroSeries:
             assert expected in MACRO_SERIES
 
     def test_series_are_scoped_by_market(self):
-        from tradingbot.data.macro import MACRO_SERIES_BY_MARKET
-
         assert "kospi" in MACRO_SERIES_BY_MARKET["KR"]
         assert "sp500" in MACRO_SERIES_BY_MARKET["US"]
         # A US panel must never be filled with Korean indices.
@@ -35,11 +38,22 @@ class TestMacroSeries:
         assert "sp500" not in MACRO_SERIES_BY_MARKET["KR"]
 
     def test_flat_lookup_covers_every_market(self):
-        from tradingbot.data.macro import MACRO_SERIES, MACRO_SERIES_BY_MARKET
-
         for series in MACRO_SERIES_BY_MARKET.values():
             for name, symbol in series.items():
                 assert MACRO_SERIES[name] == symbol
+
+    def test_conflicting_symbol_for_a_shared_name_is_rejected(self, monkeypatch):
+        from tradingbot.data import macro
+
+        monkeypatch.setattr(
+            macro,
+            "MACRO_SERIES_BY_MARKET",
+            {"KR": {"vix": "VIX"}, "US": {"vix": "SOMETHING_ELSE"}},
+        )
+        # One name must mean one symbol; a silent overwrite would repoint
+        # every market's lookup at whichever market was defined last.
+        with pytest.raises(ValueError, match="vix"):
+            macro._build_symbol_lookup()
 
 
 class TestUpdateMacro:
@@ -65,8 +79,6 @@ class TestUpdateMacro:
         assert len(store.read()) == 2
 
     def test_defaults_to_the_markets_own_series(self, store):
-        from tradingbot.data.macro import MACRO_SERIES_BY_MARKET
-
         update_macro(store, start=date(2024, 1, 1), fetcher=fake_fetcher)
         assert len(set(store.read()["symbol"])) == len(MACRO_SERIES_BY_MARKET["KR"])
 
@@ -129,16 +141,12 @@ class TestFetchMacroSeries:
 
 class TestMarketScopedCollection:
     def test_us_store_collects_only_us_series(self, tmp_path):
-        from tradingbot.data.macro import MACRO_SERIES_BY_MARKET
-
         store = PanelStore(tmp_path, "macro", "US")
         update_macro(store, start=date(2024, 1, 1), fetcher=fake_fetcher)
         collected = {symbol.upper() for symbol in store.read()["symbol"]}
         assert collected == {name.upper() for name in MACRO_SERIES_BY_MARKET["US"]}
 
     def test_kr_store_collects_only_kr_series(self, store):
-        from tradingbot.data.macro import MACRO_SERIES_BY_MARKET
-
         update_macro(store, start=date(2024, 1, 1), fetcher=fake_fetcher)
         collected = {symbol.upper() for symbol in store.read()["symbol"]}
         assert collected == {name.upper() for name in MACRO_SERIES_BY_MARKET["KR"]}
