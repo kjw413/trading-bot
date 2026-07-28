@@ -59,6 +59,13 @@ class TestLoadThemes:
             assert theme.members
             assert theme.market in {"KR", "US"}
 
+    def test_us_theme_is_defined(self):
+        themes = load_themes()
+        us_themes = [theme for theme in themes.values() if theme.market == "US"]
+        assert us_themes, "no US theme defined"
+        for theme in us_themes:
+            assert theme.members
+
 
 class TestMembers:
     def test_only_symbols_already_included(self, themes):

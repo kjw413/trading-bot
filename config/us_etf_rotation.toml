@@ -1,0 +1,81 @@
+# 미국 자산배분 ETF 로테이션 설정.
+# 설계: docs/superpowers/specs/2026-07-26-us-market-etf-rotation-design.md
+#
+# 사용법 (한 줄):
+#   python -m tradingbot --config config/us_etf_rotation.toml backtest
+#   --strategy theme_multifactor --market US
+#   --symbols SPY QQQ IWM EFA EEM TLT IEF LQD GLD DBC VNQ --start 2007-01-01
+
+[data]
+cache_dir = "data/cache"
+
+[backtest]
+initial_cash_kr = 10000000
+initial_cash_us = 10000
+
+[paper]
+state_dir = "state"
+poll_interval_seconds = 300
+
+[fees.KR]
+commission_rate = 0.00015
+sell_tax_rate = 0.0015
+
+[fees.US]
+commission_rate = 0.0
+sec_fee_rate = 0.0000278
+finra_taf_per_share = 0.000166
+finra_taf_cap = 8.30
+
+[execution]
+slippage_bps = 5
+
+[risk]
+# theme_multifactor의 자체 집중도 상한(apply_constraints, max_position_weight=0.40)이
+# 이미 0.40을 강제한다. 이 값이 그보다 낮으면 같은 매수가 두 번 거부당한다 — 엔진
+# 리스크 캡은 전략 상한 위의 백스톱이어야지, 더 타이트한 거부권이면 안 된다.
+max_position_pct = 0.40
+max_positions = 5
+max_daily_loss_pct = 0.03
+stop_loss_pct = 0.05
+min_cash_buffer_pct = 0.02
+
+[strategies.ma_cross]
+fast = 20
+slow = 60
+weight = 0.20
+
+[strategies.vol_breakout]
+k = 0.5
+weight = 0.20
+exit = "moc"
+
+[strategies.rsi_reversion]
+period = 14
+buy_below = 30
+exit_above = 55
+max_hold_days = 10
+weight = 0.20
+
+[strategies.theme_multifactor]
+theme = "us_asset_rotation"
+market = "US"
+rebalance = "monthly"
+top_n = 3
+weighting = "inverse_volatility"
+volatility_days = 60
+bear_exposure = 0.5
+# 미국에는 수급·가치 패널이 없다(수급은 대응 데이터 자체가 없고, ETF에는
+# PER/PBR이 없다). 조용히 퇴화하는 대신 사용할 팩터를 명시한다.
+factors = ["momentum_6m", "momentum_12m_ex1m"]
+# 채권·금·원자재가 섞인 유니버스에서는 자산별 하락 추세 배제가 필수다.
+abs_momentum_ma_days = 200
+regime_series = "sp500"
+
+[pipeline]
+# 일일 배치 수집 대상. 작업 스케줄러가 장 마감 후 하루 1회 실행한다.
+processed_dir = "data/processed"
+log_dir = "state/pipeline_log"
+symbols = ["SPY", "QQQ", "IWM", "EFA", "EEM", "TLT", "IEF", "LQD", "GLD", "DBC", "VNQ"]
+fundamental_years = 3
+retry_attempts = 3

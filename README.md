@@ -40,6 +40,10 @@ v1 이후 [`trading_bot_agentic_ai_execution_plan_260714.md`](trading_bot_agenti
     건너뜁니다. 수집 작업이 멈춘 채로 옛날 가격에 매매하는 것을 막습니다.
   - 승격 판정 결과는 [docs/theme_multifactor_promotion_review.md](docs/theme_multifactor_promotion_review.md)
     참고 — 현재 기준 미달로 **모의투자 승격 보류** 상태입니다.
+- 미국 시장 지원(`config/us_etf_rotation.toml`): 수집기 시장 가드,
+  시장별 거시 시리즈, 전략의 명시적 팩터 목록과 절대 모멘텀 필터.
+  11개 ETF 자산배분 로테이션을 2007년부터 백테스트할 수 있습니다 —
+  판정은 [docs/us_etf_rotation_review.md](docs/us_etf_rotation_review.md).
 
 두 갈래는 `data/fundamentals.py`의 DART 클라이언트를 공유합니다. 밸류에이션은
 `FundamentalRecord`(FCFF 입력)로, 팩터 연구는 `data/fundamentals_panel.py`가
@@ -109,6 +113,9 @@ CLI 대신 데스크톱 GUI(Tkinter, 추가 의존성 없음)로 같은 기능�
 
 자격증명이 없는 소스는 수집을 **건너뛰고**(실패가 아님) 그 사실을 실행 로그에 남깁니다.
 자격증명을 저장소에 커밋하지 마세요.
+
+미국 시장은 가격·거시만 수집합니다. 수급·밸류에이션·재무는 한국 전용이라
+`--market US` 실행에서 **생략**으로 보고되며, 이는 실패가 아닙니다.
 
 ## 자동 데이터 수집 배치
 
