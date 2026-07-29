@@ -108,6 +108,8 @@ def run_walk_forward(
                 start=start,
                 end=end,
             )
+            strategy_return = strategy_result.return_pct
+            benchmark_return = benchmark_result.return_pct
         except Exception as exc:  # noqa: BLE001 - recorded, never swallowed
             LOGGER.exception("Walk-forward window %s..%s failed", start, end)
             results.append(
@@ -122,8 +124,6 @@ def run_walk_forward(
             )
             continue
 
-        strategy_return = float(strategy_result.return_pct)
-        benchmark_return = float(benchmark_result.return_pct)
         results.append(
             WindowResult(
                 test_start=window.test_start,

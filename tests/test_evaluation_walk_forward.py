@@ -15,10 +15,6 @@ WINDOWS = [
     WalkForwardWindow(date(2020, 1, 1), date(2022, 12, 31), date(2023, 1, 1), date(2023, 12, 31)),
 ]
 
-CONFIG = {"backtest": {"initial_cash_us": 100000}}
-BENCHMARK_CONFIG = {"backtest": {"initial_cash_us": 100000}}
-
-
 def result_returning(pct: float) -> BacktestResult:
     """A BacktestResult whose return_pct is exactly `pct`."""
     initial = 100.0
