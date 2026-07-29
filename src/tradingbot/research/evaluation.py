@@ -13,7 +13,15 @@ overfitting.
 from __future__ import annotations
 
 import copy
-from typing import Any
+from dataclasses import dataclass
+from datetime import date
+from typing import Any, Callable, Sequence
+
+from tradingbot.research.walk_forward import WalkForwardWindow
+from tradingbot.services import run_backtest
+from tradingbot.utils.log import get_logger
+
+LOGGER = get_logger(__name__)
 
 
 def scale_costs(config: dict[str, Any], market: str, multiplier: float) -> dict[str, Any]:
@@ -42,3 +50,96 @@ def scale_costs(config: dict[str, Any], market: str, multiplier: float) -> dict[
     if isinstance(slippage, (int, float)) and not isinstance(slippage, bool):
         execution["slippage_bps"] = slippage * multiplier
     return scaled
+
+
+@dataclass(frozen=True)
+class WindowResult:
+    """One rolling out-of-sample window: how the strategy did against the benchmark.
+
+    `won` is None when the window could not be evaluated; `error` says why.
+    A failed window is unmeasured, not a loss.
+    """
+
+    test_start: date
+    test_end: date
+    strategy_return_pct: float
+    benchmark_return_pct: float
+    won: bool | None
+    error: str
+
+
+def run_walk_forward(
+    *,
+    config: dict[str, Any],
+    benchmark_config: dict[str, Any],
+    market: str,
+    symbols: Sequence[str],
+    strategy_name: str,
+    windows: Sequence[WalkForwardWindow],
+    runner: Callable[..., Any] = run_backtest,
+) -> list[WindowResult]:
+    """Backtest strategy and benchmark over each window's test segment.
+
+    Only the test segment runs. The train segment is unused because nothing
+    in this strategy is fitted to data — what this measures is consistency
+    across independent rolling periods, and the report says so plainly.
+
+    A window that fails is recorded with `won=None` rather than dropped, so
+    the win rate cannot be quietly inflated by discarding hard periods.
+    """
+    results: list[WindowResult] = []
+    for window in windows:
+        start = window.test_start.isoformat()
+        end = window.test_end.isoformat()
+        try:
+            strategy_result = runner(
+                config,
+                market=market,
+                symbols=list(symbols),
+                strategy_name=strategy_name,
+                start=start,
+                end=end,
+            )
+            benchmark_result = runner(
+                benchmark_config,
+                market=market,
+                symbols=list(symbols),
+                strategy_name=strategy_name,
+                start=start,
+                end=end,
+            )
+        except Exception as exc:  # noqa: BLE001 - recorded, never swallowed
+            LOGGER.exception("Walk-forward window %s..%s failed", start, end)
+            results.append(
+                WindowResult(
+                    test_start=window.test_start,
+                    test_end=window.test_end,
+                    strategy_return_pct=float("nan"),
+                    benchmark_return_pct=float("nan"),
+                    won=None,
+                    error=str(exc),
+                )
+            )
+            continue
+
+        strategy_return = float(strategy_result.return_pct)
+        benchmark_return = float(benchmark_result.return_pct)
+        results.append(
+            WindowResult(
+                test_start=window.test_start,
+                test_end=window.test_end,
+                strategy_return_pct=strategy_return,
+                benchmark_return_pct=benchmark_return,
+                won=strategy_return > benchmark_return,
+                error="",
+            )
+        )
+    return results
+
+
+def win_rate(results: Sequence[WindowResult]) -> float:
+    """Share of evaluated windows the strategy won. NaN when none were evaluated."""
+    evaluated = [result for result in results if result.won is not None]
+    if not evaluated:
+        return float("nan")
+    return sum(1 for result in evaluated if result.won) / len(evaluated)
