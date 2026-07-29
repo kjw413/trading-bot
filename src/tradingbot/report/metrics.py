@@ -180,3 +180,33 @@ def _exposure_pct(fills: list[Fill], equity_curve: pd.DataFrame) -> float:
         if any(qty > 0 for qty in positions.values()):
             exposed_days += 1
     return exposed_days / len(equity_curve) * 100
+
+
+def annual_turnover(result: BacktestResult) -> float:
+    """One-way annual turnover: purchases divided by average equity, per year.
+
+    "One-way" counts purchases only — counting sells too would double every
+    round trip and make the number incomparable to the promotion limit.
+
+    Returns NaN rather than 0 when the run cannot be measured (no equity
+    curve, a zero-length period, or non-positive average equity). Zero would
+    read as "this strategy barely trades", which is the opposite of the truth.
+    """
+    curve = result.equity_curve
+    if curve.empty or len(curve) < 2:
+        return float("nan")
+
+    average_equity = float(curve["equity"].mean())
+    if average_equity <= 0:
+        return float("nan")
+
+    start = pd.to_datetime(curve["date"].iloc[0])
+    end = pd.to_datetime(curve["date"].iloc[-1])
+    years = (end - start).days / 365.25
+    if years <= 0:
+        return float("nan")
+
+    purchased = sum(
+        fill.gross_value for fill in result.fills if fill.side is OrderSide.BUY
+    )
+    return purchased / average_equity / years
