@@ -13,6 +13,7 @@ overfitting.
 from __future__ import annotations
 
 import copy
+import math
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Callable, Sequence
@@ -143,3 +144,92 @@ def win_rate(results: Sequence[WindowResult]) -> float:
     if not evaluated:
         return float("nan")
     return sum(1 for result in evaluated if result.won) / len(evaluated)
+
+
+@dataclass(frozen=True)
+class CriterionResult:
+    """One promotion criterion. `passed=None` means it could not be measured."""
+
+    name: str
+    threshold: str
+    measured: float
+    passed: bool | None
+
+
+@dataclass(frozen=True)
+class Verdict:
+    promoted: bool
+    criteria: list[CriterionResult]
+
+    @property
+    def unmeasured(self) -> list[str]:
+        return [c.name for c in self.criteria if c.passed is None]
+
+
+def _at_least(measured: float, floor: float) -> bool | None:
+    if math.isnan(measured):
+        return None
+    return measured >= floor
+
+
+def _at_most(measured: float, ceiling: float) -> bool | None:
+    if math.isnan(measured):
+        return None
+    return measured <= ceiling
+
+
+def judge(
+    *,
+    excess_return: float,
+    sharpe: float,
+    mdd: float,
+    turnover: float,
+    wf_win_rate: float,
+    excess_return_2x: float,
+    promotion: dict[str, Any],
+) -> Verdict:
+    """Compare measurements against the promotion criteria.
+
+    An unmeasured criterion (NaN) is never a pass — it blocks promotion just
+    as a failure does. Distinguishing "we checked and it's fine" from "we
+    never checked" is the reason this tool exists.
+    """
+    criteria = [
+        CriterionResult(
+            "excess_return",
+            f">= {promotion['min_excess_return']}",
+            excess_return,
+            _at_least(excess_return, float(promotion["min_excess_return"])),
+        ),
+        CriterionResult(
+            "sharpe",
+            f">= {promotion['min_sharpe']}",
+            sharpe,
+            _at_least(sharpe, float(promotion["min_sharpe"])),
+        ),
+        CriterionResult(
+            "max_drawdown",
+            f"<= {promotion['max_mdd']}",
+            mdd,
+            _at_most(mdd, float(promotion["max_mdd"])),
+        ),
+        CriterionResult(
+            "annual_turnover",
+            f"<= {promotion['max_annual_turnover']}",
+            turnover,
+            _at_most(turnover, float(promotion["max_annual_turnover"])),
+        ),
+        CriterionResult(
+            "walk_forward_win_rate",
+            f">= {promotion['min_walk_forward_win_rate']}",
+            wf_win_rate,
+            _at_least(wf_win_rate, float(promotion["min_walk_forward_win_rate"])),
+        ),
+        CriterionResult(
+            f"excess_return_at_{promotion['cost_multiplier_check']}x_costs",
+            f">= {promotion['min_excess_return']}",
+            excess_return_2x,
+            _at_least(excess_return_2x, float(promotion["min_excess_return"])),
+        ),
+    ]
+    return Verdict(promoted=all(c.passed for c in criteria), criteria=criteria)
