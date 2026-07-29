@@ -113,7 +113,7 @@ class ThemeMultifactorStrategy(Strategy):
             if not raw:
                 raise ValueError("research config has no [factor_weights] section")
             selected = self.params.get("factors")
-            if selected:
+            if selected is not None:
                 missing = [name for name in selected if name not in raw]
                 if missing:
                     available = ", ".join(sorted(raw))

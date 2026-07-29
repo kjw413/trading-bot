@@ -32,6 +32,47 @@
 - 1차 벤치마크: SPY 매수 후 보유(`data/cache/US/SPY.parquet` 직접 계산, 전략
   실행 없음)
 
+### 파이프라인 시장 가드 검증 (Step 6)
+
+이 기능이 보증해야 하는 속성 — 시장별 컬렉터 가드가 가짜 fetcher가 아니라
+실데이터에 대해 실제로 작동한다는 것 — 을 확인하기 위해 실행한 결과다.
+
+`--config config\us_etf_rotation.toml data pipeline --market US`:
+
+```
+데이터 수집 배치: US
+  - prices: 성공 (0행)
+  - macro: 성공 (16825행)
+  - flows: 생략 (0행) — flows is KR-only and does not apply to US
+  - valuation: 생략 (0행) — valuation is KR-only and does not apply to US
+  - fundamentals: 생략 (0행) — fundamentals is KR-only and does not apply to US
+전체 결과: 정상
+EXITCODE=0
+```
+
+prices/macro는 성공, KR 전용 3개 컬렉터(flows/valuation/fundamentals)는
+"KR-only" 사유와 함께 생략, macro 16825행 수집, 종료 코드 0 — 완료 기준을
+모두 충족했다. (`prices`가 0행인 것은 같은 세션의 Step 1에서 이미 오늘까지
+수집을 마쳐 새로 받을 것이 없었기 때문이며, 시장 가드와는 무관하다.)
+
+이어서 `data pipeline --market KR` 회귀 확인(자격 증명 로드됨):
+
+```
+KRX 로그인 완료.
+데이터 수집 배치: KR
+  - prices: 성공 (17543행) — quality=fail: 005930 ohlc_logic(6); 035420 ohlc_logic(33); 042700 ohlc_logic(3); 058470 ohlc_logic(12)
+  - macro: 성공 (9행)
+  - flows: 성공 (16행)
+  - valuation: 성공 (16행)
+  - fundamentals: 성공 (0행)
+전체 결과: 정상
+EXITCODE=0
+```
+
+KR 5개 소스 모두 여전히 성공, 종료 코드 0 — 미국 시장-스코핑 변경이 한국
+파이프라인을 퇴행시키지 않았다. (`ohlc_logic` 품질 경고 4건은 이 작업과
+무관한 기존 데이터 품질 이슈로, 별도 조사하지 않았다.)
+
 ## 결과
 
 | 지표 | 전략 (상위 3, 변동성 역가중, 하락장 0.5, 절대모멘텀 200일) | ETF 동일비중 벤치마크 (2차) | SPY 매수보유 (1차) |

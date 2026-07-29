@@ -251,6 +251,14 @@ min_cash_weight = 0.02
         # the flow and value panels come back all-NaN.
         assert set(strategy.factor_weights) == {"momentum_3m"}
 
+    def test_explicitly_empty_list_is_not_a_silent_fallback(self, multi_config):
+        strategy = ThemeMultifactorStrategy(
+            research_config=str(multi_config), factors=[]
+        )
+        # An explicit "run nothing" must not quietly become "run everything" —
+        # that is the exact silent degradation this parameter prevents.
+        assert strategy.factor_weights == {}
+
     def test_weights_still_come_from_the_config(self, multi_config):
         strategy = ThemeMultifactorStrategy(
             research_config=str(multi_config), factors=["momentum_6m"]
