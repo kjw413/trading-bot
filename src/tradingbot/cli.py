@@ -448,6 +448,8 @@ def cmd_research_evaluate(args) -> int:
         start=args.start,
         end=args.end,
         data_root=args.data_root,
+        config_path=args.config,
+        benchmark_config_path=args.benchmark_config,
     )
     markdown = render_markdown(report)
     print(markdown)

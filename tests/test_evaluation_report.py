@@ -297,6 +297,48 @@ class TestRenderMarkdown:
         assert "2010-01-01" in section
         assert "2024-12-31" in section
 
+    def test_reproduction_command_names_the_configs_that_produced_the_numbers(self):
+        # Excess return is measured against whatever --benchmark-config
+        # supplied. A command that omits it reproduces a *different* report:
+        # the benchmark becomes the strategy itself and the excess is 0.0 by
+        # construction. Dropping the configs makes the section a lie.
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            config_path="config/us_etf_rotation.toml",
+            benchmark_config_path="config/us_etf_benchmark.toml",
+            runner=runner,
+        )
+        section = render_markdown(report).split("## 재현 명령", 1)[1]
+        assert "--config config/us_etf_rotation.toml" in section
+        assert "--benchmark-config config/us_etf_benchmark.toml" in section
+        # --config is a global flag: it must precede the subcommand.
+        assert section.index("--config config/us_etf_rotation.toml") < section.index(
+            "research evaluate"
+        )
+
+    def test_reproduction_command_omits_config_flags_that_were_not_used(self):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            runner=runner,
+        )
+        section = render_markdown(report).split("## 재현 명령", 1)[1]
+        assert "--benchmark-config" not in section
+        assert "--data-root" not in section
+
     def test_nan_in_the_performance_table_reads_as_unmeasured_not_bare_nan(self):
         # annual_turnover is NaN whenever the run cannot be measured (see
         # report/metrics.py). The 성과 table must say 측정 불가 like every

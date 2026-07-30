@@ -321,6 +321,8 @@ def evaluate_strategy(
     start: str,
     end: str | None = None,
     data_root: str | Path | None = None,
+    config_path: str | None = None,
+    benchmark_config_path: str | None = None,
     runner: Callable[..., Any] = run_backtest,
 ) -> dict[str, Any]:
     """Measure a strategy against every promotion criterion.
@@ -399,6 +401,13 @@ def evaluate_strategy(
         "market": market.upper(),
         "symbols": list(symbols),
         "period": {"start": start, "end": end},
+        # Recorded so the reproduction command can name the configs that
+        # produced these numbers. Excess return is measured against whatever
+        # --benchmark-config was used; a command that omits it reproduces a
+        # different report.
+        "config_path": config_path,
+        "benchmark_config_path": benchmark_config_path,
+        "data_root": str(data_root) if data_root else None,
         "strategy": strategy,
         "benchmark": benchmark,
         "benchmark_separately_configured": benchmark_separately_configured,
@@ -491,10 +500,19 @@ def _fmt(value: float, spec: str) -> str:
 
 
 def _reproduction_command(report: dict[str, Any]) -> str:
-    """The exact CLI invocation that reproduces this report, from its own fields."""
+    """The exact CLI invocation that reproduces this report, from its own fields.
+
+    The configs are part of the command, not decoration: excess return is
+    measured against whatever `--benchmark-config` supplied, so a command that
+    drops it reproduces a different report — one where the benchmark is the
+    strategy itself and the excess is 0.0 by construction.
+    """
     period = report["period"]
-    parts = [
-        "python -m tradingbot research evaluate",
+    parts = ["python -m tradingbot"]
+    if report.get("config_path"):
+        parts.append(f"--config {report['config_path']}")
+    parts += [
+        "research evaluate",
         f"--strategy {report['strategy_name']}",
         f"--market {report['market']}",
         f"--symbols {' '.join(report['symbols'])}",
@@ -502,6 +520,10 @@ def _reproduction_command(report: dict[str, Any]) -> str:
     ]
     if period.get("end"):
         parts.append(f"--end {period['end']}")
+    if report.get("benchmark_config_path"):
+        parts.append(f"--benchmark-config {report['benchmark_config_path']}")
+    if report.get("data_root"):
+        parts.append(f"--data-root {report['data_root']}")
     return " ".join(parts)
 
 
