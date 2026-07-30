@@ -10,8 +10,16 @@
 cache_dir = "data/cache"
 
 [backtest]
+# 1만 달러에서는 ETF 11종 동일비중이 종목당 900달러라 SPY 한 주(수백 달러)
+# 반올림 손실이 커진다. 목적이 전략과 벤치마크의 공정한 비교이므로 실제
+# 투자금과 같을 필요는 없다.
+#
+# 주의: 자본을 10배로 올려도 주문 거부율은 17~19%로 거의 그대로였다. 실측 결과
+# 거부 사유는 전부 'minimum cash buffer breached'이며 반올림이 아니다. 주문
+# 사이징이 [risk_limits] min_cash_weight를 미리 떼어두지 않아 리밸런싱 후반
+# 주문이 버퍼를 침범한다. 별도 과제이며 여기서 고치지 않는다.
 initial_cash_kr = 10000000
-initial_cash_us = 10000
+initial_cash_us = 100000
 
 [paper]
 state_dir = "state"
