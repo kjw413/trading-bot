@@ -51,6 +51,9 @@ max_mdd = 0.25                 # 허용 상한 (목표 0.20)
 target_mdd = 0.20
 max_annual_turnover = 6.0      # 편도 600%
 min_walk_forward_win_rate = 0.6
+# 평가된 구간이 이 수 미만이면 승률은 일관성을 말해주지 못하므로, 통과가
+# 아니라 "측정 불가"로 보고한다 (예: 데이터가 짧아 구간이 1개뿐인 경우).
+min_walk_forward_windows = 3
 cost_multiplier_check = 2.0    # 비용 2배에서도 초과수익 > 0
 
 [risk_limits]

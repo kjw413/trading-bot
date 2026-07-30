@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 import time
 from collections import Counter
 from datetime import date as _date
 from datetime import datetime as _datetime
+from typing import Any
 
 from tradingbot.broker.paper import PaperBroker
 from tradingbot.config import load_config, resolve_project_path
@@ -100,6 +102,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--theme", default=None, help="Resolve the universe from config/themes.toml"
     )
     factor_report_parser.set_defaults(handler=cmd_research_report)
+
+    evaluate_parser = research_subparsers.add_parser(
+        "evaluate", help="Measure a strategy against the promotion criteria"
+    )
+    evaluate_parser.add_argument("--strategy", required=True)
+    add_market_symbols(evaluate_parser)
+    evaluate_parser.add_argument("--start", required=True)
+    evaluate_parser.add_argument("--end", default=None)
+    evaluate_parser.add_argument(
+        "--benchmark-config", default=None, help="Benchmark TOML (default: same as --config)"
+    )
+    evaluate_parser.add_argument("--research-config", default=None)
+    evaluate_parser.add_argument("--data-root", default=None)
+    evaluate_parser.add_argument("--out", default="reports/evaluation")
+    evaluate_parser.set_defaults(handler=cmd_research_evaluate)
 
     fundamentals_parser = subparsers.add_parser("fundamentals", help="DART fundamentals commands")
     fundamentals_subparsers = fundamentals_parser.add_subparsers(dest="fundamentals_command")
@@ -397,3 +414,75 @@ def cmd_data_pipeline(args) -> int:
         print(line)
     print(f"전체 결과: {'정상' if result.ok else '일부 실패'}")
     return 0 if result.ok else 1
+
+
+def _json_safe(value: Any) -> Any:
+    """Non-finite floats (NaN/inf) become None: `json.dumps` happily emits
+    bare `NaN`/`Infinity` tokens, which Python reads back but `jq` and
+    `JSON.parse` reject as invalid JSON. `None` round-trips everywhere."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def cmd_research_evaluate(args) -> int:
+    from datetime import datetime as _dt
+
+    from tradingbot.research.evaluation import evaluate_strategy, render_markdown
+    from tradingbot.research.experiment import record_experiment
+    from tradingbot.research.gate import load_research_config
+
+    config = load_config(args.config)
+    benchmark_config = (
+        load_config(args.benchmark_config) if args.benchmark_config else config
+    )
+    research = load_research_config(args.research_config)
+
+    report = evaluate_strategy(
+        config=config,
+        benchmark_config=benchmark_config,
+        research=research,
+        market=args.market,
+        symbols=args.symbols,
+        strategy_name=args.strategy,
+        start=args.start,
+        end=args.end,
+        data_root=args.data_root,
+        config_path=args.config,
+        benchmark_config_path=args.benchmark_config,
+    )
+    markdown = render_markdown(report)
+    print(markdown)
+
+    out_dir = resolve_project_path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / (
+        f"{_dt.now():%Y%m%d_%H%M%S}_{args.strategy}_{args.market.upper()}.md"
+    )
+    out_path.write_text(markdown, encoding="utf-8")
+    print(f"평가 리포트: {out_path}")
+
+    metrics = {
+        "promoted": report["verdict"]["promoted"],
+        "unmeasured": report["verdict"]["unmeasured"],
+        "excess_return_pct": report["excess_return_pct"],
+        "walk_forward_win_rate": report["walk_forward"]["win_rate"],
+        "annual_turnover": report["strategy"]["annual_turnover"],
+    }
+    metrics = {key: _json_safe(value) for key, value in metrics.items()}
+
+    experiment_path = record_experiment(
+        resolve_project_path("data/experiments"),
+        kind="strategy_evaluation",
+        params={
+            "strategy": args.strategy,
+            "market": args.market,
+            "symbols": args.symbols,
+            "start": args.start,
+            "end": args.end,
+            "benchmark_config": args.benchmark_config,
+        },
+        metrics=metrics,
+    )
+    print(f"실험 기록: {experiment_path}")
+    return 0 if report["verdict"]["promoted"] else 1

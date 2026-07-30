@@ -363,6 +363,7 @@ flowchart TD
 | 시장별 거시 시리즈 / 수집기 시장 가드 | `src/tradingbot/data/macro.py`, `data/pipeline.py` |
 | 선정·비중·제약·리밸런싱 계획 | `src/tradingbot/allocation/` |
 | 테마 멀티팩터 전략 | `src/tradingbot/strategies/theme_multifactor.py` |
+| 승격 기준 측정 / 판정 | `src/tradingbot/research/evaluation.py` |
 
 ## 8. VS Code에서 보는 방법
 

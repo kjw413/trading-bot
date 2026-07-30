@@ -44,6 +44,10 @@ v1 이후 [`trading_bot_agentic_ai_execution_plan_260714.md`](trading_bot_agenti
   시장별 거시 시리즈, 전략의 명시적 팩터 목록과 절대 모멘텀 필터.
   11개 ETF 자산배분 로테이션을 2007년부터 백테스트할 수 있습니다 —
   판정은 [docs/us_etf_rotation_review.md](docs/us_etf_rotation_review.md).
+- 승격 기준 측정 도구(`research/evaluation.py`, `research evaluate`):
+  Walk-forward 승률·연 회전율·비용 2배 검정을 실제로 재서, 전략이 승격
+  기준 6개 전부에 대해 합격/불합격 판정을 받을 수 있게 합니다. 측정하지
+  못한 항목은 통과가 아니라 "측정 불가"로 남습니다.
 
 두 갈래는 `data/fundamentals.py`의 DART 클라이언트를 공유합니다. 밸류에이션은
 `FundamentalRecord`(FCFF 입력)로, 팩터 연구는 `data/fundamentals_panel.py`가
@@ -160,6 +164,18 @@ CLI 대신 데스크톱 GUI(Tkinter, 추가 의존성 없음)로 같은 기능�
 ```powershell
 .\.venv\Scripts\python.exe -m tradingbot backtest --strategy theme_multifactor --market KR --symbols 005930 000660 042700 058470 240810 --start 2023-01-01
 ```
+
+## 전략 승격 평가
+
+백테스트 수치가 좋아 보여도 실제로 돈을 넣어도 되는지는 별개입니다. 이 명령은
+`config/research.toml`의 `[promotion]` 기준 6개를 전부 측정해 합격/불합격을
+판정하고, 리포트 맨 위에 전문용어 없는 결론을 씁니다.
+
+```powershell
+.\.venv\Scripts\python.exe -m tradingbot --config config\us_etf_rotation.toml research evaluate --strategy theme_multifactor --market US --symbols SPY QQQ IWM EFA EEM TLT IEF LQD GLD DBC VNQ --start 2007-01-01 --benchmark-config config\us_etf_benchmark.toml
+```
+
+결과는 `reports/evaluation/`에 저장됩니다. 승격이면 종료코드 0, 아니면 1입니다.
 
 ## 모의투자
 
