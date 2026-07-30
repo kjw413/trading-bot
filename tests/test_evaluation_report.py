@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import math
 from datetime import date
 
 import pandas as pd
@@ -8,7 +10,7 @@ import pytest
 from tradingbot.cli import build_parser, cmd_research_evaluate
 from tradingbot.engine.engine import BacktestResult
 from tradingbot.models import Fill, OrderSide
-from tradingbot.research.evaluation import evaluate_strategy, render_markdown
+from tradingbot.research.evaluation import _verdict_sentence, evaluate_strategy, render_markdown
 
 RESEARCH = {
     "promotion": {
@@ -123,6 +125,37 @@ class TestEvaluateStrategy:
         assert wf["evaluated"] + wf["failed"] == wf["total"]
         assert wf["total"] == len(wf["windows"])
 
+    def test_benchmark_not_separately_configured_is_flagged(self):
+        # Omitting --benchmark-config makes benchmark_config literally the
+        # same object as config, which makes excess return exactly 0.0 by
+        # construction. The report must say so.
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=CONFIG,
+            research=RESEARCH,
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            runner=runner,
+        )
+        assert report["benchmark_separately_configured"] is False
+
+    def test_separately_configured_benchmark_is_not_flagged(self):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            runner=runner,
+        )
+        assert report["benchmark_separately_configured"] is True
+
     def test_a_failed_window_is_counted_as_failed_not_evaluated(self):
         report = evaluate_strategy(
             config=CONFIG,
@@ -141,6 +174,58 @@ class TestEvaluateStrategy:
         assert wf["total"] == len(wf["windows"])
 
 
+class TestDataRootThreading:
+    """--data-root is a real CLI flag; a fake runner must see whatever value
+    evaluate_strategy was given, for every backtest it runs (the full-period
+    pair, the doubled-cost pair, and every walk-forward window)."""
+
+    def test_data_root_reaches_every_backtest_call(self):
+        seen: list[str | None] = []
+
+        def recording_runner(config, *, market, symbols, strategy_name, start, end=None, data_root=None):
+            seen.append(data_root)
+            base = 10.0 if config["marker"] == "strategy" else 5.0
+            return make_result(base)
+
+        evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            data_root="/custom/data",
+            runner=recording_runner,
+        )
+        # 4 full/doubled-cost backtests, plus 2 per walk-forward window.
+        assert len(seen) > 4
+        assert all(root == "/custom/data" for root in seen)
+
+    def test_data_root_defaults_to_none(self):
+        seen: list[str | None] = []
+
+        def recording_runner(config, *, market, symbols, strategy_name, start, end=None, data_root=None):
+            seen.append(data_root)
+            base = 10.0 if config["marker"] == "strategy" else 5.0
+            return make_result(base)
+
+        evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            runner=recording_runner,
+        )
+        assert seen
+        assert all(root is None for root in seen)
+
+
 class TestRenderMarkdown:
     def test_leads_with_a_plain_language_verdict(self):
         report = evaluate_strategy(
@@ -156,9 +241,12 @@ class TestRenderMarkdown:
         )
         markdown = render_markdown(report)
         # The person deciding whether to fund this has to be able to read it.
+        # Asserting "승격" alone would be vacuous — the title line
+        # ("# ... 승격 평가 (...)") contains that word regardless of the
+        # verdict, so this must check the actual conclusion sentence.
         assert markdown.startswith("# ")
         assert "## 결론" in markdown
-        assert "승격" in markdown
+        assert _verdict_sentence(report) in markdown
         assert "| 기준 |" in markdown
 
     def test_shows_the_failed_window_count_under_the_section_heading(self):
@@ -185,6 +273,198 @@ class TestRenderMarkdown:
         assert f"{wf['evaluated']}구간 평가" in section
         assert f"{wf['failed']}구간 측정 실패" in section
 
+    def test_reproduction_command_section_reproduces_the_report(self):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            market="US",
+            symbols=["SPY", "QQQ"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            runner=runner,
+        )
+        markdown = render_markdown(report)
+        heading = "## 재현 명령"
+        assert heading in markdown
+        section = markdown.split(heading, 1)[1]
+        assert "research evaluate" in section
+        assert "theme_multifactor" in section
+        assert "US" in section
+        assert "SPY" in section
+        assert "QQQ" in section
+        assert "2010-01-01" in section
+        assert "2024-12-31" in section
+
+    def test_nan_in_the_performance_table_reads_as_unmeasured_not_bare_nan(self):
+        # annual_turnover is NaN whenever the run cannot be measured (see
+        # report/metrics.py). The 성과 table must say 측정 불가 like every
+        # other unmeasured value in this report, not the bare string "nan".
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            runner=runner,
+        )
+        # Force the strategy side of the already-computed report into the
+        # single case this fix targets, isolating the table-formatting
+        # concern from how a NaN turnover actually arises.
+        report["strategy"] = {**report["strategy"], "annual_turnover": float("nan")}
+        markdown = render_markdown(report)
+        performance_section = markdown.split("## 성과", 1)[1].split("## 승격 기준", 1)[0]
+        assert "nan" not in performance_section.lower()
+        assert "측정 불가" in performance_section
+
+    def test_nan_win_rate_reads_as_unmeasured_in_the_windows_section(self):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            runner=runner,
+        )
+        report["walk_forward"] = {**report["walk_forward"], "win_rate": float("nan")}
+        markdown = render_markdown(report)
+        heading = "## 구간별 결과 (롤링 독립구간)"
+        section = markdown.split(heading, 1)[1]
+        assert "- 승률 측정 불가 —" in section
+        assert "nan" not in section.lower()
+
+    def test_unmeasured_criterion_marks_the_table_row(self):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            runner=runner,
+        )
+        criteria = [dict(c) for c in report["verdict"]["criteria"]]
+        criteria[0] = {**criteria[0], "measured": float("nan"), "passed": None, "reason": ""}
+        report["verdict"] = {**report["verdict"], "criteria": criteria}
+        markdown = render_markdown(report)
+        name = criteria[0]["name"]
+        threshold = criteria[0]["threshold"]
+        assert f"| {name} | {threshold} | 측정 불가 | **측정 불가** |" in markdown
+
+    def test_single_walk_forward_window_reads_as_insufficient_evidence_not_a_crash(self):
+        # Live consequence this guards: the Korean strategy's data starts in
+        # 2023, so exactly one walk-forward window is produced. Winning that
+        # single 7-month sample must not read as a passed consistency
+        # criterion, and the report must say *why* in terms a reader
+        # understands as "not enough windows", not "the backtest crashed".
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2013-12-31",
+            runner=runner,
+        )
+        assert report["walk_forward"]["evaluated"] == 1
+        criterion = next(
+            c for c in report["verdict"]["criteria"] if c["name"] == "walk_forward_win_rate"
+        )
+        assert criterion["passed"] is None
+        assert "구간" in criterion["reason"]
+
+        markdown = render_markdown(report)
+        assert f"**측정 불가 ({criterion['reason']})**" in markdown
+        assert criterion["reason"] in _verdict_sentence(report)
+        assert "백테스트가 실패했다는 뜻이 아닙니다" in _verdict_sentence(report)
+
+
+class TestVerdictSentenceUnmeasured:
+    """Direct unit tests of `_verdict_sentence`'s unmeasured paragraph — the
+    regression guard for the rule this whole branch exists to enforce."""
+
+    def _report(self, criteria):
+        return {
+            "verdict": {
+                "promoted": False,
+                "unmeasured": [c["name"] for c in criteria if c["passed"] is None],
+                "criteria": criteria,
+            }
+        }
+
+    def test_names_the_unmeasured_criterion(self):
+        report = self._report(
+            [
+                {
+                    "name": "annual_turnover",
+                    "threshold": "<= 6.0",
+                    "measured": float("nan"),
+                    "passed": None,
+                    "reason": "",
+                },
+            ]
+        )
+        sentence = _verdict_sentence(report)
+        assert "측정하지 못한 항목" in sentence
+        assert "annual_turnover" in sentence
+        assert "확인이 안 된 것이며" in sentence
+
+    def test_never_says_promoted_when_something_is_unmeasured(self):
+        report = self._report(
+            [
+                {
+                    "name": "annual_turnover",
+                    "threshold": "<= 6.0",
+                    "measured": float("nan"),
+                    "passed": None,
+                    "reason": "",
+                },
+            ]
+        )
+        assert "승격 기준 6개를 모두 충족" not in _verdict_sentence(report)
+
+    def test_surfaces_a_specific_reason_when_present(self):
+        reason = "평가된 구간 1개 — 일관성을 판단하려면 최소 3개 구간이 필요합니다"
+        report = self._report(
+            [
+                {
+                    "name": "walk_forward_win_rate",
+                    "threshold": ">= 0.6",
+                    "measured": 1.0,
+                    "passed": None,
+                    "reason": reason,
+                },
+            ]
+        )
+        sentence = _verdict_sentence(report)
+        assert reason in sentence
+        assert "백테스트가 실패했다는 뜻이 아닙니다" in sentence
+
+    def test_reasonless_unmeasured_criteria_do_not_get_a_fabricated_reason(self):
+        report = self._report(
+            [
+                {
+                    "name": "annual_turnover",
+                    "threshold": "<= 6.0",
+                    "measured": float("nan"),
+                    "passed": None,
+                    "reason": "",
+                },
+            ]
+        )
+        assert "백테스트가 실패했다는 뜻이 아닙니다" not in _verdict_sentence(report)
+
 
 class TestCli:
     def test_parser_wires_research_evaluate(self):
@@ -203,3 +483,105 @@ class TestCli:
         parser = build_parser()
         args = parser.parse_args(["research", "report", "--factors", "momentum_3m"])
         assert args.handler is cmd_research_report
+
+    def test_data_root_defaults_to_none(self):
+        parser = build_parser()
+        args = parser.parse_args(
+            ["research", "evaluate", "--strategy", "theme_multifactor",
+             "--market", "US", "--symbols", "SPY", "--start", "2010-01-01"]
+        )
+        assert args.data_root is None
+
+    def test_parser_accepts_data_root(self):
+        # Every sibling subcommand honors --data-root; research evaluate
+        # declares it too (cli.py) and must not silently drop it.
+        parser = build_parser()
+        args = parser.parse_args(
+            ["research", "evaluate", "--strategy", "theme_multifactor",
+             "--market", "US", "--symbols", "SPY", "--start", "2010-01-01",
+             "--data-root", "/custom/root"]
+        )
+        assert args.data_root == "/custom/root"
+
+
+class TestCmdResearchEvaluateWiring:
+    """Exercises cmd_research_evaluate itself, not just parser wiring.
+
+    A spy is substituted for evaluate_strategy so the real function still
+    runs (with a fake backtest runner injected) — this is real report
+    plumbing, not a hand-built fixture — while record_experiment is
+    intercepted so nothing is written under the real (gitignored)
+    data/experiments directory. --out is redirected to tmp_path.
+    """
+
+    @pytest.fixture
+    def invoke(self, tmp_path, monkeypatch):
+        import tradingbot.research.evaluation as evaluation_module
+
+        state: dict[str, object] = {"data_roots": [], "metrics": None}
+        real_evaluate_strategy = evaluation_module.evaluate_strategy
+
+        def spy_runner(config, *, market, symbols, strategy_name, start, end=None, data_root=None):
+            state["data_roots"].append(data_root)  # type: ignore[union-attr]
+            # A single-row curve keeps annual_turnover NaN too (see
+            # report/metrics.py) without needing a contrived fixture.
+            curve = pd.DataFrame({"date": [pd.Timestamp(start)], "equity": [100000.0]})
+            return BacktestResult(
+                initial_cash=100000.0,
+                final_equity=100000.0,
+                equity_curve=curve,
+                fills=[],
+                rejected_orders=[],
+                expired_orders=[],
+            )
+
+        def spy_evaluate_strategy(**kwargs):
+            return real_evaluate_strategy(runner=spy_runner, **kwargs)
+
+        def fake_record_experiment(root, *, kind, params, metrics, created_at=None):
+            state["metrics"] = metrics
+            return tmp_path / "experiment.json"
+
+        monkeypatch.setattr(evaluation_module, "evaluate_strategy", spy_evaluate_strategy)
+        monkeypatch.setattr(
+            "tradingbot.research.experiment.record_experiment", fake_record_experiment
+        )
+
+        def run(*, data_root=None, start="2023-01-01", end="2023-06-30"):
+            parser = build_parser()
+            argv = [
+                "research", "evaluate",
+                "--strategy", "theme_multifactor",
+                "--market", "US",
+                "--symbols", "SPY",
+                "--start", start,
+                "--end", end,
+                "--out", str(tmp_path / "out"),
+            ]
+            if data_root is not None:
+                argv += ["--data-root", data_root]
+            args = parser.parse_args(argv)
+            args.config = None
+            cmd_research_evaluate(args)
+            return state
+
+        return run
+
+    def test_data_root_reaches_the_runner(self, invoke, tmp_path):
+        custom_root = str(tmp_path / "custom-data")
+        state = invoke(data_root=custom_root)
+        assert state["data_roots"]
+        assert all(root == custom_root for root in state["data_roots"])
+
+    def test_unmeasured_metrics_are_recorded_as_none_not_bare_nan(self, invoke):
+        # A 6-month range is shorter than the real config's
+        # train_years=3/test_years=1, so zero walk-forward windows are
+        # produced and win_rate is NaN. Bare NaN survives Python's
+        # json.dumps as an invalid `NaN` token that `jq`/`JSON.parse`
+        # reject; it must become None before it reaches record_experiment.
+        state = invoke()
+        metrics = state["metrics"]
+        assert metrics is not None
+        assert metrics["walk_forward_win_rate"] is None
+        assert metrics["annual_turnover"] is None
+        assert "NaN" not in json.dumps(metrics)

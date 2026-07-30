@@ -134,6 +134,46 @@ class TestRunWalkForward:
             runner=runner_for({}),
         ) == []
 
+    def test_data_root_reaches_every_runner_call(self):
+        # --data-root is a real CLI flag (see cli.py); it must not be
+        # silently dropped once it reaches the walk-forward loop.
+        seen: list[str | None] = []
+
+        def recording(config, *, market, symbols, strategy_name, start, end=None, data_root=None):
+            seen.append(data_root)
+            return result_returning(1.0)
+
+        run_walk_forward(
+            config={"marker": "strategy"},
+            benchmark_config={"marker": "benchmark"},
+            market="US",
+            symbols=["SPY"],
+            strategy_name="s",
+            windows=WINDOWS,
+            data_root="/custom/data/root",
+            runner=recording,
+        )
+        # 2 windows x (strategy + benchmark) = 4 calls, every one carrying it.
+        assert seen == ["/custom/data/root"] * 4
+
+    def test_data_root_defaults_to_none(self):
+        seen: list[str | None] = []
+
+        def recording(config, *, market, symbols, strategy_name, start, end=None, data_root=None):
+            seen.append(data_root)
+            return result_returning(1.0)
+
+        run_walk_forward(
+            config={"marker": "strategy"},
+            benchmark_config={"marker": "benchmark"},
+            market="US",
+            symbols=["SPY"],
+            strategy_name="s",
+            windows=WINDOWS[:1],
+            runner=recording,
+        )
+        assert seen == [None, None]
+
 
 def window_result(won: bool | None, error: str = "") -> WindowResult:
     return WindowResult(

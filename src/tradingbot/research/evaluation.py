@@ -16,6 +16,7 @@ import copy
 import math
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from tradingbot.report.metrics import annual_turnover, calculate_metrics
@@ -78,6 +79,7 @@ def run_walk_forward(
     symbols: Sequence[str],
     strategy_name: str,
     windows: Sequence[WalkForwardWindow],
+    data_root: str | Path | None = None,
     runner: Callable[..., Any] = run_backtest,
 ) -> list[WindowResult]:
     """Backtest strategy and benchmark over each window's test segment.
@@ -101,6 +103,7 @@ def run_walk_forward(
                 strategy_name=strategy_name,
                 start=start,
                 end=end,
+                data_root=data_root,
             )
             benchmark_result = runner(
                 benchmark_config,
@@ -109,6 +112,7 @@ def run_walk_forward(
                 strategy_name=strategy_name,
                 start=start,
                 end=end,
+                data_root=data_root,
             )
             strategy_return = strategy_result.return_pct
             benchmark_return = benchmark_result.return_pct
@@ -139,22 +143,60 @@ def run_walk_forward(
     return results
 
 
+@dataclass(frozen=True)
+class WindowCounts:
+    """How a set of walk-forward windows split into evaluated/failed/won.
+
+    `evaluated` and `failed` always add up to `total`, and `wins` is always
+    a subset of `evaluated` — the single source of truth for every count
+    that gets shown next to the win rate.
+    """
+
+    total: int
+    evaluated: int
+    failed: int
+    wins: int
+
+
+def _count_windows(results: Sequence[WindowResult]) -> WindowCounts:
+    """The one place that reads `WindowResult.won`, so its three-way meaning
+    (True/False/None) is interpreted consistently everywhere it is counted."""
+    evaluated = failed = wins = 0
+    for result in results:
+        if result.won is None:
+            failed += 1
+        else:
+            evaluated += 1
+            if result.won:
+                wins += 1
+    return WindowCounts(total=len(results), evaluated=evaluated, failed=failed, wins=wins)
+
+
+def _win_rate_from_counts(counts: WindowCounts) -> float:
+    if counts.evaluated == 0:
+        return float("nan")
+    return counts.wins / counts.evaluated
+
+
 def win_rate(results: Sequence[WindowResult]) -> float:
     """Share of evaluated windows the strategy won. NaN when none were evaluated."""
-    evaluated = [result for result in results if result.won is not None]
-    if not evaluated:
-        return float("nan")
-    return sum(1 for result in evaluated if result.won) / len(evaluated)
+    return _win_rate_from_counts(_count_windows(results))
 
 
 @dataclass(frozen=True)
 class CriterionResult:
-    """One promotion criterion. `passed=None` means it could not be measured."""
+    """One promotion criterion. `passed=None` means it could not be measured.
+
+    `reason` is set only for the unmeasured case, and only when there is
+    something more specific to say than "this was NaN" — e.g. distinguishing
+    "not enough windows to judge" from "the backtest crashed".
+    """
 
     name: str
     threshold: str
     measured: float
     passed: bool | None
+    reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -186,6 +228,7 @@ def judge(
     mdd: float,
     turnover: float,
     wf_win_rate: float,
+    wf_windows_evaluated: int,
     excess_return_2x: float,
     promotion: dict[str, Any],
 ) -> Verdict:
@@ -194,7 +237,24 @@ def judge(
     An unmeasured criterion (NaN) is never a pass — it blocks promotion just
     as a failure does. Distinguishing "we checked and it's fine" from "we
     never checked" is the reason this tool exists.
+
+    `walk_forward_win_rate` has a second, independent route to unmeasured:
+    even a clean win rate says nothing about consistency when it comes from
+    too few windows (a single 7-month sample winning is a coin flip, not
+    evidence). Below `promotion["min_walk_forward_windows"]` evaluated
+    windows, this criterion is reported unmeasured regardless of the rate.
     """
+    min_windows = int(promotion.get("min_walk_forward_windows", 3))
+    if wf_windows_evaluated < min_windows:
+        wf_passed: bool | None = None
+        wf_reason = (
+            f"평가된 구간 {wf_windows_evaluated}개 — 일관성을 판단하려면 최소 "
+            f"{min_windows}개 구간이 필요합니다"
+        )
+    else:
+        wf_passed = _at_least(wf_win_rate, float(promotion["min_walk_forward_win_rate"]))
+        wf_reason = ""
+
     criteria = [
         CriterionResult(
             "excess_return",
@@ -224,7 +284,8 @@ def judge(
             "walk_forward_win_rate",
             f">= {promotion['min_walk_forward_win_rate']}",
             wf_win_rate,
-            _at_least(wf_win_rate, float(promotion["min_walk_forward_win_rate"])),
+            wf_passed,
+            reason=wf_reason,
         ),
         CriterionResult(
             f"excess_return_at_{promotion['cost_multiplier_check']}x_costs",
@@ -259,6 +320,7 @@ def evaluate_strategy(
     strategy_name: str,
     start: str,
     end: str | None = None,
+    data_root: str | Path | None = None,
     runner: Callable[..., Any] = run_backtest,
 ) -> dict[str, Any]:
     """Measure a strategy against every promotion criterion.
@@ -268,6 +330,10 @@ def evaluate_strategy(
     """
     promotion = research["promotion"]
     multiplier = float(promotion["cost_multiplier_check"])
+    # A caller that omits --benchmark-config gets `benchmark_config is config`
+    # (see cmd_research_evaluate) — the report must say so, since it makes
+    # excess return exactly 0.0 by construction rather than a measured result.
+    benchmark_separately_configured = benchmark_config is not config
 
     def backtest(active_config: dict[str, Any]) -> Any:
         return runner(
@@ -277,6 +343,7 @@ def evaluate_strategy(
             strategy_name=strategy_name,
             start=start,
             end=end,
+            data_root=data_root,
         )
 
     strategy_result = backtest(config)
@@ -302,8 +369,14 @@ def evaluate_strategy(
         symbols=symbols,
         strategy_name=strategy_name,
         windows=windows,
+        data_root=data_root,
         runner=runner,
     )
+
+    # Single source of truth for every count derived from `WindowResult.won`
+    # — the rate, and the evaluated/failed/total figures shown next to it.
+    counts = _count_windows(window_results)
+    wf_win_rate = _win_rate_from_counts(counts)
 
     # Both excess figures are annualized (CAGR difference in percentage
     # points). Mixing CAGR here and total return there would make the cost
@@ -315,17 +388,11 @@ def evaluate_strategy(
         sharpe=strategy["sharpe"],
         mdd=abs(strategy["max_drawdown_pct"]) / 100.0,
         turnover=strategy["annual_turnover"],
-        wf_win_rate=win_rate(window_results),
+        wf_win_rate=wf_win_rate,
+        wf_windows_evaluated=counts.evaluated,
         excess_return_2x=excess_return_2x,
         promotion=promotion,
     )
-
-    # A window is either evaluated or failed; a reader must be able to see
-    # both counts, not just the win rate that survives them. Otherwise nine
-    # failed windows out of ten can leave a single surviving win reading as
-    # a clean 1.0 win rate.
-    evaluated = sum(1 for result in window_results if result.won is not None)
-    failed = sum(1 for result in window_results if result.won is None)
 
     return {
         "strategy_name": strategy_name,
@@ -334,6 +401,7 @@ def evaluate_strategy(
         "period": {"start": start, "end": end},
         "strategy": strategy,
         "benchmark": benchmark,
+        "benchmark_separately_configured": benchmark_separately_configured,
         "excess_return_pct": excess_return,
         "cost_2x": {
             "multiplier": multiplier,
@@ -344,11 +412,11 @@ def evaluate_strategy(
             "excess_return_pct": excess_return_2x,
         },
         "walk_forward": {
-            "win_rate": win_rate(window_results),
+            "win_rate": wf_win_rate,
             "train_segments_used": False,
-            "evaluated": evaluated,
-            "failed": failed,
-            "total": len(window_results),
+            "evaluated": counts.evaluated,
+            "failed": counts.failed,
+            "total": counts.total,
             "windows": [
                 {
                     "test_start": result.test_start.isoformat(),
@@ -370,6 +438,7 @@ def evaluate_strategy(
                     "threshold": c.threshold,
                     "measured": c.measured,
                     "passed": c.passed,
+                    "reason": c.reason,
                 }
                 for c in verdict.criteria
             ],
@@ -396,6 +465,43 @@ def _verdict_sentence(report: dict[str, Any]) -> str:
             f"측정하지 못한 항목: {', '.join(unmeasured)} — 미달이 아니라 "
             "확인이 안 된 것이며, 확인 전에는 통과로 치지 않습니다."
         )
+        # Some unmeasured criteria have a more specific reason than "NaN" —
+        # e.g. too few walk-forward windows to say anything about
+        # consistency. The reader must be able to tell that apart from a
+        # crashed backtest.
+        for criterion in verdict["criteria"]:
+            if criterion["passed"] is None and criterion.get("reason"):
+                parts.append(
+                    f"{criterion['name']}: {criterion['reason']} — 이는 근거 부족일 "
+                    "뿐, 백테스트가 실패했다는 뜻이 아닙니다."
+                )
+    return " ".join(parts)
+
+
+def _fmt(value: float, spec: str) -> str:
+    """Format a number, or '측정 불가' for NaN.
+
+    Every other unmeasured value in this report says 측정 불가; a NaN
+    slipping through `:.2f` as the bare string "nan" would be the one
+    place that breaks that convention.
+    """
+    if isinstance(value, float) and math.isnan(value):
+        return "측정 불가"
+    return format(value, spec)
+
+
+def _reproduction_command(report: dict[str, Any]) -> str:
+    """The exact CLI invocation that reproduces this report, from its own fields."""
+    period = report["period"]
+    parts = [
+        "python -m tradingbot research evaluate",
+        f"--strategy {report['strategy_name']}",
+        f"--market {report['market']}",
+        f"--symbols {' '.join(report['symbols'])}",
+        f"--start {period['start']}",
+    ]
+    if period.get("end"):
+        parts.append(f"--end {period['end']}")
     return " ".join(parts)
 
 
@@ -412,16 +518,23 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         f"- 기간: {period['start']} ~ {period['end'] or '최신'}",
         f"- 종목: {', '.join(report['symbols'])}",
+    ]
+    if not report.get("benchmark_separately_configured", True):
+        lines.append(
+            "- 참고: 벤치마크가 별도로 설정되지 않아 전략과 동일한 설정을 "
+            "사용했습니다 — 초과수익 관련 수치는 이 사실을 감안해서 읽어야 합니다."
+        )
+    lines += [
         "",
         "## 성과",
         "",
         "| 지표 | 전략 | 벤치마크 |",
         "|---|---|---|",
-        f"| 총수익률 | {strategy['total_return_pct']:.2f}% | {benchmark['total_return_pct']:.2f}% |",
-        f"| CAGR | {strategy['cagr_pct']:.2f}% | {benchmark['cagr_pct']:.2f}% |",
-        f"| MDD | {strategy['max_drawdown_pct']:.2f}% | {benchmark['max_drawdown_pct']:.2f}% |",
-        f"| Sharpe | {strategy['sharpe']:.2f} | {benchmark['sharpe']:.2f} |",
-        f"| 연 회전율 | {strategy['annual_turnover']:.2f} | {benchmark['annual_turnover']:.2f} |",
+        f"| 총수익률 | {_fmt(strategy['total_return_pct'], '.2f')}% | {_fmt(benchmark['total_return_pct'], '.2f')}% |",
+        f"| CAGR | {_fmt(strategy['cagr_pct'], '.2f')}% | {_fmt(benchmark['cagr_pct'], '.2f')}% |",
+        f"| MDD | {_fmt(strategy['max_drawdown_pct'], '.2f')}% | {_fmt(benchmark['max_drawdown_pct'], '.2f')}% |",
+        f"| Sharpe | {_fmt(strategy['sharpe'], '.2f')} | {_fmt(benchmark['sharpe'], '.2f')} |",
+        f"| 연 회전율 | {_fmt(strategy['annual_turnover'], '.2f')} | {_fmt(benchmark['annual_turnover'], '.2f')} |",
         f"| 체결수 | {strategy['trades']} | {benchmark['trades']} |",
         f"| 거부 주문 | {strategy['rejected_orders']} | {benchmark['rejected_orders']} |",
         "",
@@ -432,14 +545,14 @@ def render_markdown(report: dict[str, Any]) -> str:
     ]
     for criterion in report["verdict"]["criteria"]:
         if criterion["passed"] is None:
-            mark = "**측정 불가**"
+            mark = f"**측정 불가 ({criterion['reason']})**" if criterion.get("reason") else "**측정 불가**"
         elif criterion["passed"]:
             mark = "통과"
         else:
             mark = "**미달**"
         lines.append(
             f"| {criterion['name']} | {criterion['threshold']} | "
-            f"{criterion['measured']:.4f} | {mark} |"
+            f"{_fmt(criterion['measured'], '.4f')} | {mark} |"
         )
 
     cost = report["cost_2x"]
@@ -486,4 +599,13 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"| {window['test_start']} ~ {window['test_end']} | {numbers} | {outcome} |"
         )
     lines.append("")
+
+    lines += [
+        "## 재현 명령",
+        "",
+        "```",
+        _reproduction_command(report),
+        "```",
+        "",
+    ]
     return "\n".join(lines)

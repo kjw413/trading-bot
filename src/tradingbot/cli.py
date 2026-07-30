@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 import time
 from collections import Counter
 from datetime import date as _date
 from datetime import datetime as _datetime
+from typing import Any
 
 from tradingbot.broker.paper import PaperBroker
 from tradingbot.config import load_config, resolve_project_path
@@ -105,8 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
         "evaluate", help="Measure a strategy against the promotion criteria"
     )
     evaluate_parser.add_argument("--strategy", required=True)
-    evaluate_parser.add_argument("--market", choices=["KR", "US"], required=True)
-    evaluate_parser.add_argument("--symbols", nargs="+", required=True)
+    add_market_symbols(evaluate_parser)
     evaluate_parser.add_argument("--start", required=True)
     evaluate_parser.add_argument("--end", default=None)
     evaluate_parser.add_argument(
@@ -415,6 +416,15 @@ def cmd_data_pipeline(args) -> int:
     return 0 if result.ok else 1
 
 
+def _json_safe(value: Any) -> Any:
+    """Non-finite floats (NaN/inf) become None: `json.dumps` happily emits
+    bare `NaN`/`Infinity` tokens, which Python reads back but `jq` and
+    `JSON.parse` reject as invalid JSON. `None` round-trips everywhere."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
 def cmd_research_evaluate(args) -> int:
     from datetime import datetime as _dt
 
@@ -437,6 +447,7 @@ def cmd_research_evaluate(args) -> int:
         strategy_name=args.strategy,
         start=args.start,
         end=args.end,
+        data_root=args.data_root,
     )
     markdown = render_markdown(report)
     print(markdown)
@@ -449,6 +460,15 @@ def cmd_research_evaluate(args) -> int:
     out_path.write_text(markdown, encoding="utf-8")
     print(f"평가 리포트: {out_path}")
 
+    metrics = {
+        "promoted": report["verdict"]["promoted"],
+        "unmeasured": report["verdict"]["unmeasured"],
+        "excess_return_pct": report["excess_return_pct"],
+        "walk_forward_win_rate": report["walk_forward"]["win_rate"],
+        "annual_turnover": report["strategy"]["annual_turnover"],
+    }
+    metrics = {key: _json_safe(value) for key, value in metrics.items()}
+
     experiment_path = record_experiment(
         resolve_project_path("data/experiments"),
         kind="strategy_evaluation",
@@ -460,13 +480,7 @@ def cmd_research_evaluate(args) -> int:
             "end": args.end,
             "benchmark_config": args.benchmark_config,
         },
-        metrics={
-            "promoted": report["verdict"]["promoted"],
-            "unmeasured": report["verdict"]["unmeasured"],
-            "excess_return_pct": report["excess_return_pct"],
-            "walk_forward_win_rate": report["walk_forward"]["win_rate"],
-            "annual_turnover": report["strategy"]["annual_turnover"],
-        },
+        metrics=metrics,
     )
     print(f"실험 기록: {experiment_path}")
     return 0 if report["verdict"]["promoted"] else 1
