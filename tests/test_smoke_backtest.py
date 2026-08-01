@@ -28,10 +28,15 @@ FIXTURE_ROOT = Path(__file__).resolve().parent / "data"
 SYMBOLS = ["TESTA", "TESTB"]
 INITIAL_CASH = 10_000_000
 
+# 2026-08-01 갱신: 주문 사이징이 슬리피지·수수료를 예산 안에서 치르도록 바뀌었다.
+# 이전에는 종가로 나눠 수량을 정해 요청한 비중을 초과 지출했다(예산 200만원에
+# 27주 × 체결가 74,100원 = 200.07만원). 이제 26주로 예산 안에 들어온다. 세 전략
+# 모두 체결 건수(19/940/18)와 거부 0건은 그대로이고 최종 자산만 0.02~0.06%
+# 움직였다 — 매매가 사라지거나 생긴 것이 아니라 같은 매매를 한 주 작게 낸 결과다.
 PINNED = {
-    "ma_cross": {"final_equity": 9_335_113.68, "fills": 19},
-    "vol_breakout": {"final_equity": 8_779_073.99, "fills": 940},
-    "rsi_reversion": {"final_equity": 9_940_520.56, "fills": 18},
+    "ma_cross": {"final_equity": 9_337_088.55, "fills": 19},
+    "vol_breakout": {"final_equity": 8_784_326.94, "fills": 940},
+    "rsi_reversion": {"final_equity": 9_942_259.87, "fills": 18},
 }
 
 

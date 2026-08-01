@@ -66,9 +66,15 @@ class RiskManager:
         if projected_value > equity * self.limits.max_position_pct + 1e-9:
             return "max position size exceeded"
 
+        # Measured against cash at *fill* time, not right now. A buy submitted
+        # at the close settles at the next open, behind the sells that fund it
+        # and behind every buy already queued ahead of it; judging it against
+        # today's balance rejects funded rotations and waves through
+        # oversubscribed ones. Sizing already reserves the buffer for
+        # weight-based buys, so this is the backstop for explicit quantities.
         gross = order.qty * estimated_price
         min_cash = equity * self.limits.min_cash_buffer_pct
-        if broker.cash - gross < min_cash - 1e-9:
+        if broker.projected_cash() - gross < min_cash - 1e-9:
             return "minimum cash buffer breached"
         return None
 

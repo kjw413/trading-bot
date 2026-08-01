@@ -154,12 +154,27 @@ class EngineContext:
         )
 
     def _resolve_qty(self, estimated_price: float, qty: int | None, weight: float | None) -> int:
+        """Shares to order. An explicit qty is an instruction; a weight is a
+        request, and a request is capped by what the account can actually pay.
+
+        Capping is what keeps the cash buffer a sizing constraint rather than
+        a veto: a rebalance whose funding sells are still queued gets sized
+        correctly, and one that genuinely cannot be afforded gets sized down
+        instead of vanishing from the book.
+        """
         if qty is not None:
             return int(qty)
         if weight is None:
             raise ValueError("qty or weight is required")
         budget = max(0.0, self.equity() * float(weight))
-        return int(budget // estimated_price)
+        return self.broker.affordable_qty(estimated_price, min(budget, self._spendable_cash()))
+
+    def _spendable_cash(self) -> float:
+        """Projected cash a buy may spend without eating into the buffer."""
+        reserve = 0.0
+        if self.risk_manager is not None:
+            reserve = self.equity() * self.risk_manager.limits.min_cash_buffer_pct
+        return max(0.0, self.broker.projected_cash() - reserve)
 
     def _estimate_price(
         self,
@@ -210,6 +225,7 @@ class EngineContext:
             created_phase=self._phase,
             limit_price=limit_price,
             stop_price=stop_price,
+            estimated_price=estimated_price,
         )
         if self.risk_manager is not None:
             reason = self.risk_manager.validate(order, self.broker, estimated_price)
