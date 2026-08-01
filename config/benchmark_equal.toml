@@ -71,6 +71,9 @@ top_n = 5
 weighting = "equal"
 volatility_days = 60
 bear_exposure = 1.0
+# default.toml과 같은 이유로 고정한다 — 벤치마크가 전략과 다른 팩터 집합을 쓰면
+# 비교의 기준선 자체가 움직인다.
+factors = ["momentum_6m", "momentum_12m_ex1m", "foreign_net_20d", "earnings_yield"]
 
 [pipeline]
 # 일일 배치 수집 대상. 작업 스케줄러가 장 마감 후 하루 1회 실행한다.
