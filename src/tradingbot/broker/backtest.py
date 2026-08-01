@@ -169,14 +169,66 @@ class BacktestBroker(Broker):
                 return max(limit, bar.open)
         return None
 
+    def projected_cash(self) -> float:
+        """Cash once every open order settles, at its submission-time estimate.
+
+        An order submitted at the CLOSE phase does not settle until the next
+        session open, so `cash` alone answers the wrong question for a
+        rebalance: the sells that fund the buys are queued in this same book,
+        one fill ahead of them. Buys are charged and sells credited through
+        the same slippage, tick-rounding and fee model `_fill` uses, so the
+        projection errs toward having less cash than it will, never more.
+
+        An order with no price estimate contributes nothing — it is better to
+        under-count a pending sell (sizing the next buy small) than to spend
+        proceeds that may never arrive.
+        """
+        projected = self.cash
+        for order in self.open_orders():
+            base_price = order.estimated_price
+            if base_price is None or base_price <= 0:
+                continue
+            qty = self._fillable_qty(order)
+            if qty <= 0:
+                continue
+            price = self._execution_price(base_price, order.side)
+            fee = self.fee_model.calculate(order.side, qty, price)
+            gross = price * qty
+            projected += -(gross + fee) if order.side is OrderSide.BUY else gross - fee
+        return projected
+
+    def affordable_qty(self, base_price: float, budget: float) -> int:
+        """Largest share count whose estimated buy cost fits inside `budget`.
+
+        Sizing at the raw quote would ignore slippage, tick rounding and
+        commission, which is exactly how a buy sized to the last dollar ends
+        up breaching the cash buffer it was supposed to respect.
+        """
+        if base_price <= 0 or budget <= 0:
+            return 0
+        price = self._execution_price(base_price, OrderSide.BUY)
+        # Buy-side fees are proportional today, so this first guess is already
+        # exact; the loop keeps it correct if a fixed component is ever added.
+        rate = max(0.0, self.fee_model.commission_rate)
+        qty = int(budget // (price * (1.0 + rate)))
+        while qty > 0 and price * qty + self.fee_model.calculate(
+            OrderSide.BUY, qty, price
+        ) > budget + 1e-9:
+            qty -= 1
+        return qty
+
+    def _execution_price(self, base_price: float, side: OrderSide) -> float:
+        """The price a fill would print at — slippage, then tick rounding."""
+        slipped = apply_slippage(base_price, side, self.slippage_bps)
+        return round_execution_price(self.market, slipped, side)
+
     def _fill(self, order: Order, dt: date, base_price: float) -> Fill | None:
         qty = self._fillable_qty(order)
         if qty <= 0:
             self._reject(order, "no quantity available to fill")
             return None
 
-        slipped = apply_slippage(base_price, order.side, self.slippage_bps)
-        price = round_execution_price(self.market, slipped, order.side)
+        price = self._execution_price(base_price, order.side)
         fee = self.fee_model.calculate(order.side, qty, price)
         gross = price * qty
         if order.side is OrderSide.BUY and gross + fee > self.cash + 1e-9:
