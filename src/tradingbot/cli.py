@@ -58,6 +58,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pipeline_parser.add_argument("--processed-root", default=None)
     pipeline_parser.add_argument("--log-root", default=None)
+    pipeline_parser.add_argument(
+        "--start", default=None, help="Collect from this date (default: resume incrementally)"
+    )
+    pipeline_parser.add_argument("--end", default=None, help="Collect up to this date")
+    pipeline_parser.add_argument(
+        "--backfill",
+        action="store_true",
+        help="Fetch --start..--end verbatim instead of resuming from the newest "
+        "stored row — required to fill a gap BEFORE data already collected",
+    )
     pipeline_parser.set_defaults(handler=cmd_data_pipeline)
 
     backtest_parser = subparsers.add_parser("backtest", help="Run offline backtest")
@@ -422,12 +432,18 @@ def cmd_data_pipeline(args) -> int:
     from tradingbot.data.pipeline import run_pipeline
 
     config = load_config(args.config)
+    if args.backfill and not args.start:
+        print("--backfill에는 --start가 필요합니다 (어디부터 다시 받을지 알 수 없습니다).")
+        return 1
     result = run_pipeline(
         config,
         market=args.market,
         symbols=args.symbols,
         processed_root=args.processed_root,
         log_root=args.log_root,
+        start=_date.fromisoformat(args.start) if args.start else None,
+        end=_date.fromisoformat(args.end) if args.end else None,
+        backfill=args.backfill,
     )
 
     print(f"데이터 수집 배치: {result.market}")

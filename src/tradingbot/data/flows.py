@@ -64,15 +64,27 @@ def update_flows(
     symbols: Sequence[str],
     start: date | None = None,
     end: date | None = None,
+    backfill: bool = False,
     fetcher: Callable[..., pd.DataFrame] = fetch_flows,
 ) -> int:
     """Incrementally collect investor flows. One symbol's failure is logged
-    and skipped so a single bad ticker cannot abort the batch."""
+    and skipped so a single bad ticker cannot abort the batch.
+
+    Normally each symbol resumes from the day after its newest stored row,
+    which is what makes the daily batch cheap — but it also means `start` is
+    ignored once anything is stored, so a *gap before* existing data can
+    never be filled. `backfill=True` fetches the requested range verbatim
+    instead. Re-fetching an overlap is safe: the panel store replaces rows
+    with the same key rather than duplicating them.
+    """
     written = 0
     fetch_end = end or date.today()
     for symbol in symbols:
-        last = store.last_date(symbol)
-        fetch_start = last + timedelta(days=1) if last else (start or FLOWS_DEFAULT_START)
+        if backfill:
+            fetch_start = start or FLOWS_DEFAULT_START
+        else:
+            last = store.last_date(symbol)
+            fetch_start = last + timedelta(days=1) if last else (start or FLOWS_DEFAULT_START)
         if fetch_start > fetch_end:
             continue
         try:

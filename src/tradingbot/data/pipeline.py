@@ -97,12 +97,34 @@ def with_retry(
     raise last
 
 
+def fundamental_years_for(
+    start: date | None, end: date | None, fundamental_years: int, today: date | None = None
+) -> list[int]:
+    """Business years to fetch filings for.
+
+    Without an explicit range this counts back from today, which is right for
+    the daily batch but cannot reach a historical window. Given a range it
+    spans `start.year - 1` through `end.year`: to score a stock in January
+    2021 the panel needs the FY2020 filings that were public by then, so the
+    year before the window is part of the window's evidence.
+    """
+    if start is not None or end is not None:
+        first = (start or end).year - 1  # type: ignore[union-attr]
+        last = (end or start).year  # type: ignore[union-attr]
+        return list(range(first, last + 1))
+    this_year = (today or date.today()).year
+    return list(range(this_year - fundamental_years + 1, this_year + 1))
+
+
 def _default_collectors(
     processed_root: Path,
     symbols: Sequence[str],
     market: str,
     fundamental_years: int,
     cache_root: Path,
+    start: date | None = None,
+    end: date | None = None,
+    backfill: bool = False,
 ) -> dict[str, Callable[..., int]]:
     def prices(**_: Any) -> int:
         """Refresh the OHLCV cache the factor layer reads."""
@@ -113,7 +135,7 @@ def _default_collectors(
         rows = 0
         for symbol in symbols:
             try:
-                frame = cache.update(market, symbol)
+                frame = cache.update(market, symbol, start=start, end=end)
             except Exception:
                 LOGGER.exception("Price update failed for %s; skipping", symbol)
                 continue
@@ -124,21 +146,32 @@ def _default_collectors(
         return rows
 
     def macro(**_: Any) -> int:
-        return update_macro(PanelStore(processed_root, "macro", market))
+        return update_macro(PanelStore(processed_root, "macro", market), start=start, end=end)
 
     def flows(**_: Any) -> int:
-        return update_flows(PanelStore(processed_root, "flows", market), symbols=symbols)
+        return update_flows(
+            PanelStore(processed_root, "flows", market),
+            symbols=symbols,
+            start=start,
+            end=end,
+            backfill=backfill,
+        )
 
     def valuation(**_: Any) -> int:
-        return update_valuation(PanelStore(processed_root, "valuation", market), symbols=symbols)
+        return update_valuation(
+            PanelStore(processed_root, "valuation", market),
+            symbols=symbols,
+            start=start,
+            end=end,
+            backfill=backfill,
+        )
 
     def fundamentals(**_: Any) -> int:
         from tradingbot.data.corp_codes import CorpCodeStore
         from tradingbot.data.fundamentals_panel import dart_api_key
 
         dart_api_key()  # raises MissingApiKeyError -> reported as skipped
-        this_year = date.today().year
-        years = list(range(this_year - fundamental_years + 1, this_year + 1))
+        years = fundamental_years_for(start, end, fundamental_years)
         corp_codes = CorpCodeStore(cache_root).corp_code_for(symbols)
         if not corp_codes:
             LOGGER.warning("No DART corp_code resolved for any of %s symbols", len(symbols))
@@ -165,12 +198,21 @@ def run_pipeline(
     symbols: Sequence[str] | None = None,
     processed_root: str | Path | None = None,
     log_root: str | Path | None = None,
+    start: date | None = None,
+    end: date | None = None,
+    backfill: bool = False,
     collectors: dict[str, Callable[..., int]] | None = None,
 ) -> PipelineResult:
     """Run every collector once, isolating failures.
 
     A source that raises is recorded as failed and the batch continues; the
-    next run's incremental fetch picks up whatever it missed."""
+    next run's incremental fetch picks up whatever it missed.
+
+    `start`/`end` narrow the batch to a historical window. Pair them with
+    `backfill=True` to fill a gap that sits *before* data already collected —
+    the panel collectors otherwise resume from their newest stored row and
+    would skip the requested window entirely.
+    """
     settings = config.get("pipeline", {})
     processed = Path(processed_root or settings.get("processed_dir", "data/processed"))
     if not processed.is_absolute():
@@ -190,6 +232,9 @@ def run_pipeline(
         market.upper(),
         int(settings.get("fundamental_years", 3)),
         cache,
+        start=start,
+        end=end,
+        backfill=backfill,
     )
 
     started = datetime.now(timezone.utc)

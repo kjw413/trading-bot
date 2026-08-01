@@ -68,14 +68,23 @@ def update_valuation(
     symbols: Sequence[str],
     start: date | None = None,
     end: date | None = None,
+    backfill: bool = False,
     fetcher: Callable[..., pd.DataFrame] = fetch_valuation,
 ) -> int:
-    """Incrementally collect valuation ratios, skipping failing symbols."""
+    """Incrementally collect valuation ratios, skipping failing symbols.
+
+    `backfill=True` fetches the requested range verbatim instead of resuming
+    from the newest stored row — the only way to fill a gap that sits *before*
+    data already collected. See `update_flows` for the full rationale.
+    """
     written = 0
     fetch_end = end or date.today()
     for symbol in symbols:
-        last = store.last_date(symbol)
-        fetch_start = last + timedelta(days=1) if last else (start or VALUATION_DEFAULT_START)
+        if backfill:
+            fetch_start = start or VALUATION_DEFAULT_START
+        else:
+            last = store.last_date(symbol)
+            fetch_start = last + timedelta(days=1) if last else (start or VALUATION_DEFAULT_START)
         if fetch_start > fetch_end:
             continue
         try:
