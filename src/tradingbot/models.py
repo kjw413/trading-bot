@@ -67,6 +67,10 @@ class Order:
     stop_price: float | None = None
     status: OrderStatus = OrderStatus.OPEN
     reject_reason: str | None = None
+    # Price the order was sized and risk-checked against. A MARKET order
+    # carries no price of its own, so without this the open order book cannot
+    # say what it will cost to settle. Never used to fill — only to project.
+    estimated_price: float | None = None
 
 
 @dataclass(frozen=True)

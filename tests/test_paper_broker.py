@@ -88,6 +88,46 @@ def test_paper_broker_persists_account_state(tmp_path):
     assert restored.next_order_number() == 2
 
 
+def test_paper_broker_restores_the_price_open_orders_were_sized_against(tmp_path):
+    """`projected_cash` reads `estimated_price` off the open order book.
+
+    A restart that dropped it would silently stop counting a pending sell,
+    and the next rebalance would size its buys as if that cash were gone.
+    """
+    broker = PaperBroker(
+        name="demo",
+        state_dir=tmp_path,
+        initial_cash=1_000,
+        market="KR",
+        fee_model=FeeModel("KR"),
+        slippage_bps=0,
+    )
+    broker.submit(
+        Order(
+            id="O1",
+            symbol="AAA",
+            side=OrderSide.BUY,
+            qty=2,
+            order_type=OrderType.MARKET,
+            created_at=date(2020, 1, 1),
+            created_phase=OrderPhase.CLOSE,
+            estimated_price=100.0,
+        )
+    )
+
+    restored = PaperBroker(
+        name="demo",
+        state_dir=tmp_path,
+        initial_cash=1_000,
+        market="KR",
+        fee_model=FeeModel("KR"),
+        slippage_bps=0,
+    )
+
+    assert restored.open_orders()[0].estimated_price == 100.0
+    assert restored.projected_cash() == 800.0
+
+
 def test_paper_trading_engine_runs_with_injected_clock_and_prices(tmp_path):
     cache = ParquetCache(tmp_path / "cache")
     df = pd.DataFrame(

@@ -149,6 +149,7 @@ def _order_to_dict(order: Order) -> dict[str, Any]:
         "stop_price": order.stop_price,
         "status": order.status.value,
         "reject_reason": order.reject_reason,
+        "estimated_price": order.estimated_price,
     }
 
 
@@ -166,7 +167,12 @@ def _order_from_dict(data: dict[str, Any]) -> Order:
         stop_price=data.get("stop_price"),
         status=OrderStatus(data.get("status", OrderStatus.OPEN.value)),
         reject_reason=data.get("reject_reason"),
+        estimated_price=_float_or_none(data.get("estimated_price")),
     )
+
+
+def _float_or_none(value: Any) -> float | None:
+    return float(value) if value is not None else None
 
 
 def _fill_to_dict(fill: Fill) -> dict[str, Any]:
