@@ -118,6 +118,31 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_parser.add_argument("--out", default="reports/evaluation")
     evaluate_parser.set_defaults(handler=cmd_research_evaluate)
 
+    sweep_parser = research_subparsers.add_parser(
+        "sweep",
+        help="In-sample parameter sensitivity (chooses nothing — reports the surface)",
+    )
+    sweep_parser.add_argument("--strategy", required=True)
+    add_market_symbols(sweep_parser)
+    sweep_parser.add_argument("--start", required=True)
+    sweep_parser.add_argument(
+        "--end", required=True, help="Must not pass [periods] in_sample_end"
+    )
+    sweep_parser.add_argument(
+        "--param",
+        action="append",
+        required=True,
+        metavar="NAME=V1,V2,...",
+        help="Strategy parameter to vary; repeat for a multi-dimensional grid",
+    )
+    sweep_parser.add_argument(
+        "--benchmark-config", default=None, help="Benchmark TOML (default: same as --config)"
+    )
+    sweep_parser.add_argument("--research-config", default=None)
+    sweep_parser.add_argument("--data-root", default=None)
+    sweep_parser.add_argument("--out", default="reports/sensitivity")
+    sweep_parser.set_defaults(handler=cmd_research_sweep)
+
     fundamentals_parser = subparsers.add_parser("fundamentals", help="DART fundamentals commands")
     fundamentals_subparsers = fundamentals_parser.add_subparsers(dest="fundamentals_command")
     fund_update_parser = fundamentals_subparsers.add_parser(
@@ -486,3 +511,86 @@ def cmd_research_evaluate(args) -> int:
     )
     print(f"실험 기록: {experiment_path}")
     return 0 if report["verdict"]["promoted"] else 1
+
+
+def _coerce_param(text: str) -> Any:
+    """Parse a grid value from the command line into the type it looks like.
+
+    A strategy parameter that arrives as the string "200" instead of the int
+    200 silently changes behaviour (`int(...)` conversions inside strategies
+    would still work, but comparisons and config round-trips would not), so
+    the coercion happens once, here.
+    """
+    lowered = text.strip().lower()
+    if lowered in {"true", "false"}:
+        return lowered == "true"
+    if lowered in {"none", "null"}:
+        return None
+    for cast in (int, float):
+        try:
+            return cast(text)
+        except ValueError:
+            continue
+    return text
+
+
+def parse_param_grid(specs: list[str]) -> dict[str, list[Any]]:
+    """`["bear_exposure=0.5,1.0"]` -> `{"bear_exposure": [0.5, 1.0]}`."""
+    grid: dict[str, list[Any]] = {}
+    for spec in specs:
+        name, separator, raw = spec.partition("=")
+        name = name.strip()
+        if not separator or not name:
+            raise ValueError(f"--param must look like NAME=V1,V2 (got {spec!r})")
+        values = [_coerce_param(part) for part in raw.split(",") if part.strip() != ""]
+        if not values:
+            raise ValueError(f"--param {name} has no values")
+        if name in grid:
+            raise ValueError(f"--param {name} given twice")
+        grid[name] = values
+    return grid
+
+
+def cmd_research_sweep(args) -> int:
+    from datetime import datetime as _dt
+
+    from tradingbot.research.gate import load_research_config
+    from tradingbot.research.sensitivity import (
+        OutOfSampleError,
+        render_markdown,
+        sweep_strategy,
+    )
+
+    config = load_config(args.config)
+    benchmark_config = load_config(args.benchmark_config) if args.benchmark_config else config
+    research = load_research_config(args.research_config)
+
+    try:
+        grid = parse_param_grid(args.param)
+        report = sweep_strategy(
+            config=config,
+            benchmark_config=benchmark_config,
+            research=research,
+            market=args.market,
+            symbols=args.symbols,
+            strategy_name=args.strategy,
+            grid=grid,
+            start=args.start,
+            end=args.end,
+            data_root=args.data_root,
+            config_path=args.config,
+            benchmark_config_path=args.benchmark_config,
+        )
+    except (OutOfSampleError, ValueError) as exc:
+        print(f"민감도 분석을 실행할 수 없습니다: {exc}")
+        return 1
+
+    markdown = render_markdown(report)
+    print(markdown)
+
+    out_dir = resolve_project_path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{_dt.now():%Y%m%d_%H%M%S}_{args.strategy}_{args.market.upper()}.md"
+    out_path.write_text(markdown, encoding="utf-8")
+    print(f"민감도 리포트: {out_path}")
+    return 0
