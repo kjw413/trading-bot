@@ -9,9 +9,11 @@ The factor-weights config is the single source of truth for which factors
 run: every key is resolved through the registry up front, so a typo'd name
 raises immediately instead of being silently zero-weighted.
 
-An empty targets dict is a deliberate signal: nothing was scoreable at dt
-(stale or missing data), and the caller must skip rebalancing rather than
-trade on nothing.
+`generate_targets` separates two things an empty portfolio could mean:
+`None` is "I cannot judge" (stale or missing data) and the caller must skip
+rebalancing rather than trade on nothing; `{}` is "I judged, and the answer
+is hold nothing". Conflating them is how a defensive filter ends up carrying
+risky positions through the fall it was built to avoid.
 """
 
 from __future__ import annotations
@@ -70,6 +72,12 @@ class ThemeMultifactorStrategy(Strategy):
         # 상대 모멘텀만으로는 전 자산 하락장에서 "가장 덜 나쁜 것"을 강제로 사게
         # 된다 — 채권·원자재가 섞인 ETF 유니버스에서 특히 위험하다.
         "abs_momentum_ma_days": 0,
+        # 국면 필터가 위험자산에서 빼낸 비중을 어디에 둘지. None이면 현금이다.
+        # research.toml은 safe_asset = "IEF"를 선언해 두었지만 지금까지 아무도
+        # 읽지 않았다 — 방어 구간의 자금이 0% 현금으로 놀면 방어 비용이
+        # 그만큼 커진다. 안전자산도 자기 절대 모멘텀 검사를 통과해야 쓴다:
+        # 2022년처럼 주식과 채권이 함께 빠지면 채권도 피난처가 아니다.
+        "safe_asset": None,
         "bear_exposure": 0.5,
         "regime_series": "kospi",
         "regime_ma_days": 200,
@@ -129,13 +137,17 @@ class ThemeMultifactorStrategy(Strategy):
 
     def generate_targets(
         self, dt: date, universe: Sequence[str], data_store
-    ) -> dict[str, float]:
-        """Target equity weights as of dt's close. Empty dict = skip rebalance."""
+    ) -> dict[str, float] | None:
+        """Target equity weights as of dt's close.
+
+        `None` means the data does not support a judgement and the caller must
+        skip rebalancing. `{}` means the judgement is "hold nothing".
+        """
         if not universe:
-            return {}
+            return None
 
         if self._is_price_data_stale(dt, universe, data_store):
-            return {}
+            return None
 
         scores = {
             name: standardize(get_factor(name).compute(dt, universe, data_store))
@@ -150,12 +162,21 @@ class ThemeMultifactorStrategy(Strategy):
                 "skipping rebalance",
                 dt,
             )
-            return {}
+            return None
 
         combined = self._apply_absolute_momentum(dt, combined, data_store)
         selected = select_top(combined, int(self.params["top_n"]))
         if not selected:
-            return {}
+            # Every name failed its own trend test. That is a decision, not a
+            # gap in the data — the scores above were computable. Skipping here
+            # would carry the existing risky book straight through the decline
+            # this filter exists to sidestep.
+            LOGGER.info(
+                "theme_multifactor: every name is below its own moving average at %s; "
+                "going defensive",
+                dt,
+            )
+            return self._defensive_targets(dt, data_store)
 
         if self.params["weighting"] == "equal":
             base = equal_weights(selected)
@@ -180,12 +201,50 @@ class ThemeMultifactorStrategy(Strategy):
         exposure = equity_exposure(regime_state, bear=float(self.params["bear_exposure"]))
         scaled = scale_weights(base, exposure)
 
+        # Park what the regime filter took off the table, rather than letting it
+        # sit in cash earning nothing for the length of a bear market.
+        freed = sum(base.values()) - sum(scaled.values())
+        safe = self._safe_asset(dt, data_store)
+        if safe is not None and freed > 1e-9:
+            scaled[safe] = scaled.get(safe, 0.0) + freed
+
+        return self._constrain(scaled)
+
+    def _constrain(self, weights: dict[str, float]) -> dict[str, float]:
         limits = self.research.get("risk_limits", {})
         return apply_constraints(
-            scaled,
+            weights,
             max_weight=float(limits.get("max_position_weight", 0.40)),
             cash_buffer=float(limits.get("min_cash_weight", 0.02)),
         )
+
+    def _safe_asset(self, dt: date, data_store) -> str | None:
+        """The configured safe asset, if it is currently worth hiding in.
+
+        A safe asset in its own downtrend is not a refuge — 2022 sank stocks
+        and bonds together — so it faces the same absolute-momentum test every
+        other holding does. When the test is switched off, so is this check.
+        """
+        safe = self.params.get("safe_asset")
+        if not safe:
+            return None
+        symbol = str(safe).upper()
+        if not self._above_moving_average(dt, symbol, data_store):
+            LOGGER.info(
+                "theme_multifactor: safe asset %s is below its own moving average at %s; "
+                "holding cash instead",
+                symbol,
+                dt,
+            )
+            return None
+        return symbol
+
+    def _defensive_targets(self, dt: date, data_store) -> dict[str, float]:
+        """Hold the safe asset if it is holding up, otherwise hold cash."""
+        safe = self._safe_asset(dt, data_store)
+        if safe is None:
+            return {}
+        return self._constrain({safe: 1.0})
 
     def _apply_absolute_momentum(self, dt: date, scores: pd.Series, data_store) -> pd.Series:
         """NaN out names trading below their own moving average.
@@ -207,15 +266,27 @@ class ThemeMultifactorStrategy(Strategy):
         for symbol in scores.index:
             if pd.isna(scores.loc[symbol]):
                 continue
-            try:
-                history = data_store.price_history(symbol, dt, ma_days)
-            except (FileNotFoundError, KeyError):
-                filtered.loc[symbol] = float("nan")
-                continue
-            closes = history["close"].dropna()
-            if len(closes) < ma_days or float(closes.iloc[-1]) <= float(closes.mean()):
+            if not self._above_moving_average(dt, symbol, data_store):
                 filtered.loc[symbol] = float("nan")
         return filtered
+
+    def _above_moving_average(self, dt: date, symbol: str, data_store) -> bool:
+        """Is this name in its own uptrend? True when the filter is disabled.
+
+        Shared by the selection filter and the safe-asset check so the two can
+        never drift into disagreeing about what an uptrend is.
+        """
+        ma_days = int(self.params["abs_momentum_ma_days"])
+        if ma_days <= 0:
+            return True
+        try:
+            history = data_store.price_history(symbol, dt, ma_days)
+        except (FileNotFoundError, KeyError):
+            return False
+        closes = history["close"].dropna()
+        if len(closes) < ma_days:
+            return False
+        return float(closes.iloc[-1]) > float(closes.mean())
 
     def _is_price_data_stale(self, dt: date, universe: Sequence[str], data_store) -> bool:
         """True when the newest bar anywhere in the universe is too old to trade on.
@@ -293,9 +364,12 @@ class ThemeMultifactorStrategy(Strategy):
         theme = get_theme(str(self.params["theme"]), self.params["themes_path"])
         universe = theme_members(theme, dt)
         targets = self.generate_targets(dt, universe, self._store())
-        if not targets:
+        if targets is None:
+            # Cannot judge — hold whatever is held rather than trade on nothing.
             self.persist_state()
             return
+        # `{}` is a judgement: liquidate. plan_rebalance turns it into sells
+        # for everything currently held.
 
         equity = ctx.equity()
         # Scan the whole theme universe, not just targets ∪ last_targets:

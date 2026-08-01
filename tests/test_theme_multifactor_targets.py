@@ -94,12 +94,13 @@ class TestGenerateTargets:
         assert targets["WIN1"] == pytest.approx(0.40)
         assert targets["WIN2"] == pytest.approx(0.40)
 
-    def test_no_data_returns_empty_not_orders(self, store, research_config):
-        # The freshness gate: nothing scoreable -> no rebalance at all.
+    def test_nothing_scoreable_cannot_be_judged(self, store, research_config):
+        # Nothing scoreable -> no rebalance at all. None, not {}: an absent
+        # score is missing information, never a decision to sell everything.
         targets = make_strategy(research_config).generate_targets(
             AS_OF, ["GHOST"], store
         )
-        assert targets == {}
+        assert targets is None
 
     def test_bear_regime_halves_exposure(self, store, research_config):
         write_prices(store, "WIN1", 100.0, 200.0)
@@ -155,8 +156,8 @@ class TestGenerateTargets:
         with pytest.raises(ValueError, match="momentum_3m_typo"):
             strategy.factor_weights
 
-    def test_empty_universe_returns_empty(self, store, research_config):
-        assert make_strategy(research_config).generate_targets(AS_OF, [], store) == {}
+    def test_empty_universe_cannot_be_judged(self, store, research_config):
+        assert make_strategy(research_config).generate_targets(AS_OF, [], store) is None
 
 
 class TestStalenessGate:
@@ -179,11 +180,13 @@ class TestStalenessGate:
         stale_end = date(2024, 6, 12)
         write_prices(store, "WIN1", 100.0, 200.0, end=stale_end)
         write_prices(store, "WIN2", 100.0, 150.0, end=stale_end)
+        # None, not {}: stale data means "cannot judge", and the caller holds
+        # what it holds rather than liquidating on a dead pipeline.
         assert (
             make_strategy(research_config).generate_targets(
                 AS_OF, ["WIN1", "WIN2"], store
             )
-            == {}
+            is None
         )
 
     def test_gap_at_the_limit_is_still_traded(self, store, research_config):
@@ -201,7 +204,7 @@ class TestStalenessGate:
             make_strategy(research_config, max_staleness_days=1).generate_targets(
                 AS_OF, ["WIN1", "WIN2"], store
             )
-            == {}
+            is None
         )
 
     def test_one_halted_symbol_does_not_block_the_others(self, store, research_config):

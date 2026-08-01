@@ -79,6 +79,14 @@ factors = ["momentum_6m", "momentum_12m_ex1m"]
 # 채권·금·원자재가 섞인 유니버스에서는 자산별 하락 추세 배제가 필수다.
 abs_momentum_ma_days = 200
 regime_series = "sp500"
+# research.toml [universe] safe_asset = "IEF"가 선언해 둔 값. 국면 필터가
+# 위험자산에서 빼낸 비중이 0% 현금으로 노는 대신 중기국채로 간다. IEF도 자기
+# 200일선 위에 있을 때만 쓴다 — 2022년처럼 주식과 채권이 함께 빠지면 채권도
+# 피난처가 아니므로 그때는 현금으로 돌아간다.
+#
+# 이 항목의 효과만 따로 재려면:
+#   research sweep --param safe_asset=IEF,none
+safe_asset = "IEF"
 
 [pipeline]
 # 일일 배치 수집 대상. 작업 스케줄러가 장 마감 후 하루 1회 실행한다.
