@@ -48,6 +48,20 @@ v1 이후 [`trading_bot_agentic_ai_execution_plan_260714.md`](trading_bot_agenti
   Walk-forward 승률·연 회전율·비용 2배 검정을 실제로 재서, 전략이 승격
   기준 6개 전부에 대해 합격/불합격 판정을 받을 수 있게 합니다. 측정하지
   못한 항목은 통과가 아니라 "측정 불가"로 남습니다.
+- 파라미터 민감도(`research/sensitivity.py`, `research sweep`): In-sample
+  구간에서만 파라미터 격자를 돌리고 **표면 전체**를 보고합니다. 최고 칸을
+  고르는 도구가 아니라 "이 파라미터가 중요한가, 그 답이 안정적인가"를 묻는
+  도구입니다 — in-sample을 벗어나는 창은 거부하고, 파라미터별 한계표(다른
+  파라미터 전체에 대한 중앙값)를 냅니다.
+- 과거 구간 백필(`data pipeline --backfill`): 패널 수집기는 저장된 최신 행
+  다음날부터 재개하므로, 기존 데이터 **앞**의 공백은 증분 경로로 채울 수
+  없었습니다. `--backfill`이 요청 구간을 그대로 받습니다 — 한국 전략의
+  walk-forward에 필요한 2021~2022 구간이 이걸로 열립니다.
+
+> **주의 (2026-08-01):** 주문 사이징 현금 버퍼 수정, 방어 전환 결함 수정,
+> `safe_asset` 주차, `momentum_blend` 팩터가 이번에 들어갔지만 **실데이터
+> 재측정은 아직입니다.** 기존 판정문의 수치는 모두 이 변경 이전의 것입니다.
+> 실행 절차: [docs/us_etf_rotation_next_run.md](docs/us_etf_rotation_next_run.md).
 
 두 갈래는 `data/fundamentals.py`의 DART 클라이언트를 공유합니다. 밸류에이션은
 `FundamentalRecord`(FCFF 입력)로, 팩터 연구는 `data/fundamentals_panel.py`가
