@@ -276,7 +276,7 @@ sequenceDiagram
 flowchart TD
     Signal["Strategy<br/>on_open / on_bar / on_fill"]
     Context["EngineContext.buy / sell"]
-    Qty["qty 또는 equity × weight로<br/>정수 수량 계산"]
+    Qty["qty는 그대로<br/>weight는 equity × weight와<br/>가용현금 − 버퍼 중 작은 쪽"]
     Order["Order 생성<br/>MARKET / LIMIT / STOP / MOC<br/>DAY / GTC"]
     Risk{"RiskManager.validate"}
     Rejected["REJECTED<br/>사유 기록"]
@@ -317,6 +317,13 @@ flowchart TD
 - 장 마감 후 평단 대비 손절 기준 충족 시 매도 주문 생성
 
 매도 주문은 포지션 청산을 막지 않도록 신규 진입 제한 검사를 통과시킨다.
+
+현금 관련 검사는 **지금 잔고가 아니라 체결 시점의 잔고**를 본다. 종가에 낸
+주문은 다음 시가에 체결되므로, `BacktestBroker.projected_cash()`가 미체결
+주문장(줄 서 있는 매도 대금 − 매수 약정)을 반영한 값을 답한다. `weight`로 낸
+매수는 여기서 버퍼를 미리 떼어낸 예산 안에서 사이징되므로, 리스크 검사는
+`qty`를 명시한 주문에 대한 백스톱으로 남는다. 설계는
+[`docs/superpowers/specs/2026-08-01-order-sizing-cash-buffer-design.md`](superpowers/specs/2026-08-01-order-sizing-cash-buffer-design.md).
 
 ## 6. 실행 모드 비교
 
