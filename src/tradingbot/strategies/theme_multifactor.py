@@ -29,6 +29,7 @@ from tradingbot.allocation.rebalance import is_rebalance_date, plan_rebalance
 from tradingbot.allocation.weights import (
     equal_weights,
     inverse_volatility_weights,
+    rank_tilt_weights,
     realized_volatility,
     scale_weights,
 )
@@ -72,6 +73,17 @@ class ThemeMultifactorStrategy(Strategy):
         # 상대 모멘텀만으로는 전 자산 하락장에서 "가장 덜 나쁜 것"을 강제로 사게
         # 된다 — 채권·원자재가 섞인 ETF 유니버스에서 특히 위험하다.
         "abs_momentum_ma_days": 0,
+        # None이면 상위 top_n 선별(현행). 0.0~1.0을 주면 선별 대신 전 종목을
+        # 보유하되 점수 순위로 비중을 기울인다 — 0.0은 동일비중(=벤치마크),
+        # 1.0은 최상위가 동일비중의 2배, 최하위가 0이다. 선별은 신호가 약하면
+        # 분산 효과까지 잃지만, 틸트는 바구니를 유지한 채 신호만 얹는다.
+        "tilt_strength": None,
+        # 쏠림 제동. None이면 비활성(현행). 0.8을 주면 쏠림 하위 20%의 비중을
+        # crowding_retain 배로 깎는다. 신호가 아니라 리스크 통제이므로 점수에
+        # 섞지 않는다 — 섞으면 어느 쪽이 작동했는지 분리할 수 없다.
+        "crowding_percentile": None,
+        "crowding_retain": 0.5,
+        "crowding_factor": "flow_crowding_20d",
         # 국면 필터가 위험자산에서 빼낸 비중을 어디에 둘지. None이면 현금이다.
         # research.toml은 safe_asset = "IEF"를 선언해 두었지만 지금까지 아무도
         # 읽지 않았다 — 방어 구간의 자금이 0% 현금으로 놀면 방어 비용이
@@ -178,19 +190,11 @@ class ThemeMultifactorStrategy(Strategy):
             )
             return self._defensive_targets(dt, data_store)
 
-        if self.params["weighting"] == "equal":
-            base = equal_weights(selected)
-        else:
-            vol_days = int(self.params["volatility_days"])
-            volatilities = {}
-            for symbol in selected:
-                try:
-                    history = data_store.price_history(symbol, dt, vol_days + 1)
-                except (FileNotFoundError, KeyError):
-                    volatilities[symbol] = float("nan")
-                    continue
-                volatilities[symbol] = realized_volatility(history["close"], vol_days)
-            base = inverse_volatility_weights(volatilities)
+        base = self._base_weights(dt, combined, selected, data_store)
+        # Trim crowded names before the regime scales anything: the brake is a
+        # size reduction, and what it removes stays in cash rather than being
+        # redeployed into the safe asset below.
+        base = self._apply_crowding_brake(dt, base, universe, data_store)
 
         regime_state = market_regime(
             data_store,
@@ -209,6 +213,93 @@ class ThemeMultifactorStrategy(Strategy):
             scaled[safe] = scaled.get(safe, 0.0) + freed
 
         return self._constrain(scaled)
+
+    def _base_weights(
+        self, dt: date, scores: pd.Series, selected: list[str], data_store
+    ) -> dict[str, float]:
+        """Pre-regime weights: either a tilt across everything, or top-N.
+
+        `tilt_strength = None` keeps the original selection behaviour so the
+        two structures can be measured against each other rather than one
+        quietly replacing the other.
+        """
+        tilt = self.params.get("tilt_strength")
+        if tilt is not None:
+            # The tilt holds the whole scoreable universe, but the absolute
+            # momentum filter still applies: names it NaN'd stay out. That is
+            # the point of a per-asset floor — it is not a ranking opinion.
+            return rank_tilt_weights(scores.dropna(), float(tilt))
+
+        if self.params["weighting"] == "equal":
+            return equal_weights(selected)
+
+        vol_days = int(self.params["volatility_days"])
+        volatilities = {}
+        for symbol in selected:
+            try:
+                history = data_store.price_history(symbol, dt, vol_days + 1)
+            except (FileNotFoundError, KeyError):
+                volatilities[symbol] = float("nan")
+                continue
+            volatilities[symbol] = realized_volatility(history["close"], vol_days)
+        return inverse_volatility_weights(volatilities)
+
+    def _apply_crowding_brake(
+        self, dt: date, weights: dict[str, float], universe: Sequence[str], data_store
+    ) -> dict[str, float]:
+        """Cut the weight of names the whole market is already standing in.
+
+        July 2026 is the reference case: momentum and beta had pushed both
+        traditional and machine-learning models into the same AI names, and
+        when inflows stopped everyone left through the same door at once. The
+        position that hurt was not the wrong one, it was the shared one.
+
+        This is deliberately a brake and not a factor. Blending crowding into
+        the score would make it compete with the signal and hide which one
+        acted; as a separate multiplier its contribution stays separable, and
+        a strategy can be measured with it on and off.
+
+        What it removes goes to cash. Redeploying it into the next-most-
+        crowded name would defeat the purpose.
+        """
+        cutoff = self.params.get("crowding_percentile")
+        if cutoff is None or not weights:
+            return weights
+        cutoff = float(cutoff)
+        if not 0.0 < cutoff < 1.0:
+            raise ValueError("crowding_percentile must be in (0, 1)")
+
+        factor_name = str(self.params["crowding_factor"])
+        try:
+            crowding = get_factor(factor_name).compute(dt, list(universe), data_store)
+        except (FileNotFoundError, KeyError):
+            return weights
+        scored = crowding.dropna()
+        if scored.empty:
+            return weights
+
+        # The factor is signed "higher is better", so the crowded names are
+        # the LOW scores — the bottom `1 - cutoff` of the cross-section.
+        threshold = scored.quantile(1.0 - cutoff)
+        keep = float(self.params["crowding_retain"])
+        if not 0.0 <= keep < 1.0:
+            raise ValueError("crowding_retain must be in [0, 1)")
+
+        braked = dict(weights)
+        for symbol in list(braked):
+            score = scored.get(symbol)
+            if score is None or score > threshold:
+                continue
+            braked[symbol] *= keep
+            LOGGER.info(
+                "theme_multifactor: %s is in the most crowded %.0f%% at %s; "
+                "trimming its weight to %.0f%%",
+                symbol,
+                (1.0 - cutoff) * 100,
+                dt,
+                keep * 100,
+            )
+        return braked
 
     def _constrain(self, weights: dict[str, float]) -> dict[str, float]:
         limits = self.research.get("risk_limits", {})
