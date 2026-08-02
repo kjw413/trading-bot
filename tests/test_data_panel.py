@@ -76,6 +76,34 @@ class TestNextTradingDayAvailability:
         result = next_trading_day_availability(pd.Series([], dtype="datetime64[ns]"), "KR")
         assert result.empty
 
+    def test_lag_counts_trading_days_not_calendar_days(self):
+        """KRX short balances are disclosed two business days late; tagging
+        them with the default lag would hand a backtest two days of hindsight."""
+        dates = pd.Series([pd.Timestamp("2024-01-02")])  # Tue
+        assert next_trading_day_availability(dates, "KR", lag_days=3).iloc[0] == pd.Timestamp(
+            "2024-01-05"
+        )  # Wed, Thu, Fri — no calendar-day shortcut
+
+    def test_lag_skips_the_weekend(self):
+        dates = pd.Series([pd.Timestamp("2024-01-04")])  # Thu
+        assert next_trading_day_availability(dates, "KR", lag_days=3).iloc[0] == pd.Timestamp(
+            "2024-01-09"
+        )  # Fri, Mon, Tue
+
+    def test_lag_one_matches_the_default(self):
+        dates = pd.Series([pd.Timestamp("2024-01-05")])
+        assert (
+            next_trading_day_availability(dates, "KR", lag_days=1).iloc[0]
+            == next_trading_day_availability(dates, "KR").iloc[0]
+        )
+
+    @pytest.mark.parametrize("lag", [0, -1])
+    def test_lag_below_one_is_rejected(self, lag):
+        """Zero lag would mean data is usable on the day it describes."""
+        dates = pd.Series([pd.Timestamp("2024-01-02")])
+        with pytest.raises(ValueError, match="lag_days must be at least 1"):
+            next_trading_day_availability(dates, "KR", lag_days=lag)
+
 
 class TestPanelStoreRoundTrip:
     def test_append_then_read(self, store):

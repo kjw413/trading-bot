@@ -13,6 +13,7 @@ from tradingbot.data.fundamentals_panel import update_fundamentals
 from tradingbot.data.flows import update_flows
 from tradingbot.data.macro import update_macro
 from tradingbot.data.panel import PanelStore
+from tradingbot.data.short_interest import update_short_balance, update_short_volume
 from tradingbot.data.valuation import update_valuation
 from tradingbot.utils.log import get_logger
 
@@ -34,6 +35,8 @@ COLLECTOR_MARKETS: dict[str, tuple[str, ...]] = {
     "flows": ("KR",),
     "valuation": ("KR",),
     "fundamentals": ("KR",),
+    "short_balance": ("KR",),
+    "short_volume": ("KR",),
 }
 
 
@@ -166,6 +169,27 @@ def _default_collectors(
             backfill=backfill,
         )
 
+    # Two panels, not one: short balances are disclosed later than short
+    # volumes, and sharing a dataset would let the balance inherit the
+    # volume's shorter availability lag.
+    def short_balance(**_: Any) -> int:
+        return update_short_balance(
+            PanelStore(processed_root, "short_balance", market),
+            symbols=symbols,
+            start=start,
+            end=end,
+            backfill=backfill,
+        )
+
+    def short_volume(**_: Any) -> int:
+        return update_short_volume(
+            PanelStore(processed_root, "short_volume", market),
+            symbols=symbols,
+            start=start,
+            end=end,
+            backfill=backfill,
+        )
+
     def fundamentals(**_: Any) -> int:
         from tradingbot.data.corp_codes import CorpCodeStore
         from tradingbot.data.fundamentals_panel import dart_api_key
@@ -187,6 +211,8 @@ def _default_collectors(
         "macro": macro,
         "flows": flows,
         "valuation": valuation,
+        "short_balance": short_balance,
+        "short_volume": short_volume,
         "fundamentals": fundamentals,
     }
 

@@ -19,16 +19,37 @@ def _values_equal(left: Any, right: Any) -> bool:
     return bool(left == right)
 
 
-def next_trading_day_availability(dates: pd.Series, market: str) -> pd.Series:
+def next_trading_day_availability(
+    dates: pd.Series, market: str, *, lag_days: int = 1
+) -> pd.Series:
     """First date on which data observed on `dates` may be used.
 
     Daily data for trading day T is only known after T's close, so the
-    earliest a backtest may act on it is the next trading day."""
+    earliest a backtest may act on it is the next trading day — `lag_days=1`,
+    the default, and the right answer for anything published with the close.
+
+    Some series are published later than the day they describe. KRX short
+    *balances* are disclosed two business days after the date they measure,
+    while short *volumes* arrive with the close. Tagging a balance with the
+    default lag would let a backtest read it two days before anyone could
+    have known it, which is the most flattering kind of bug: it makes the
+    signal look prescient rather than making the run crash. `lag_days` is
+    counted in trading days, so holidays and weekends cannot shorten it.
+    """
+    if lag_days < 1:
+        raise ValueError("lag_days must be at least 1 — data is never usable on its own date")
     if dates.empty:
         return pd.Series([], dtype="datetime64[ns]")
     calendar = get_calendar(market)
+
+    def advance(value: pd.Timestamp) -> pd.Timestamp:
+        current = value.date()
+        for _ in range(lag_days):
+            current = calendar.next_trading_day(current)
+        return pd.Timestamp(current)
+
     unique = pd.to_datetime(dates).dt.normalize().drop_duplicates()
-    mapping = {value: pd.Timestamp(calendar.next_trading_day(value.date())) for value in unique}
+    mapping = {value: advance(value) for value in unique}
     return pd.to_datetime(dates).dt.normalize().map(mapping)
 
 
