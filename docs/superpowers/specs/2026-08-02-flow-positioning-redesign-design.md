@@ -268,18 +268,48 @@ research report --factors <새 팩터들> --start <in-sample> --end <in-sample>
 
 ## 10. 단계별 실행 계획
 
-| 단계 | 내용 | 데이터 필요 | 위치 |
+| 단계 | 내용 | 데이터 필요 | 상태 |
 |---|---|---|---|
-| A | `next_trading_day_availability` 지연 인자 확장 | 불필요 | 이 세션 가능 |
-| B | `data/short_interest.py` + 정규화 + 테스트 | 불필요 (fixture) | 이 세션 가능 |
-| C | 공매도 팩터 4종 + 등록 + 테스트 | 불필요 (fixture) | 이 세션 가능 |
-| D | 틸트 가중 + `tilt_strength` + 테스트 | 불필요 (fixture) | 이 세션 가능 |
-| E | 쏠림 제동장치 | 불필요 (fixture) | 이 세션 가능 |
+| A | `next_trading_day_availability` 지연 인자 확장 | 불필요 | **완료** (2026-08-02) |
+| B | `data/short_interest.py` + 정규화 + 파이프라인 연결 | 불필요 (fixture) | **완료** |
+| C | 공매도·쏠림 팩터 5종 등록 | 불필요 (fixture) | **완료** |
+| D | `tilt_strength` 순위 틸트 | 불필요 (fixture) | **완료** |
+| E | `crowding_percentile` 쏠림 제동 | 불필요 (fixture) | **완료** |
 | F | 2021~2022 백필 + 공매도 수집 | **자격증명** | 로컬 |
 | G | 게이트 측정 → 채택 판정 | **실데이터** | 로컬 |
 | H | 판정 | **실데이터** | 로컬 |
 
-A~E는 데이터 없이 구현·테스트 가능하다. F 이후는 로컬 전용이다.
+A~E 완료 (테스트 771개 통과). **D·E는 기본값 비활성**이라 현행 전략 동작은
+바뀌지 않았다 — 두 구조를 비교 측정할 수 있어야지, 한쪽이 조용히 다른 쪽을
+대체하면 안 되기 때문이다.
+
+### F단계 실행 (로컬, 자격증명 필요)
+
+```powershell
+# 1) 공매도 잔고 공시 지연 확인 — §6.2, 이 설계에서 가장 위험한 값
+#    SHORT_BALANCE_LAG_DAYS = 3이 실제와 맞는지 확인한 뒤 진행한다.
+
+# 2) 2021~2022 패널 백필 (수급·가치·공매도·재무 전부)
+.\.venv\Scripts\python.exe -m tradingbot --config config\default.toml `
+  data pipeline --market KR --backfill `
+  --start 2021-01-01 --end 2022-12-31 `
+  --symbols 005930 000660 042700 058470 240810
+```
+
+### G단계 — 관문
+
+```powershell
+.\.venv\Scripts\python.exe -m tradingbot research report --theme ai_semiconductor `
+  --factors foreign_net_20d institution_net_20d short_balance_ratio `
+            short_balance_change_20d short_volume_intensity_20d flow_crowding_20d `
+  --start 2021-01-01 --end 2022-12-31
+```
+
+**여기서 게이트를 통과하는 팩터가 없으면 H단계로 넘어가지 않는다.** 통과하지
+못한 팩터 위에 구조를 얹은 것이 지금의 미국 전략이고, 그 결과가 −2.93%p다.
+
+역신호가 나오면 §7.2의 규칙을 적용한다 — 부호를 뒤집지 말고 기록한 뒤 손대지
+않은 구간에서 재확인한다.
 
 ## 11. 하지 않을 것
 
