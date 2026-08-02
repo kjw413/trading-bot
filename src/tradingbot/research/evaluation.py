@@ -116,6 +116,9 @@ def run_walk_forward(
             )
             strategy_return = strategy_result.return_pct
             benchmark_return = benchmark_result.return_pct
+            nothing_traded = (
+                strategy_result.trade_count == 0 and benchmark_result.trade_count == 0
+            )
         except Exception as exc:  # noqa: BLE001 - recorded, never swallowed
             LOGGER.exception("Walk-forward window %s..%s failed", start, end)
             results.append(
@@ -126,6 +129,25 @@ def run_walk_forward(
                     benchmark_return_pct=float("nan"),
                     won=None,
                     error=str(exc),
+                )
+            )
+            continue
+
+        if nothing_traded:
+            # Neither side filled an order. The benchmark buys the universe
+            # mechanically, so if even it traded nothing, the universe was
+            # empty for this window — a theme before its inception date, a
+            # symbol before listing. Both sides return exactly 0.00%, and
+            # `0.00 > 0.00` would record it as a defeat: a period that was
+            # never tested, counted against the strategy.
+            results.append(
+                WindowResult(
+                    test_start=window.test_start,
+                    test_end=window.test_end,
+                    strategy_return_pct=float("nan"),
+                    benchmark_return_pct=float("nan"),
+                    won=None,
+                    error="거래 없음 — 이 구간에는 투자 가능한 종목이 없었습니다",
                 )
             )
             continue

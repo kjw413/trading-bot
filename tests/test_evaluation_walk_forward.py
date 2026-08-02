@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from tradingbot.engine.engine import BacktestResult
+from tradingbot.models import Fill, OrderSide
 from tradingbot.research.evaluation import WindowResult, run_walk_forward, win_rate
 from tradingbot.research.walk_forward import WalkForwardWindow
 
@@ -15,19 +16,36 @@ WINDOWS = [
     WalkForwardWindow(date(2020, 1, 1), date(2022, 12, 31), date(2023, 1, 1), date(2023, 12, 31)),
 ]
 
-def result_returning(pct: float) -> BacktestResult:
-    """A BacktestResult whose return_pct is exactly `pct`."""
+def result_returning(pct: float, *, traded: bool = True) -> BacktestResult:
+    """A BacktestResult whose return_pct is exactly `pct`.
+
+    `traded=False` models a window in which the backtest filled nothing —
+    an empty universe, not a flat result.
+    """
     initial = 100.0
     final = initial * (1 + pct / 100)
     curve = pd.DataFrame(
         {"date": [pd.Timestamp("2022-01-01"), pd.Timestamp("2022-12-31")],
          "equity": [initial, final]}
     )
+    fills = []
+    if traded:
+        fills.append(
+            Fill(
+                order_id="x",
+                symbol="SPY",
+                side=OrderSide.BUY,
+                qty=1,
+                price=100.0,
+                fee=0.0,
+                dt=date(2022, 1, 3),
+            )
+        )
     return BacktestResult(
         initial_cash=initial,
         final_equity=final,
         equity_curve=curve,
-        fills=[],
+        fills=fills,
         rejected_orders=[],
         expired_orders=[],
     )
@@ -206,3 +224,63 @@ class TestWinRate:
 
     def test_empty_is_nan(self):
         assert math.isnan(win_rate([]))
+
+
+class TestWindowWithNoActivity:
+    """A window where nothing traded is unmeasured, not a loss.
+
+    The KR theme universe has no members before its 2023 inception date, so
+    backtests over 2020-2022 fill zero orders and return exactly 0.00% on
+    both sides. Comparing 0.00 > 0.00 records those windows as defeats and
+    drags the win rate down with periods that were never actually tested.
+    The benchmark is a mechanical equal-weight buyer: if even it filled
+    nothing, the universe was empty, not unattractive.
+    """
+
+    @staticmethod
+    def _idle_runner(strategy_pct=0.0, benchmark_pct=0.0, traded=False):
+        def run(config, *, market, symbols, strategy_name, start, end=None, data_root=None):
+            pct = strategy_pct if config["marker"] == "strategy" else benchmark_pct
+            return result_returning(pct, traded=traded)
+
+        return run
+
+    def _run(self, runner):
+        return run_walk_forward(
+            config={"marker": "strategy"},
+            benchmark_config={"marker": "benchmark"},
+            market="KR",
+            symbols=["005930"],
+            strategy_name="theme_multifactor",
+            windows=WINDOWS,
+            runner=runner,
+        )
+
+    def test_a_window_where_neither_side_traded_is_not_a_loss(self):
+        results = self._run(self._idle_runner())
+        assert [r.won for r in results] == [None, None]
+
+    def test_it_is_kept_in_the_list_with_a_reason(self):
+        results = self._run(self._idle_runner())
+        assert len(results) == len(WINDOWS)
+        assert all(r.error for r in results)
+
+    def test_it_leaves_the_win_rate_denominator(self):
+        assert math.isnan(win_rate(self._run(self._idle_runner())))
+
+    def test_a_traded_window_at_a_dead_heat_is_still_a_measured_loss(self):
+        # Both sides flat but both actually traded: a real tie, and a tie is
+        # not a win. This must NOT be swept into "unmeasured".
+        results = self._run(self._idle_runner(traded=True))
+        assert [r.won for r in results] == [False, False]
+
+    def test_a_strategy_that_sits_out_while_the_benchmark_trades_is_measured(self):
+        # Zero fills on the strategy alone is a real decision to hold cash,
+        # not an empty universe — the benchmark proves the universe existed.
+        def run(config, *, market, symbols, strategy_name, start, end=None, data_root=None):
+            if config["marker"] == "strategy":
+                return result_returning(0.0, traded=False)
+            return result_returning(9.0, traded=True)
+
+        results = self._run(run)
+        assert [r.won for r in results] == [False, False]

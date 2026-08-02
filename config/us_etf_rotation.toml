@@ -75,7 +75,14 @@ volatility_days = 60
 bear_exposure = 0.5
 # 미국에는 수급·가치 패널이 없다(수급은 대응 데이터 자체가 없고, ETF에는
 # PER/PBR이 없다). 조용히 퇴화하는 대신 사용할 팩터를 명시한다.
-factors = ["momentum_6m", "momentum_12m_ex1m"]
+#
+# 2026-08-01: momentum_12m_ex1m을 momentum_3m으로 교체했다. In-sample(2007~2016)
+# 팩터 실측에서 12m_ex1m은 IC 0.028에 분위 스프레드가 **음수**였다 — 신호가 아니라
+# 역신호였고, 그것이 전략 가중치의 절반을 차지했다. 3m은 IC 0.124로 넷 중 가장
+# 강하다. 손대지 않은 2017~2026 구간에서 교체 효과를 확인했다:
+# 초과수익 -3.80 -> -2.93%p, walk-forward 승률 0.43 -> 0.57, Sharpe 0.52 -> 0.63.
+# 여전히 승격 기준에는 미달이다(docs/us_etf_rotation_review.md).
+factors = ["momentum_3m", "momentum_6m"]
 # 채권·금·원자재가 섞인 유니버스에서는 자산별 하락 추세 배제가 필수다.
 abs_momentum_ma_days = 200
 regime_series = "sp500"
