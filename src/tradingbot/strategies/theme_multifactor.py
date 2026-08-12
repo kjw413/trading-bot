@@ -16,12 +16,13 @@ trade on nothing.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Sequence
 
 import pandas as pd
 
 from tradingbot.allocation.constraints import apply_constraints
+from tradingbot.allocation.event_overlay import reduce_for_events
 from tradingbot.allocation.ranking import select_top
 from tradingbot.allocation.rebalance import is_rebalance_date, plan_rebalance
 from tradingbot.allocation.weights import (
@@ -35,6 +36,7 @@ from tradingbot.data.universe import get_theme, members as theme_members
 from tradingbot.engine.calendar import get_calendar
 from tradingbot.factors.registry import get_factor
 from tradingbot.factors.transform import combine, standardize
+from tradingbot.research.event_calendar import days_to_next_event
 from tradingbot.research.gate import load_research_config
 from tradingbot.research.regime import equity_exposure, market_regime
 from tradingbot.strategies.base import Strategy
@@ -70,6 +72,14 @@ class ThemeMultifactorStrategy(Strategy):
         # 상대 모멘텀만으로는 전 자산 하락장에서 "가장 덜 나쁜 것"을 강제로 사게
         # 된다 — 채권·원자재가 섞인 ETF 유니버스에서 특히 위험하다.
         "abs_momentum_ma_days": 0,
+        # 실적 발표를 앞둔 종목의 노출을 줄인다. 음수면 비활성(기본값) —
+        # 이 기능이 켜지는 것은 전용 설정 파일에서뿐이고, 기존 백테스트
+        # 수치는 한 자릿수도 달라지지 않아야 한다.
+        #
+        # 발표 후 복원은 다음 정기 리밸런싱에 맡긴다. 리밸런싱 밖에서 매수
+        # 경로를 새로 만들지 않기 위해서다.
+        "event_overlay_window_days": -1,
+        "event_overlay_scale": 0.5,
         "bear_exposure": 0.5,
         "regime_series": "kospi",
         "regime_ma_days": 200,
@@ -93,6 +103,8 @@ class ThemeMultifactorStrategy(Strategy):
         self._last_rebalance_date: date | None = None
         self._last_targets: dict[str, float] = {}
         self._ledger: SignalLedger | None = None
+        # symbol -> the estimated event date it was already trimmed for.
+        self._event_trims: dict[str, str] = {}
 
     @property
     def research(self) -> dict:
@@ -181,11 +193,139 @@ class ThemeMultifactorStrategy(Strategy):
         scaled = scale_weights(base, exposure)
 
         limits = self.research.get("risk_limits", {})
-        return apply_constraints(
+        constrained = apply_constraints(
             scaled,
             max_weight=float(limits.get("max_position_weight", 0.40)),
             cash_buffer=float(limits.get("min_cash_weight", 0.02)),
         )
+        return self._apply_event_overlay(dt, constrained, data_store)
+
+    def _apply_event_overlay(
+        self, dt: date, weights: dict[str, float], data_store
+    ) -> dict[str, float]:
+        """Reduce target weights for names reporting inside the event window.
+
+        Applied last, after `apply_constraints`. It only ever reduces, so it
+        cannot break a concentration cap or cash buffer that already held.
+
+        The rebalance path needs this even though `_apply_event_trims` already
+        trims daily: without it, a rebalance landing between the trim and the
+        announcement would compute the full target and buy the position
+        straight back, undoing the reduction while the event is still ahead.
+        """
+        window = int(self.params["event_overlay_window_days"])
+        if window < 0 or not weights:
+            return weights
+        days_map = self._event_days_to_next(dt, list(weights), data_store)
+        return reduce_for_events(
+            weights,
+            days_to_event=days_map,
+            window_days=window,
+            scale=float(self.params["event_overlay_scale"]),
+        )
+
+    def _event_days_to_next(
+        self, dt: date, symbols: Sequence[str], data_store
+    ) -> dict[str, int | None]:
+        """Days until each symbol is next expected to report, or None.
+
+        Reads the events panel as of `dt`, so only announcements the bot could
+        already have seen contribute to the estimate. An absent panel yields
+        None for every symbol, which the overlay treats as "leave it alone" —
+        a missing dataset must never read as "no event coming".
+        """
+        wanted = [str(symbol).upper() for symbol in symbols]
+        try:
+            panel = data_store.panel("events", dt, wanted)
+        except (FileNotFoundError, KeyError):
+            panel = None
+        if panel is None or panel.empty:
+            return {symbol: None for symbol in wanted}
+
+        result: dict[str, int | None] = {}
+        for symbol in wanted:
+            rows = panel[panel["symbol"] == symbol]
+            dates = [value.date() for value in pd.to_datetime(rows["date"])]
+            result[symbol] = days_to_next_event(dates, dt)
+        return result
+
+    def _apply_event_trims(self, ctx, dt: date) -> None:
+        """Reduce held positions whose announcement falls inside the window.
+
+        Runs every day, ahead of the rebalance gate: an event early in the
+        month would otherwise wait until month-end, by which point the window
+        it was meant to protect has already passed.
+
+        Each estimated event is trimmed once. The estimate is stable while no
+        new announcement is observed, so recording which date a symbol was
+        trimmed for is enough to stop a daily pass from selling the position
+        down to nothing over the course of a week.
+        """
+        window = int(self.params["event_overlay_window_days"])
+        if window < 0:
+            return
+
+        scale = float(self.params["event_overlay_scale"])
+        theme = get_theme(str(self.params["theme"]), self.params["themes_path"])
+        held = [
+            symbol for symbol in theme_members(theme, dt) if ctx.position(symbol).qty > 0
+        ]
+        if not held:
+            return
+
+        days_map = self._event_days_to_next(dt, held, self._store())
+        ledger = self._signal_ledger()
+        trimmed_any = False
+        for symbol in held:
+            days = days_map.get(symbol)
+            if days is None or not 0 <= days <= window:
+                continue
+            estimated = (dt + timedelta(days=days)).isoformat()
+            if self._event_trims.get(symbol) == estimated:
+                continue
+
+            qty = ctx.position(symbol).qty
+            # Half-up, not round(): banker's rounding sends round(0.5) to 0,
+            # which would liquidate a one-share position outright.
+            retained = int(qty * scale + 0.5)
+            sell_qty = qty - retained
+            if retained <= 0 or sell_qty <= 0:
+                # Cannot be reduced without liquidating it, so it is left
+                # alone — this overlay trims exposure, it does not exit
+                # positions. Recorded anyway so the next daily pass does not
+                # retry the same event.
+                self._event_trims[symbol] = estimated
+                trimmed_any = True
+                continue
+
+            # Namespaced apart from the rebalance path: a plain
+            # make_signal_id(self.name, ...) could collide with a rebalance
+            # sell for the same symbol on a rebalance day, and the ledger
+            # would silently drop one of the two orders.
+            signal_id = make_signal_id(
+                f"{self.name}:event_trim", dt, symbol, "SELL", scale
+            )
+            if not ledger.claim(signal_id):
+                continue
+            try:
+                ctx.sell(symbol, qty=sell_qty)
+            except Exception:
+                LOGGER.exception(
+                    "theme_multifactor: event trim failed for %s; continuing with the rest",
+                    symbol,
+                )
+                continue
+            LOGGER.info(
+                "theme_multifactor: trimming %s by %s shares — report expected in %s day(s)",
+                symbol,
+                sell_qty,
+                days,
+            )
+            self._event_trims[symbol] = estimated
+            trimmed_any = True
+
+        if trimmed_any:
+            self.persist_state()
 
     def _apply_absolute_momentum(self, dt: date, scores: pd.Series, data_store) -> pd.Series:
         """NaN out names trading below their own moving average.
@@ -286,6 +426,10 @@ class ThemeMultifactorStrategy(Strategy):
             return
         self._last_seen_date = dt
 
+        # Ahead of the rebalance gate on purpose: an event early in the month
+        # must not wait for month-end to be acted on.
+        self._apply_event_trims(ctx, dt)
+
         calendar = get_calendar(str(self.params["market"]))
         if not is_rebalance_date(dt, str(self.params["rebalance"]), calendar):
             return
@@ -355,6 +499,7 @@ class ThemeMultifactorStrategy(Strategy):
                 self._last_rebalance_date.isoformat() if self._last_rebalance_date else None
             ),
             "last_targets": dict(self._last_targets),
+            "event_trims": dict(self._event_trims),
         }
 
     def restore_state(self, state: dict) -> None:
@@ -365,4 +510,8 @@ class ThemeMultifactorStrategy(Strategy):
         self._last_targets = {
             str(symbol): float(weight)
             for symbol, weight in (state.get("last_targets") or {}).items()
+        }
+        self._event_trims = {
+            str(symbol): str(value)
+            for symbol, value in (state.get("event_trims") or {}).items()
         }
