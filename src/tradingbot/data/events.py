@@ -41,6 +41,11 @@ _PERIODIC_MARKERS = ("분기보고서", "반기보고서", "사업보고서")
 # Lower sorts first, so the provisional row survives deduplication.
 _KIND_PRIORITY = {"provisional": 0, "periodic": 1}
 
+# Matches `event_calendar.MIN_EVENTS_FOR_ESTIMATE`: below this many provisional
+# releases there is nothing to estimate from, so the periodic reports are the
+# better series even though they lag the market by weeks.
+_MIN_DATES_FOR_PREFERRED_KIND = 4
+
 
 def classify_report(report_name: str) -> str | None:
     """Which kind of earnings event this filing is, or None if it is not one."""
@@ -86,6 +91,37 @@ def disclosures_to_events(disclosures: Sequence[Disclosure], symbol: str) -> pd.
         .drop(columns="_priority")
         .reset_index(drop=True)
     )
+
+
+def schedule_dates(events: pd.DataFrame) -> list[date]:
+    """One symbol's announcement dates, of a single kind, for the estimator.
+
+    Both kinds are stored, because an issuer that never publishes provisional
+    results still has to be scheduled off something. But they must never be
+    read together: a company filing both puts a provisional release and a
+    periodic report a couple of months apart in the same series, and the
+    interleaved gaps halve the median. The estimator would then expect a
+    report every six weeks and flag the name almost continuously.
+
+    Provisional wins whenever there are enough of them to estimate from;
+    otherwise the periodic reports are used alone.
+    """
+    if events.empty:
+        return []
+    if "event_kind" not in events.columns:
+        # A panel written before event kinds existed. Reading every row is
+        # wrong in the same way described above, but it is the only option,
+        # and it is better than silently returning nothing.
+        return sorted({value.date() for value in pd.to_datetime(events["date"])})
+
+    def dates_of(kind: str) -> list[date]:
+        rows = events[events["event_kind"] == kind]
+        return sorted({value.date() for value in pd.to_datetime(rows["date"])})
+
+    provisional = dates_of("provisional")
+    if len(provisional) >= _MIN_DATES_FOR_PREFERRED_KIND:
+        return provisional
+    return dates_of("periodic")
 
 
 def fetch_events(corp_code: str, start: date, end: date, symbol: str) -> pd.DataFrame:

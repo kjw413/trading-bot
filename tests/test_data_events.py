@@ -9,6 +9,7 @@ from tradingbot.data.events import (
     EVENT_COLUMNS,
     classify_report,
     disclosures_to_events,
+    schedule_dates,
     update_events,
 )
 from tradingbot.data.fundamentals import Disclosure
@@ -117,6 +118,121 @@ class TestDisclosuresToEvents:
         frame = disclosures_to_events([], "005930")
         assert frame.empty
         assert list(frame.columns) == EVENT_COLUMNS
+
+
+def events_frame(rows: list[tuple[str, str]]) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "date": pd.to_datetime([day for day, _ in rows]),
+            "symbol": "005930",
+            "event_kind": [kind for _, kind in rows],
+        }
+    )
+
+
+# A year of what a large-cap Korean filer actually produces: a provisional
+# release, then the periodic report repeating the same quarter weeks later.
+INTERLEAVED = events_frame(
+    [
+        ("2024-01-09", "provisional"),
+        ("2024-03-12", "periodic"),
+        ("2024-04-05", "provisional"),
+        ("2024-05-16", "periodic"),
+        ("2024-07-05", "provisional"),
+        ("2024-08-14", "periodic"),
+        ("2024-10-08", "provisional"),
+        ("2024-11-14", "periodic"),
+    ]
+)
+
+
+class TestScheduleDates:
+    def test_provisional_releases_are_used_alone(self):
+        # The bug this exists to prevent: reading both kinds interleaves a
+        # provisional release with the periodic report repeating it, halving
+        # the median gap so the estimator expects a report every six weeks.
+        assert schedule_dates(INTERLEAVED) == [
+            date(2024, 1, 9),
+            date(2024, 4, 5),
+            date(2024, 7, 5),
+            date(2024, 10, 8),
+        ]
+
+    def test_the_resulting_gaps_look_quarterly(self):
+        dates = schedule_dates(INTERLEAVED)
+        gaps = [(b - a).days for a, b in zip(dates, dates[1:])]
+        assert all(80 <= gap <= 100 for gap in gaps), gaps
+
+    def test_periodic_reports_are_used_when_there_are_no_provisionals(self):
+        # Small caps often never publish provisional results. They still have
+        # to be scheduled off something.
+        periodic_only = events_frame(
+            [
+                ("2024-03-12", "periodic"),
+                ("2024-05-16", "periodic"),
+                ("2024-08-14", "periodic"),
+                ("2024-11-14", "periodic"),
+            ]
+        )
+        assert len(schedule_dates(periodic_only)) == 4
+
+    def test_too_few_provisionals_falls_back_to_periodic(self):
+        # A filer that only recently started publishing provisionals has no
+        # usable provisional history yet.
+        mostly_periodic = events_frame(
+            [
+                ("2023-03-10", "periodic"),
+                ("2023-05-15", "periodic"),
+                ("2023-08-14", "periodic"),
+                ("2023-11-14", "periodic"),
+                ("2024-01-09", "provisional"),
+            ]
+        )
+        assert schedule_dates(mostly_periodic) == [
+            date(2023, 3, 10),
+            date(2023, 5, 15),
+            date(2023, 8, 14),
+            date(2023, 11, 14),
+        ]
+
+    def test_the_two_kinds_are_never_returned_together(self):
+        combined = set(schedule_dates(INTERLEAVED))
+        periodic = {date(2024, 3, 12), date(2024, 5, 16), date(2024, 8, 14), date(2024, 11, 14)}
+        assert not combined & periodic
+
+    def test_duplicate_dates_collapse(self):
+        # An amended filing re-received on the same day is one announcement.
+        # A repeated date would otherwise contribute a zero gap and drag the
+        # estimator's median down.
+        doubled = events_frame(
+            [
+                ("2024-01-09", "provisional"),
+                ("2024-01-09", "provisional"),
+                ("2024-04-05", "provisional"),
+                ("2024-07-05", "provisional"),
+                ("2024-10-08", "provisional"),
+            ]
+        )
+        assert schedule_dates(doubled) == [
+            date(2024, 1, 9),
+            date(2024, 4, 5),
+            date(2024, 7, 5),
+            date(2024, 10, 8),
+        ]
+
+    def test_too_few_of_either_kind_gives_nothing_to_estimate_from(self):
+        # Not an error: one announcement is no schedule, and the caller reads
+        # an empty series as "unknown", which leaves the position alone.
+        assert schedule_dates(events_frame([("2024-01-09", "provisional")])) == []
+
+    def test_empty_frame_gives_no_dates(self):
+        assert schedule_dates(pd.DataFrame(columns=EVENT_COLUMNS)) == []
+
+    def test_a_panel_without_event_kinds_still_yields_dates(self):
+        legacy = pd.DataFrame(
+            {"date": pd.to_datetime(["2024-01-09", "2024-04-05"]), "symbol": "005930"}
+        )
+        assert schedule_dates(legacy) == [date(2024, 1, 9), date(2024, 4, 5)]
 
 
 class TestUpdateEvents:

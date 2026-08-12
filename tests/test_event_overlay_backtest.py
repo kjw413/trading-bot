@@ -179,3 +179,33 @@ class TestOverlayReachesTheBroker:
         second = backtest(with_overlay(env))
         assert first.final_equity == second.final_equity
         assert len(first.fills) == len(second.fills)
+
+    def test_periodic_reports_do_not_double_the_schedule(self, env, tmp_path):
+        # The real panel carries both kinds: a provisional release and, weeks
+        # later, the periodic report repeating the same quarter. Reading them
+        # together halves the median gap, so the estimator expects a report
+        # every six weeks and the name is flagged almost continuously.
+        #
+        # Adding the periodic reports must not change what gets traded.
+        provisional_only = backtest(with_overlay(env))
+
+        processed = env["strategies"]["theme_multifactor"]["processed_root"]
+        periodic = pd.DataFrame(
+            {
+                # Each lands about two months after its provisional release.
+                "date": pd.to_datetime(
+                    ["2023-03-16", "2023-06-15", "2023-09-14", "2024-03-14"]
+                ),
+                "symbol": "WIN1",
+                "event_kind": "periodic",
+            }
+        )
+        PanelStore(processed, "events", "KR").append(
+            attach_metadata(
+                periodic, source="test", available_at=periodic["date"], data_version="1"
+            )
+        )
+        with_periodic = backtest(with_overlay(env))
+
+        assert len(with_periodic.fills) == len(provisional_only.fills)
+        assert with_periodic.final_equity == provisional_only.final_equity
