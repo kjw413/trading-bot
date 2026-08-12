@@ -113,6 +113,41 @@ class TestApplyEventTrims:
         strat._apply_event_trims(ctx, date(2024, 1, 8))
         assert ctx.sells == [("005930", 50)]
 
+    def test_does_not_re_trim_daily_once_the_estimate_is_overdue(self):
+        # Regression. An overdue estimate reads as "due today", so a key built
+        # from dt + days_to_event moves with the calendar and lets the same
+        # announcement be trimmed again every day — halving the position over
+        # and over until nothing is left. Caught by the end-to-end backtest,
+        # which showed 45 fills where there should have been 4.
+        strat = strategy()
+        ctx = FakeContext({"005930": 1024})
+        for offset in range(10):
+            strat._apply_event_trims(ctx, date(2024, 1, 10 + offset))
+            if ctx.sells:
+                held = 1024 - sum(qty for _, qty in ctx.sells)
+                ctx._positions["005930"] = held
+        assert len(ctx.sells) == 1
+
+    def test_a_new_announcement_allows_a_fresh_trim(self):
+        # The flip side: the dedup key must not be so stable that the next
+        # quarter's announcement goes unprotected.
+        strat = strategy()
+        ctx = FakeContext({"005930": 100})
+        strat._apply_event_trims(ctx, date(2024, 1, 5))
+        assert len(ctx.sells) == 1
+
+        later = EVENTS.copy()
+        later.loc[len(later)] = {
+            "date": pd.Timestamp("2024-01-09"),
+            "symbol": "005930",
+            "event_kind": "provisional",
+        }
+        strat._data_store = FakeStore(later)
+        ctx._positions["005930"] = 50
+        # Next estimate is roughly 2024-04-09; trim as it comes into range.
+        strat._apply_event_trims(ctx, date(2024, 4, 5))
+        assert len(ctx.sells) == 2
+
     def test_does_nothing_without_a_position(self):
         strat = strategy()
         ctx = FakeContext({})

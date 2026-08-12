@@ -16,7 +16,7 @@ trade on nothing.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Sequence
 
 import pandas as pd
@@ -103,7 +103,7 @@ class ThemeMultifactorStrategy(Strategy):
         self._last_rebalance_date: date | None = None
         self._last_targets: dict[str, float] = {}
         self._ledger: SignalLedger | None = None
-        # symbol -> the estimated event date it was already trimmed for.
+        # symbol -> the last observed announcement it was already trimmed for.
         self._event_trims: dict[str, str] = {}
 
     @property
@@ -224,15 +224,20 @@ class ThemeMultifactorStrategy(Strategy):
             scale=float(self.params["event_overlay_scale"]),
         )
 
-    def _event_days_to_next(
+    def _event_schedule(
         self, dt: date, symbols: Sequence[str], data_store
-    ) -> dict[str, int | None]:
-        """Days until each symbol is next expected to report, or None.
+    ) -> dict[str, tuple[int | None, date | None]]:
+        """Per symbol: days until the next expected report, and the last one seen.
 
         Reads the events panel as of `dt`, so only announcements the bot could
-        already have seen contribute to the estimate. An absent panel yields
-        None for every symbol, which the overlay treats as "leave it alone" —
-        a missing dataset must never read as "no event coming".
+        already have seen contribute. An absent panel yields (None, None) for
+        every symbol, which the overlay treats as "leave it alone" — a missing
+        dataset must never read as "no event coming".
+
+        The last observed date comes back alongside the estimate because it is
+        the only stable identity an announcement cycle has. The estimate is
+        not: once it goes overdue it collapses to "due today" and shifts with
+        the calendar, so keying anything off it changes every day.
         """
         wanted = [str(symbol).upper() for symbol in symbols]
         try:
@@ -240,14 +245,22 @@ class ThemeMultifactorStrategy(Strategy):
         except (FileNotFoundError, KeyError):
             panel = None
         if panel is None or panel.empty:
-            return {symbol: None for symbol in wanted}
+            return {symbol: (None, None) for symbol in wanted}
 
-        result: dict[str, int | None] = {}
+        result: dict[str, tuple[int | None, date | None]] = {}
         for symbol in wanted:
             rows = panel[panel["symbol"] == symbol]
             dates = [value.date() for value in pd.to_datetime(rows["date"])]
-            result[symbol] = days_to_next_event(dates, dt)
+            last = max(dates) if dates else None
+            result[symbol] = (days_to_next_event(dates, dt), last)
         return result
+
+    def _event_days_to_next(
+        self, dt: date, symbols: Sequence[str], data_store
+    ) -> dict[str, int | None]:
+        """Days until each symbol is next expected to report, or None."""
+        schedule = self._event_schedule(dt, symbols, data_store)
+        return {symbol: days for symbol, (days, _) in schedule.items()}
 
     def _apply_event_trims(self, ctx, dt: date) -> None:
         """Reduce held positions whose announcement falls inside the window.
@@ -256,10 +269,10 @@ class ThemeMultifactorStrategy(Strategy):
         month would otherwise wait until month-end, by which point the window
         it was meant to protect has already passed.
 
-        Each estimated event is trimmed once. The estimate is stable while no
-        new announcement is observed, so recording which date a symbol was
-        trimmed for is enough to stop a daily pass from selling the position
-        down to nothing over the course of a week.
+        Each announcement cycle is trimmed once, tracked by the last event
+        actually observed. That identity is stable until a new filing
+        arrives, which stops a daily pass from selling the position down to
+        nothing over the course of a week.
         """
         window = int(self.params["event_overlay_window_days"])
         if window < 0:
@@ -273,15 +286,22 @@ class ThemeMultifactorStrategy(Strategy):
         if not held:
             return
 
-        days_map = self._event_days_to_next(dt, held, self._store())
+        schedule = self._event_schedule(dt, held, self._store())
         ledger = self._signal_ledger()
         trimmed_any = False
         for symbol in held:
-            days = days_map.get(symbol)
-            if days is None or not 0 <= days <= window:
+            days, last_event = schedule.get(symbol, (None, None))
+            if days is None or last_event is None or not 0 <= days <= window:
                 continue
-            estimated = (dt + timedelta(days=days)).isoformat()
-            if self._event_trims.get(symbol) == estimated:
+            # Keyed on the last announcement actually observed, not on the
+            # estimated next one. An overdue estimate reads as "due today"
+            # and therefore moves with the calendar, so keying off it would
+            # let the position be trimmed again every single day until it
+            # was sold down to nothing. The last observed date only changes
+            # when a new announcement arrives, which is exactly when a fresh
+            # trim is warranted.
+            cycle = last_event.isoformat()
+            if self._event_trims.get(symbol) == cycle:
                 continue
 
             qty = ctx.position(symbol).qty
@@ -294,7 +314,7 @@ class ThemeMultifactorStrategy(Strategy):
                 # alone — this overlay trims exposure, it does not exit
                 # positions. Recorded anyway so the next daily pass does not
                 # retry the same event.
-                self._event_trims[symbol] = estimated
+                self._event_trims[symbol] = cycle
                 trimmed_any = True
                 continue
 
@@ -321,7 +341,7 @@ class ThemeMultifactorStrategy(Strategy):
                 sell_qty,
                 days,
             )
-            self._event_trims[symbol] = estimated
+            self._event_trims[symbol] = cycle
             trimmed_any = True
 
         if trimmed_any:

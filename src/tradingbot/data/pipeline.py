@@ -9,6 +9,7 @@ from typing import Any, Callable, Sequence
 
 from tradingbot.config import resolve_project_path
 from tradingbot.data.credentials import MissingCredentialsError
+from tradingbot.data.events import update_events
 from tradingbot.data.fundamentals_panel import update_fundamentals
 from tradingbot.data.flows import update_flows
 from tradingbot.data.macro import update_macro
@@ -25,15 +26,16 @@ STATUS_SKIPPED = "skipped"
 # 수집기명 -> 적용 가능한 시장. 여기 없는 이름(주입된 테스트 수집기, 향후 신규
 # 소스)은 가드 없이 실행된다.
 #
-# flows/valuation은 pykrx(KRX 회원 데이터), fundamentals는 DART로 모두 한국
-# 전용이다. 가드가 없으면 --market US 실행이 미국 티커를 KRX API에 보내고 그
-# 결과가 data/processed/{dataset}/US/에 기록된다.
+# flows/valuation은 pykrx(KRX 회원 데이터), fundamentals와 events는 DART로 모두
+# 한국 전용이다. 가드가 없으면 --market US 실행이 미국 티커를 KRX/DART API에
+# 보내고 그 결과가 data/processed/{dataset}/US/에 기록된다.
 COLLECTOR_MARKETS: dict[str, tuple[str, ...]] = {
     "prices": ("KR", "US"),
     "macro": ("KR", "US"),
     "flows": ("KR",),
     "valuation": ("KR",),
     "fundamentals": ("KR",),
+    "events": ("KR",),
 }
 
 
@@ -149,12 +151,34 @@ def _default_collectors(
             years=years,
         )
 
+    def events(**_: Any) -> int:
+        """Collect earnings announcement dates — the event study's spine.
+
+        Shares the DART key check and corp_code lookup with `fundamentals`.
+        The second `CorpCodeStore` call in one batch costs nothing over the
+        network: the store caches the mapping to disk with a 30-day TTL, so
+        it reads the file the fundamentals collector just wrote.
+        """
+        from tradingbot.data.corp_codes import CorpCodeStore
+        from tradingbot.data.fundamentals_panel import dart_api_key
+
+        dart_api_key()  # raises MissingApiKeyError -> reported as skipped
+        corp_codes = CorpCodeStore(cache_root).corp_code_for(symbols)
+        if not corp_codes:
+            LOGGER.warning("No DART corp_code resolved for any of %s symbols", len(symbols))
+        return update_events(
+            PanelStore(processed_root, "events", market),
+            symbols=symbols,
+            corp_codes=corp_codes,
+        )
+
     return {
         "prices": prices,
         "macro": macro,
         "flows": flows,
         "valuation": valuation,
         "fundamentals": fundamentals,
+        "events": events,
     }
 
 

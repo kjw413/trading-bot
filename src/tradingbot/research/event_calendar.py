@@ -20,6 +20,14 @@ from typing import Sequence
 # irregular filing. Below this the estimate is noise wearing a number.
 MIN_EVENTS_FOR_ESTIMATE = 4
 
+# How long an announcement may be overdue before the estimate is abandoned.
+# Companies do report a little later than their own past cadence, so some
+# grace is right; a quarter of it is not. Allowing the estimate to stay
+# "due today" for a full median gap leaves a symbol flagged for months when
+# the announcement simply was not collected, and every rebalance in that
+# stretch would halve its target.
+MAX_OVERDUE_DAYS = 14
+
 
 def days_to_next_event(event_dates: Sequence[date], as_of: date) -> int | None:
     """Calendar days until this company is next expected to report.
@@ -46,6 +54,6 @@ def days_to_next_event(event_dates: Sequence[date], as_of: date) -> int | None:
     estimate = past[-1] + timedelta(days=round(median_gap))
     if estimate >= as_of:
         return (estimate - as_of).days
-    if (as_of - estimate).days <= round(median_gap):
+    if (as_of - estimate).days <= MAX_OVERDUE_DAYS:
         return 0
     return None
