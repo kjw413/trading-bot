@@ -8,6 +8,7 @@ import pytest
 from tradingbot.data.events import (
     EVENT_COLUMNS,
     classify_report,
+    collapse_near_duplicates,
     disclosures_to_events,
     schedule_dates,
     split_amendment_tags,
@@ -167,6 +168,7 @@ def events_frame(rows: list[tuple[str, str]]) -> pd.DataFrame:
             "symbol": "005930",
             "event_kind": [kind for _, kind in rows],
             "amended": False,
+            "consolidated": True,
         }
     )
 
@@ -269,6 +271,115 @@ class TestSamsungFirstHalf2024:
         first = frame.iloc[0]
         assert first["event_kind"] == "provisional"
         assert first["date"] == pd.Timestamp("2024-01-09")
+
+
+class TestHyundai2023:
+    """Every provisional filing 005380 made in 2023, verbatim from a live run.
+
+    Two series share the 영업(잠정)실적 marker: monthly sales on the first
+    business day of each month, and the actual quarterly earnings as a
+    consolidated release late in the following month. Sixteen filings a year
+    where four are the events.
+    """
+
+    MONTHLY = [
+        "2023-01-03", "2023-02-01", "2023-03-02", "2023-04-03",
+        "2023-05-02", "2023-06-01", "2023-07-03", "2023-08-01",
+        "2023-09-01", "2023-10-04", "2023-11-01", "2023-12-01",
+    ]
+    QUARTERLY = ["2023-01-26", "2023-04-25", "2023-07-26", "2023-10-26"]
+
+    def frame(self) -> pd.DataFrame:
+        filings = [(day, "영업(잠정)실적(공정공시)") for day in self.MONTHLY]
+        filings += [(day, "연결재무제표기준영업(잠정)실적(공정공시)") for day in self.QUARTERLY]
+        return disclosures_to_events(
+            [disclosure(name, day, str(i)) for i, (day, name) in enumerate(filings)],
+            "005380",
+        )
+
+    def test_the_consolidated_release_is_the_quarterly_one(self):
+        assert schedule_dates(self.frame()) == [
+            date(2023, 1, 26),
+            date(2023, 4, 25),
+            date(2023, 7, 26),
+            date(2023, 10, 26),
+        ]
+
+    def test_monthly_sales_do_not_become_the_cadence(self):
+        dates = schedule_dates(self.frame())
+        gaps = [(b - a).days for a, b in zip(dates, dates[1:])]
+        # Reading all sixteen gives a median gap near 25 days, so the name
+        # would never leave the event window.
+        assert all(80 <= gap <= 100 for gap in gaps), gaps
+
+    def test_a_filer_without_consolidated_releases_still_gets_a_schedule(self):
+        # Most small caps only ever file the standalone form, and for them it
+        # is the quarterly release rather than monthly sales.
+        quarterly_standalone = [
+            (day, "영업(잠정)실적(공정공시)")
+            for day in ["2023-02-08", "2023-05-10", "2023-08-09", "2023-11-08"]
+        ]
+        frame = disclosures_to_events(
+            [
+                disclosure(name, day, str(i))
+                for i, (day, name) in enumerate(quarterly_standalone)
+            ],
+            "058470",
+        )
+        assert len(schedule_dates(frame)) == 4
+
+
+class TestSamsungRepeatsWithinAQuarter:
+    """005930's provisional filings for 2023, verbatim from a live run.
+
+    The same report title twice a quarter: the preliminary release in the
+    first week, the detailed confirmation about three weeks later. Nothing in
+    the filing distinguishes them, so they are separated by spacing alone.
+    """
+
+    PRELIMINARY = ["2023-01-06", "2023-04-07", "2023-07-07", "2023-10-11"]
+    CONFIRMED = ["2023-01-31", "2023-04-27", "2023-07-27", "2023-10-31"]
+
+    def frame(self) -> pd.DataFrame:
+        days = sorted(self.PRELIMINARY + self.CONFIRMED)
+        return disclosures_to_events(
+            [
+                disclosure("연결재무제표기준영업(잠정)실적(공정공시)", day, str(i))
+                for i, day in enumerate(days)
+            ],
+            "005930",
+        )
+
+    def test_the_preliminary_release_is_the_event(self):
+        # The price moves on the preliminary figures; the confirmation
+        # restates a quarter already traded on.
+        assert schedule_dates(self.frame()) == [date.fromisoformat(d) for d in self.PRELIMINARY]
+
+    def test_the_cadence_comes_out_quarterly(self):
+        dates = schedule_dates(self.frame())
+        gaps = [(b - a).days for a, b in zip(dates, dates[1:])]
+        assert all(80 <= gap <= 100 for gap in gaps), gaps
+
+
+class TestCollapseNearDuplicates:
+    def test_keeps_the_earliest_of_a_cluster(self):
+        days = [date(2023, 1, 6), date(2023, 1, 31), date(2023, 4, 7)]
+        assert collapse_near_duplicates(days, 45) == [date(2023, 1, 6), date(2023, 4, 7)]
+
+    def test_leaves_well_separated_dates_alone(self):
+        days = [date(2023, 1, 26), date(2023, 4, 25), date(2023, 7, 26)]
+        assert collapse_near_duplicates(days, 45) == days
+
+    def test_sorts_before_collapsing(self):
+        days = [date(2023, 4, 7), date(2023, 1, 31), date(2023, 1, 6)]
+        assert collapse_near_duplicates(days, 45) == [date(2023, 1, 6), date(2023, 4, 7)]
+
+    def test_a_quarterly_gap_is_never_collapsed(self):
+        # 91 days apart is two different quarters, whatever the window.
+        assert len(collapse_near_duplicates([date(2023, 1, 6), date(2023, 4, 7)], 45)) == 2
+
+    def test_empty_input(self):
+        assert collapse_near_duplicates([], 45) == []
 
 
 class TestScheduleDates:
