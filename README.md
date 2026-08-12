@@ -48,6 +48,14 @@ v1 이후 [`trading_bot_agentic_ai_execution_plan_260714.md`](trading_bot_agenti
   Walk-forward 승률·연 회전율·비용 2배 검정을 실제로 재서, 전략이 승격
   기준 6개 전부에 대해 합격/불합격 판정을 받을 수 있게 합니다. 측정하지
   못한 항목은 통과가 아니라 "측정 불가"로 남습니다.
+- 이벤트 리스크 오버레이(`data/events.py`, `research/event_calendar.py`,
+  `allocation/event_overlay.py`): 실적 발표를 앞둔 종목의 노출을 미리
+  줄입니다. 발표일은 DART **잠정실적 공시**에서 수집합니다 — 정기보고서
+  접수일은 같은 숫자를 몇 주 늦게 담을 뿐이고, 주가는 잠정실적에 반응합니다.
+  다음 발표일은 과거 발표 간격으로만 추정합니다. 미래 일정을 지금 지식으로
+  채우면 백테스트가 거짓말을 하기 때문입니다. 기본값은 비활성이며,
+  `config/kr_theme_event_overlay.toml`에서만 켜집니다.
+  설계: [docs/superpowers/specs/2026-08-12-event-alpha-design.md](docs/superpowers/specs/2026-08-12-event-alpha-design.md)
 
 두 갈래는 `data/fundamentals.py`의 DART 클라이언트를 공유합니다. 밸류에이션은
 `FundamentalRecord`(FCFF 입력)로, 팩터 연구는 `data/fundamentals_panel.py`가
