@@ -10,6 +10,7 @@ from tradingbot.data.events import (
     classify_report,
     disclosures_to_events,
     schedule_dates,
+    split_amendment_tags,
     update_events,
 )
 from tradingbot.data.fundamentals import Disclosure
@@ -32,11 +33,29 @@ class TestClassifyReport:
     def test_provisional_results_are_the_event(self, name):
         assert classify_report(name) == "provisional"
 
-    def test_an_amendment_is_not_a_fresh_event(self):
-        # Observed 2024-04-30, correcting the 2024-04-05 release. Classifying
-        # it as provisional puts two announcements 25 days apart and the
-        # schedule estimator reads that as the reporting cadence.
-        assert classify_report("[기재정정]연결재무제표기준영업(잠정)실적(공정공시)") == "amendment"
+    def test_an_amended_release_keeps_its_kind(self):
+        # Being a correction is a property of the filing, not a kind of
+        # filing. Reading the tag as the kind swept in every corrected
+        # disclosure in the repository — NAVER came back with 92 of them,
+        # most having nothing to do with earnings.
+        assert classify_report("[기재정정]연결재무제표기준영업(잠정)실적(공정공시)") == "provisional"
+
+    @pytest.mark.parametrize(
+        "name, expected",
+        [
+            ("[기재정정]연결재무제표기준영업(잠정)실적(공정공시)", (True, "연결재무제표기준영업(잠정)실적(공정공시)")),
+            ("[첨부정정]분기보고서 (2024.03)", (True, "분기보고서 (2024.03)")),
+            ("[첨부추가]사업보고서 (2023.12)", (False, "사업보고서 (2023.12)")),
+            ("[기재정정][첨부추가]반기보고서 (2024.06)", (True, "반기보고서 (2024.06)")),
+            ("분기보고서 (2024.03)", (False, "분기보고서 (2024.03)")),
+        ],
+    )
+    def test_tags_are_stripped_and_corrections_flagged(self, name, expected):
+        # Matching only [기재정정] let [첨부정정] through as a fresh release.
+        assert split_amendment_tags(name) == expected
+
+    def test_a_corrected_non_earnings_filing_is_still_not_an_event(self):
+        assert classify_report("[기재정정]주요사항보고서(유상증자결정)") is None
 
     def test_a_structure_change_filing_is_its_own_kind(self):
         # Observed 2024-01-31, three weeks after the Q4 release it restates.
@@ -64,8 +83,8 @@ class TestClassifyReport:
     def test_unrelated_filings_are_not_events(self, name):
         assert classify_report(name) is None
 
-    def test_an_amended_periodic_report_is_also_an_amendment(self):
-        assert classify_report("[기재정정]분기보고서 (2024.03)") == "amendment"
+    def test_an_amended_periodic_report_is_still_periodic(self):
+        assert classify_report("[기재정정]분기보고서 (2024.03)") == "periodic"
 
     def test_surrounding_whitespace_does_not_break_matching(self):
         assert classify_report("  연결재무제표기준영업(잠정)실적(공정공시) ") == "provisional"
@@ -147,6 +166,7 @@ def events_frame(rows: list[tuple[str, str]]) -> pd.DataFrame:
             "date": pd.to_datetime([day for day, _ in rows]),
             "symbol": "005930",
             "event_kind": [kind for _, kind in rows],
+            "amended": False,
         }
     )
 
@@ -190,26 +210,56 @@ class TestSamsungFirstHalf2024:
         )
 
     def test_every_filing_is_kept_and_labelled(self):
-        kinds = list(self.frame()["event_kind"])
-        assert kinds == [
+        frame = self.frame()
+        assert list(frame["event_kind"]) == [
             "provisional",
             "structure_change",
             "periodic",
             "provisional",
-            "amendment",
+            "provisional",
             "periodic",
         ]
+        assert list(frame["amended"]) == [False, False, False, False, True, False]
 
-    def test_only_the_two_real_announcements_drive_the_schedule(self):
-        # 01-09 and 04-05. Including 01-31 and 04-30 gives gaps of 22, 65 and
-        # 25 days, so the estimator would expect a report every few weeks and
-        # the name would sit inside the event window permanently.
+    def test_only_the_two_real_announcements_would_drive_the_schedule(self):
+        # 01-09 and 04-05. Including 01-31 (a structure change restating the
+        # same quarter) and 04-30 (a correction of 04-05) gives gaps of 22, 65
+        # and 25 days, so the estimator would expect a report every few weeks
+        # and the name would sit inside the event window permanently.
+        #
+        # Asserted on the filtered rows rather than through schedule_dates,
+        # which needs four releases before it will estimate anything and this
+        # fixture is only five months long.
         frame = self.frame()
-        provisional = frame[frame["event_kind"] == "provisional"]
-        assert list(pd.to_datetime(provisional["date"]).dt.date) == [
+        releases = frame[(frame["event_kind"] == "provisional") & ~frame["amended"]]
+        assert list(pd.to_datetime(releases["date"]).dt.date) == [
             date(2024, 1, 9),
             date(2024, 4, 5),
         ]
+
+    def test_a_full_year_of_this_pattern_estimates_a_quarterly_cadence(self):
+        # The same shape carried across four quarters, which is the length
+        # schedule_dates needs. Gaps must come out near 91 days, not near 25.
+        filings = self.FILINGS + [
+            ("2024-07-05", "연결재무제표기준영업(잠정)실적(공정공시)"),
+            ("2024-07-31", "[기재정정]연결재무제표기준영업(잠정)실적(공정공시)"),
+            ("2024-08-14", "반기보고서 (2024.06)"),
+            ("2024-10-08", "연결재무제표기준영업(잠정)실적(공정공시)"),
+            ("2024-11-14", "분기보고서 (2024.09)"),
+        ]
+        frame = disclosures_to_events(
+            [disclosure(name, day, str(i)) for i, (day, name) in enumerate(filings)],
+            "005930",
+        )
+        dates = schedule_dates(frame)
+        assert dates == [
+            date(2024, 1, 9),
+            date(2024, 4, 5),
+            date(2024, 7, 5),
+            date(2024, 10, 8),
+        ]
+        gaps = [(b - a).days for a, b in zip(dates, dates[1:])]
+        assert all(80 <= gap <= 100 for gap in gaps), gaps
 
     def test_the_q4_event_lands_in_january_not_march(self):
         # The correction this whole module exists for: the annual report on
