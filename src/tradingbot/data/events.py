@@ -26,34 +26,65 @@ from tradingbot.utils.log import get_logger
 
 LOGGER = get_logger(__name__)
 
-EVENTS_DATA_VERSION = "1"
+# 2: amendments and structure-change filings split out of `provisional`.
+# Rows written under version 1 carry the old, coarser kinds; delete the
+# dataset and re-collect rather than reading the two together.
+EVENTS_DATA_VERSION = "2"
 EVENTS_SOURCE = "dart"
 EVENTS_DEFAULT_START = date(2015, 1, 1)
 
 EVENT_COLUMNS = ["date", "symbol", "event_kind", "report_name", "rcept_no"]
 
-# The provisional release is the market event. Substring matching on purpose:
-# DART prefixes filings with tags like "[기재정정]" (amended) and suffixes them
-# with periods and filer names. An amended provisional release is still one.
-_PROVISIONAL_MARKERS = ("영업(잠정)실적", "매출액또는손익구조")
+# Substring matching on purpose: DART suffixes filings with periods and filer
+# names, so exact equality would match nothing.
+#
+# `provisional` is the quarterly release the market actually trades on, and it
+# is the only kind that forms a regular series. The other three are kept
+# because they are real earnings information an event study may want, but none
+# of them is a schedule:
+#
+#   amendment        a correction of a filing already made — the market
+#                    reacted to the original, so this is not a new event
+#   structure_change 매출액또는손익구조 변경, filed only when revenue or profit
+#                    moves past a threshold. Irregular by construction, and
+#                    for a large filer it repeats a quarter already announced
+#                    (Samsung: 잠정실적 on 2024-01-09, this on 2024-01-31)
+#   periodic         the quarterly/annual report, weeks behind the release
+_AMENDMENT_MARKER = "기재정정"
+_PROVISIONAL_MARKERS = ("영업(잠정)실적",)
+_STRUCTURE_CHANGE_MARKERS = ("매출액또는손익구조",)
 _PERIODIC_MARKERS = ("분기보고서", "반기보고서", "사업보고서")
 
-# Lower sorts first, so the provisional row survives deduplication.
-_KIND_PRIORITY = {"provisional": 0, "periodic": 1}
+# Lower sorts first, so the most event-like row survives deduplication when
+# several filings share a receipt date.
+_KIND_PRIORITY = {"provisional": 0, "structure_change": 1, "periodic": 2, "amendment": 3}
 
-# Matches `event_calendar.MIN_EVENTS_FOR_ESTIMATE`: below this many provisional
-# releases there is nothing to estimate from, so the periodic reports are the
-# better series even though they lag the market by weeks.
+# Kinds that form a regular series, best first. Anything absent from this
+# tuple is stored but never used to estimate a schedule.
+_SCHEDULE_KINDS = ("provisional", "periodic")
+
+# Matches `event_calendar.MIN_EVENTS_FOR_ESTIMATE`: below this many releases
+# there is nothing to estimate from, so the next kind is tried.
 _MIN_DATES_FOR_PREFERRED_KIND = 4
 
 
 def classify_report(report_name: str) -> str | None:
-    """Which kind of earnings event this filing is, or None if it is not one."""
+    """Which kind of earnings event this filing is, or None if it is not one.
+
+    Amendments are checked first: `[기재정정]연결재무제표기준영업(잠정)실적`
+    is a correction of a release already made, and calling it a provisional
+    release would put a second announcement three weeks after the first,
+    which is what the schedule estimator reads as the reporting cadence.
+    """
     name = (report_name or "").strip()
     if not name:
         return None
+    if _AMENDMENT_MARKER in name:
+        return "amendment"
     if any(marker in name for marker in _PROVISIONAL_MARKERS):
         return "provisional"
+    if any(marker in name for marker in _STRUCTURE_CHANGE_MARKERS):
+        return "structure_change"
     if any(marker in name for marker in _PERIODIC_MARKERS):
         return "periodic"
     return None
@@ -103,8 +134,13 @@ def schedule_dates(events: pd.DataFrame) -> list[date]:
     interleaved gaps halve the median. The estimator would then expect a
     report every six weeks and flag the name almost continuously.
 
-    Provisional wins whenever there are enough of them to estimate from;
-    otherwise the periodic reports are used alone.
+    Provisional releases win whenever there are enough of them to estimate
+    from; otherwise the periodic reports are used alone. Amendments and
+    structure-change filings are never a schedule — see `_KIND_PRIORITY`.
+
+    Returns nothing when no single kind has enough history. A short series is
+    not a schedule, and handing one back would only invite a caller to treat
+    two filings as a reporting cadence.
     """
     if events.empty:
         return []
@@ -118,10 +154,11 @@ def schedule_dates(events: pd.DataFrame) -> list[date]:
         rows = events[events["event_kind"] == kind]
         return sorted({value.date() for value in pd.to_datetime(rows["date"])})
 
-    provisional = dates_of("provisional")
-    if len(provisional) >= _MIN_DATES_FOR_PREFERRED_KIND:
-        return provisional
-    return dates_of("periodic")
+    for kind in _SCHEDULE_KINDS:
+        dates = dates_of(kind)
+        if len(dates) >= _MIN_DATES_FOR_PREFERRED_KIND:
+            return dates
+    return []
 
 
 def fetch_events(corp_code: str, start: date, end: date, symbol: str) -> pd.DataFrame:

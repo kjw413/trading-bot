@@ -17,16 +17,35 @@ from tradingbot.data.panel import PanelStore
 
 
 class TestClassifyReport:
+    """Report names here are verbatim from a real DART collection (005930,
+    2024-H1). Fixtures invented from memory pass while the classifier is
+    wrong, which is how the amendment and structure-change filings went
+    unnoticed until the first live run."""
+
     @pytest.mark.parametrize(
         "name",
         [
             "연결재무제표기준영업(잠정)실적(공정공시)",
             "영업(잠정)실적(공정공시)",
-            "매출액또는손익구조30%(대규모법인은15%)이상변동",
         ],
     )
     def test_provisional_results_are_the_event(self, name):
         assert classify_report(name) == "provisional"
+
+    def test_an_amendment_is_not_a_fresh_event(self):
+        # Observed 2024-04-30, correcting the 2024-04-05 release. Classifying
+        # it as provisional puts two announcements 25 days apart and the
+        # schedule estimator reads that as the reporting cadence.
+        assert classify_report("[기재정정]연결재무제표기준영업(잠정)실적(공정공시)") == "amendment"
+
+    def test_a_structure_change_filing_is_its_own_kind(self):
+        # Observed 2024-01-31, three weeks after the Q4 release it restates.
+        # Real earnings information, but filed only when a threshold is
+        # crossed, so it never forms a regular series.
+        assert (
+            classify_report("매출액또는손익구조30%(대규모법인은15%)이상변경")
+            == "structure_change"
+        )
 
     @pytest.mark.parametrize(
         "name", ["분기보고서 (2024.03)", "반기보고서 (2024.06)", "사업보고서 (2023.12)"]
@@ -45,9 +64,11 @@ class TestClassifyReport:
     def test_unrelated_filings_are_not_events(self, name):
         assert classify_report(name) is None
 
-    def test_whitespace_and_prefixes_do_not_break_matching(self):
-        # DART prefixes filings with tags such as "[기재정정]" (amended).
-        assert classify_report("  [기재정정]연결재무제표기준영업(잠정)실적(공정공시) ") == "provisional"
+    def test_an_amended_periodic_report_is_also_an_amendment(self):
+        assert classify_report("[기재정정]분기보고서 (2024.03)") == "amendment"
+
+    def test_surrounding_whitespace_does_not_break_matching(self):
+        assert classify_report("  연결재무제표기준영업(잠정)실적(공정공시) ") == "provisional"
 
     def test_empty_name_is_not_an_event(self):
         assert classify_report("") is None
@@ -144,6 +165,60 @@ INTERLEAVED = events_frame(
         ("2024-11-14", "periodic"),
     ]
 )
+
+
+class TestSamsungFirstHalf2024:
+    """The exact filing sequence a live collection returned for 005930.
+
+    Six filings in five months, of which two are the quarterly announcements
+    the market trades on. Everything here is verbatim from that run.
+    """
+
+    FILINGS = [
+        ("2024-01-09", "연결재무제표기준영업(잠정)실적(공정공시)"),
+        ("2024-01-31", "매출액또는손익구조30%(대규모법인은15%)이상변경"),
+        ("2024-03-12", "사업보고서 (2023.12)"),
+        ("2024-04-05", "연결재무제표기준영업(잠정)실적(공정공시)"),
+        ("2024-04-30", "[기재정정]연결재무제표기준영업(잠정)실적(공정공시)"),
+        ("2024-05-16", "분기보고서 (2024.03)"),
+    ]
+
+    def frame(self) -> pd.DataFrame:
+        return disclosures_to_events(
+            [disclosure(name, day, str(i)) for i, (day, name) in enumerate(self.FILINGS)],
+            "005930",
+        )
+
+    def test_every_filing_is_kept_and_labelled(self):
+        kinds = list(self.frame()["event_kind"])
+        assert kinds == [
+            "provisional",
+            "structure_change",
+            "periodic",
+            "provisional",
+            "amendment",
+            "periodic",
+        ]
+
+    def test_only_the_two_real_announcements_drive_the_schedule(self):
+        # 01-09 and 04-05. Including 01-31 and 04-30 gives gaps of 22, 65 and
+        # 25 days, so the estimator would expect a report every few weeks and
+        # the name would sit inside the event window permanently.
+        frame = self.frame()
+        provisional = frame[frame["event_kind"] == "provisional"]
+        assert list(pd.to_datetime(provisional["date"]).dt.date) == [
+            date(2024, 1, 9),
+            date(2024, 4, 5),
+        ]
+
+    def test_the_q4_event_lands_in_january_not_march(self):
+        # The correction this whole module exists for: the annual report on
+        # 2024-03-12 carries the same numbers the market already traded on
+        # 2024-01-09.
+        frame = self.frame()
+        first = frame.iloc[0]
+        assert first["event_kind"] == "provisional"
+        assert first["date"] == pd.Timestamp("2024-01-09")
 
 
 class TestScheduleDates:
