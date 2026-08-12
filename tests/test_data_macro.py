@@ -119,6 +119,52 @@ class TestUpdateMacro:
         # Second run resumes from the day after the last stored observation.
         assert captured[1] == date(2024, 1, 4)
 
+    def test_a_series_already_current_is_not_fetched_again(self, store):
+        # Re-running on the same day puts fetch_start a day past `end`. Yahoo
+        # answers an inverted range with a 400, so the run ends in a logged
+        # traceback that reads like a real outage. The other collectors skip
+        # this case; macro has to as well.
+        captured: list[tuple[date, date | None]] = []
+
+        def recording_fetcher(series, start, end=None):
+            captured.append((start, end))
+            return fake_fetcher(series, start, end)
+
+        update_macro(
+            store,
+            series=["kospi"],
+            start=date(2024, 1, 1),
+            end=date(2024, 1, 3),
+            fetcher=recording_fetcher,
+        )
+        update_macro(
+            store,
+            series=["kospi"],
+            start=date(2024, 1, 1),
+            end=date(2024, 1, 3),
+            fetcher=recording_fetcher,
+        )
+        assert len(captured) == 1
+
+    def test_an_open_ended_run_still_skips_a_current_series(self, store):
+        # `end=None` means "up to now", which is the pipeline's own call.
+        # The guard has to resolve it rather than compare against None.
+        captured: list[date] = []
+
+        def recording_fetcher(series, start, end=None):
+            captured.append(start)
+            return pd.DataFrame(
+                {
+                    "date": [pd.Timestamp(date.today())],
+                    "symbol": series,
+                    "close": [100.0],
+                }
+            )
+
+        update_macro(store, series=["kospi"], start=date(2024, 1, 1), fetcher=recording_fetcher)
+        update_macro(store, series=["kospi"], start=date(2024, 1, 1), fetcher=recording_fetcher)
+        assert len(captured) == 1
+
 
 class TestFetchMacroSeries:
     def test_normalizes_fdr_frame(self, monkeypatch):

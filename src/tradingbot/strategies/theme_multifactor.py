@@ -32,6 +32,7 @@ from tradingbot.allocation.weights import (
     scale_weights,
 )
 from tradingbot.config import resolve_project_path
+from tradingbot.data.events import schedule_dates
 from tradingbot.data.universe import get_theme, members as theme_members
 from tradingbot.engine.calendar import get_calendar
 from tradingbot.factors.registry import get_factor
@@ -249,8 +250,11 @@ class ThemeMultifactorStrategy(Strategy):
 
         result: dict[str, tuple[int | None, date | None]] = {}
         for symbol in wanted:
-            rows = panel[panel["symbol"] == symbol]
-            dates = [value.date() for value in pd.to_datetime(rows["date"])]
+            # `schedule_dates` picks one kind of announcement. Reading the
+            # panel's dates directly would interleave provisional releases
+            # with the periodic reports that repeat them weeks later, halving
+            # the median gap and flagging the name almost continuously.
+            dates = schedule_dates(panel[panel["symbol"] == symbol])
             last = max(dates) if dates else None
             result[symbol] = (days_to_next_event(dates, dt), last)
         return result
