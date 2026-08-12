@@ -120,9 +120,16 @@ def update_macro(
         raise ValueError(f"Unknown macro series: {', '.join(unknown)}. Available: {available}")
 
     written = 0
+    fetch_end = end or date.today()
     for name in names:
         last = store.last_date(name)
         fetch_start = last + timedelta(days=1) if last else (start or MACRO_DEFAULT_START)
+        if fetch_start > fetch_end:
+            # Already current. Asking anyway sends an inverted range upstream:
+            # Yahoo answers `period1 > period2` with a 400, and the run ends in
+            # a logged traceback that reads like an outage. Every other
+            # collector skips this; macro was the one that did not.
+            continue
         try:
             frame = fetcher(name, fetch_start, end)
         except MissingCredentialsError:
