@@ -6,12 +6,14 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
+from tradingbot.data.credentials import MissingCredentialsError
 from tradingbot.data.edgar import (
     EARNINGS_ITEM,
     EDGAR_TZ,
     Filing,
     classify_filing,
     filings_to_events,
+    MissingUserAgentError,
     is_amended,
     parse_filings,
     reaction_date,
@@ -326,8 +328,18 @@ class TestUserAgentFromEnv:
     def test_missing_is_an_error_with_a_pointer(self):
         # SEC blocks requests without a contact in the User-Agent, and the
         # failure it returns is an opaque 403.
-        with pytest.raises(RuntimeError, match="SEC_USER_AGENT"):
+        with pytest.raises(MissingUserAgentError, match="SEC_USER_AGENT"):
             user_agent_from_env({})
+
+    def test_a_blank_value_counts_as_missing(self):
+        with pytest.raises(MissingUserAgentError):
+            user_agent_from_env({"SEC_USER_AGENT": "   "})
+
+    def test_it_is_a_credential_error_so_the_pipeline_skips_rather_than_retries(self):
+        # No amount of backoff conjures an environment variable, and a missing
+        # contact is a configuration state rather than a collection failure —
+        # the same treatment the absent DART key gets.
+        assert issubclass(MissingUserAgentError, MissingCredentialsError)
 
 
 class TestUpdateEdgarEvents:
