@@ -26,16 +26,20 @@ STATUS_SKIPPED = "skipped"
 # 수집기명 -> 적용 가능한 시장. 여기 없는 이름(주입된 테스트 수집기, 향후 신규
 # 소스)은 가드 없이 실행된다.
 #
-# flows/valuation은 pykrx(KRX 회원 데이터), fundamentals와 events는 DART로 모두
-# 한국 전용이다. 가드가 없으면 --market US 실행이 미국 티커를 KRX/DART API에
-# 보내고 그 결과가 data/processed/{dataset}/US/에 기록된다.
+# flows/valuation은 pykrx(KRX 회원 데이터), fundamentals는 DART로 한국 전용이다.
+# 가드가 없으면 --market US 실행이 미국 티커를 KRX/DART API에 보내고 그 결과가
+# data/processed/{dataset}/US/에 기록된다.
+#
+# events는 두 시장 모두 지원하되 수집원이 다르다 — 한국은 DART 잠정실적,
+# 미국은 SEC EDGAR의 8-K Item 2.02. 같은 패널 스키마로 쓰므로 하류
+# (schedule_dates, 오버레이, 전략)는 시장을 구분하지 않는다.
 COLLECTOR_MARKETS: dict[str, tuple[str, ...]] = {
     "prices": ("KR", "US"),
     "macro": ("KR", "US"),
     "flows": ("KR",),
     "valuation": ("KR",),
     "fundamentals": ("KR",),
-    "events": ("KR",),
+    "events": ("KR", "US"),
 }
 
 
@@ -154,11 +158,24 @@ def _default_collectors(
     def events(**_: Any) -> int:
         """Collect earnings announcement dates — the event study's spine.
 
-        Shares the DART key check and corp_code lookup with `fundamentals`.
-        The second `CorpCodeStore` call in one batch costs nothing over the
-        network: the store caches the mapping to disk with a 30-day TTL, so
-        it reads the file the fundamentals collector just wrote.
+        Same dataset, same schema, different source per market: DART
+        provisional results for Korea, SEC 8-K Item 2.02 for the US.
         """
+        store = PanelStore(processed_root, "events", market)
+        if market.upper() == "US":
+            from tradingbot.data.cik import CikStore
+            from tradingbot.data.edgar import update_edgar_events, user_agent_from_env
+
+            user_agent_from_env()  # SEC 403s unidentified requests; fail early
+            ciks = CikStore(cache_root).cik_for(symbols)
+            if not ciks:
+                LOGGER.warning("No SEC CIK resolved for any of %s symbols", len(symbols))
+            return update_edgar_events(store, symbols=symbols, ciks=ciks)
+
+        # Shares the DART key check and corp_code lookup with `fundamentals`.
+        # The second `CorpCodeStore` call in one batch costs nothing over the
+        # network: the store caches the mapping to disk with a 30-day TTL, so
+        # it reads the file the fundamentals collector just wrote.
         from tradingbot.data.corp_codes import CorpCodeStore
         from tradingbot.data.fundamentals_panel import dart_api_key
 
@@ -166,11 +183,7 @@ def _default_collectors(
         corp_codes = CorpCodeStore(cache_root).corp_code_for(symbols)
         if not corp_codes:
             LOGGER.warning("No DART corp_code resolved for any of %s symbols", len(symbols))
-        return update_events(
-            PanelStore(processed_root, "events", market),
-            symbols=symbols,
-            corp_codes=corp_codes,
-        )
+        return update_events(store, symbols=symbols, corp_codes=corp_codes)
 
     return {
         "prices": prices,

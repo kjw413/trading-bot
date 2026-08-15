@@ -48,13 +48,18 @@ v1 이후 [`trading_bot_agentic_ai_execution_plan_260714.md`](trading_bot_agenti
   Walk-forward 승률·연 회전율·비용 2배 검정을 실제로 재서, 전략이 승격
   기준 6개 전부에 대해 합격/불합격 판정을 받을 수 있게 합니다. 측정하지
   못한 항목은 통과가 아니라 "측정 불가"로 남습니다.
-- 이벤트 리스크 오버레이(`data/events.py`, `research/event_calendar.py`,
+- 이벤트 리스크 오버레이(`research/event_calendar.py`,
   `allocation/event_overlay.py`): 실적 발표를 앞둔 종목의 노출을 미리
-  줄입니다. 발표일은 DART **잠정실적 공시**에서 수집합니다 — 정기보고서
-  접수일은 같은 숫자를 몇 주 늦게 담을 뿐이고, 주가는 잠정실적에 반응합니다.
-  다음 발표일은 과거 발표 간격으로만 추정합니다. 미래 일정을 지금 지식으로
-  채우면 백테스트가 거짓말을 하기 때문입니다. 기본값은 비활성이며,
-  `config/kr_theme_event_overlay.toml`에서만 켜집니다.
+  줄입니다. 다음 발표일은 **과거 발표 간격으로만** 추정합니다 — 미래 일정을
+  지금 지식으로 채우면 백테스트가 거짓말을 하기 때문입니다. 기본값은
+  비활성입니다.
+- 실적 이벤트 캘린더 — 두 시장, 같은 패널 스키마:
+  - **US** (`data/edgar.py`): SEC 8-K **Item 2.02**(Results of Operations)를
+    이벤트로 봅니다. 10-Q/10-K는 같은 숫자를 며칠~몇 주 뒤에 반복할 뿐입니다.
+    장 마감 후 접수된 8-K는 다음 거래일이 반응일이라, 접수 시각까지 반영해
+    `reaction_date`를 따로 기록합니다. `SEC_USER_AGENT` 필요(키는 불필요).
+  - **KR** (`data/events.py`): DART **잠정실적 공시**. 정기보고서 접수일은
+    주가가 이미 반응한 뒤입니다.
   설계: [docs/superpowers/specs/2026-08-12-event-alpha-design.md](docs/superpowers/specs/2026-08-12-event-alpha-design.md)
 
 두 갈래는 `data/fundamentals.py`의 DART 클라이언트를 공유합니다. 밸류에이션은
