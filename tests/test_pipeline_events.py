@@ -55,7 +55,9 @@ class TestEventsCollectorRegistration:
             fundamental_years=3,
             cache_root=tmp_path / "cache",
         )
-        with pytest.raises(RuntimeError, match="SEC_USER_AGENT"):
+        from tradingbot.data.credentials import MissingCredentialsError
+
+        with pytest.raises(MissingCredentialsError, match="SEC_USER_AGENT"):
             collectors["events"](market="US", symbols=["AAPL"])
 
     def test_events_is_a_default_collector(self, tmp_path):

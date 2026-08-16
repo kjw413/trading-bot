@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from tradingbot.data.credentials import MissingCredentialsError
 from tradingbot.data.events import EVENT_COLUMNS, _KIND_PRIORITY
 from tradingbot.data.panel import PanelStore, attach_metadata, next_trading_day_availability
 from tradingbot.engine.calendar import get_calendar
@@ -81,12 +82,22 @@ class Filing:
     accession: str
 
 
+class MissingUserAgentError(MissingCredentialsError):
+    """Raised when SEC_USER_AGENT is not set.
+
+    Subclasses MissingCredentialsError so the pipeline neither retries it —
+    no amount of backoff conjures an environment variable — nor calls it a
+    failure. An absent contact address is a configuration state, the same
+    way an absent DART key is.
+    """
+
+
 def user_agent_from_env(env: dict[str, str] | None = None) -> str:
     """SEC requires a contact address in the User-Agent and 403s without one."""
     source = env if env is not None else os.environ
-    value = source.get("SEC_USER_AGENT")
+    value = (source.get("SEC_USER_AGENT") or "").strip()
     if not value:
-        raise RuntimeError(
+        raise MissingUserAgentError(
             "SEC_USER_AGENT is not set. SEC rejects unidentified requests with an "
             'opaque 403; set it to a name and address, e.g. "Jane Doe jane@example.com" '
             "(https://www.sec.gov/os/webmaster-faq#developers)."
@@ -333,6 +344,8 @@ def update_edgar_events(
 
         try:
             frame = fetcher(cik, fetch_start, fetch_end, symbol)
+        except MissingCredentialsError:
+            raise
         except Exception:
             LOGGER.exception("EDGAR collection failed for %s; skipping this symbol", symbol)
             continue
