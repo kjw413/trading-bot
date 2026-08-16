@@ -36,12 +36,39 @@ class CheckResult:
         return self.status == OK
 
 
+def diagnose(exc: Exception) -> str:
+    """Name the likely cause when the failure mode is recognisable.
+
+    A blocked egress and a source outage produce different-looking errors and
+    call for completely different responses — open a firewall versus wait and
+    retry — but the raw exception buries that distinction under a stack of
+    urllib wrappers. Saying which one it looks like turns a confusing failure
+    into a next step.
+    """
+    text = f"{type(exc).__name__}: {exc}".lower()
+    if "proxyerror" in text or "tunnel connection failed" in text:
+        return "이 호스트의 아웃바운드가 막혀 있습니다 (프록시/방화벽 정책). 소스 장애가 아닙니다."
+    if "403" in text and "forbidden" in text:
+        return "소스가 이 IP를 거부했습니다. 데이터센터 IP 차단이거나 User-Agent 문제입니다."
+    if "429" in text or "too many requests" in text:
+        return "요청이 너무 잦습니다. 수집 간격을 늘리세요."
+    if "certificate" in text or "ssl" in text:
+        return "TLS 검증 실패입니다. 시스템 CA 번들을 확인하세요."
+    if "nodename" in text or "name or service not known" in text or "getaddrinfo" in text:
+        return "DNS가 해석되지 않습니다."
+    if "modulenotfounderror" in text:
+        return "의존성이 설치되지 않았습니다. `uv sync`를 실행하세요."
+    return ""
+
+
 def _run(name: str, fn: Callable[[], str]) -> CheckResult:
     try:
         return CheckResult(name, OK, fn())
     except Exception as exc:  # noqa: BLE001 - reported, never swallowed
         LOGGER.debug("Preflight check %s failed", name, exc_info=True)
-        return CheckResult(name, FAILED, f"{type(exc).__name__}: {exc}")
+        hint = diagnose(exc)
+        detail = f"{type(exc).__name__}: {exc}"
+        return CheckResult(name, FAILED, f"{hint} ({detail})" if hint else detail)
 
 
 def check_timezones() -> str:

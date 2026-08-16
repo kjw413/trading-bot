@@ -128,6 +128,15 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_parser.add_argument("--out", default="reports/evaluation")
     evaluate_parser.set_defaults(handler=cmd_research_evaluate)
 
+    survivorship_parser = research_subparsers.add_parser(
+        "survivorship", help="Measure how much of the past the candidate pool is missing"
+    )
+    survivorship_parser.add_argument("--start-year", type=int, default=2015)
+    survivorship_parser.add_argument("--end-year", type=int, default=None)
+    survivorship_parser.add_argument("--data-root", default="data/cache")
+    survivorship_parser.add_argument("--out", default="reports/research")
+    survivorship_parser.set_defaults(handler=cmd_research_survivorship)
+
     fundamentals_parser = subparsers.add_parser("fundamentals", help="DART fundamentals commands")
     fundamentals_subparsers = fundamentals_parser.add_subparsers(dest="fundamentals_command")
     fund_update_parser = fundamentals_subparsers.add_parser(
@@ -441,6 +450,47 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
+
+
+def cmd_research_survivorship(args) -> int:
+    """Size the survivorship bias in the candidate pool and write it down.
+
+    The pool is today's listings, so every result computed on it is biased
+    toward companies that survived. This does not remove that; it says how
+    large it is per year, which is what lets a reader discount the years that
+    deserve it.
+    """
+    from datetime import date as _d
+
+    from tradingbot.data.cik import CikStore
+    from tradingbot.data.listings import UsCommonStockListing
+    from tradingbot.research.survivorship import (
+        render_markdown,
+        requests_fetcher,
+        survival_by_year,
+    )
+
+    cache_root = resolve_project_path(args.data_root)
+    tickers = UsCommonStockListing(cache_root).load()
+    ciks = CikStore(cache_root).cik_for(tickers)
+    if not ciks:
+        print("후보 풀의 CIK를 하나도 해석하지 못했습니다. 측정할 수 없습니다.")
+        return 1
+    print(f"후보 풀 {len(tickers)}종목 중 {len(ciks)}개의 CIK 확보")
+
+    end_year = args.end_year or _d.today().year - 1
+    rates = survival_by_year(
+        range(args.start_year, end_year + 1), set(ciks.values()), fetcher=requests_fetcher()
+    )
+    markdown = render_markdown(rates)
+    print(markdown)
+
+    out_dir = resolve_project_path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{_datetime.now():%Y%m%d_%H%M%S}_survivorship.md"
+    out_path.write_text(markdown, encoding="utf-8")
+    print(f"생존율 리포트: {out_path}")
+    return 0
 
 
 def cmd_research_evaluate(args) -> int:
