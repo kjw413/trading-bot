@@ -1,0 +1,78 @@
+# 미국 개별주 설정 — 유니버스를 목록이 아니라 거래대금 상위 N으로 계산한다.
+# 설계: docs/superpowers/specs/2026-08-16-us-universe-and-cloud-design.md
+#
+# 사용법 (한 줄):
+#   python -m tradingbot --config config/us_equity.toml data pipeline --market US
+#
+# 주의: 이 설정의 성과 수치는 생존자 편향을 포함한다. 후보 풀이 오늘 상장된
+# 종목뿐이라 그때 사라진 기업이 빠져 있다. 크기는 `research/survivorship.py`가
+# 재며, 판정문에 반드시 함께 싣는다.
+
+[data]
+cache_dir = "data/cache"
+
+[backtest]
+initial_cash_kr = 10000000
+# 개별주 수백 종목에서 상위 N을 담으려면 종목당 금액이 최소 호가 단위를
+# 넘겨야 한다. 비교의 공정성이 목적이므로 실제 투자금과 같을 필요는 없다.
+initial_cash_us = 1000000
+
+[paper]
+state_dir = "state"
+poll_interval_seconds = 300
+
+[fees.KR]
+commission_rate = 0.00015
+sell_tax_rate = 0.0015
+
+[fees.US]
+commission_rate = 0.0
+sec_fee_rate = 0.0000278
+finra_taf_per_share = 0.000166
+finra_taf_cap = 8.30
+
+[execution]
+slippage_bps = 5
+
+[risk]
+# 전략 자체 상한(apply_constraints)이 이미 집중도를 강제하므로, 엔진 리스크
+# 캡은 그 위의 백스톱이어야지 더 타이트한 거부권이면 안 된다.
+max_position_pct = 0.15
+max_positions = 20
+max_daily_loss_pct = 0.03
+stop_loss_pct = 0.05
+min_cash_buffer_pct = 0.02
+
+[strategies.theme_multifactor]
+market = "US"
+rebalance = "monthly"
+
+# 유니버스: 손으로 적은 목록이 아니라 매 기간 계산한다.
+universe = "liquidity"
+universe_size = 300
+universe_lookback_days = 20
+# 12개월 모멘텀에 필요한 이력 + 여유. 신규 상장이 필터를 우회하지 못한다.
+universe_min_listing_days = 400
+# 하루 평균 1천만 달러. 슬리피지 가정이 성립하는 하한이다.
+universe_min_dollar_volume = 10000000
+
+# 보유 종목 수. universe_size(후보 300)와 다르다.
+top_n = 20
+weighting = "equal"
+volatility_days = 60
+bear_exposure = 0.5
+regime_series = "sp500"
+# 미국 개별주에는 아직 수급·가치 패널이 없다. 조용히 퇴화하는 대신 명시한다.
+factors = ["momentum_3m", "momentum_6m"]
+abs_momentum_ma_days = 200
+
+# 이벤트 오버레이는 기본 비활성이다. 켜는 것은 오버레이 효과를 재는 전용
+# 설정에서만 하고, 그때 이 파일이 벤치마크가 된다.
+
+[pipeline]
+processed_dir = "data/processed"
+log_dir = "state/pipeline_log"
+# 수집 대상은 유니버스 계산 결과로 채운다. 여기 목록은 최소 확인용이다.
+symbols = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"]
+fundamental_years = 3
+retry_attempts = 3

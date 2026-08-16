@@ -64,6 +64,12 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline_parser.add_argument("--log-root", default=None)
     pipeline_parser.set_defaults(handler=cmd_data_pipeline)
 
+    preflight_parser = data_subparsers.add_parser(
+        "preflight", help="Check this host can reach every collection source"
+    )
+    preflight_parser.add_argument("--data-root", default="data")
+    preflight_parser.set_defaults(handler=cmd_data_preflight)
+
     backtest_parser = subparsers.add_parser("backtest", help="Run offline backtest")
     add_market_symbols(backtest_parser)
     backtest_parser.add_argument("--strategy", required=True)
@@ -395,6 +401,14 @@ def cmd_research_report(args) -> int:
     )
     print(f"실험 기록: {experiment_path}")
     return 0
+
+
+def cmd_data_preflight(args) -> int:
+    from tradingbot.data.preflight import render, run_preflight
+
+    results = run_preflight(data_root=resolve_project_path(args.data_root))
+    print(render(results))
+    return 0 if all(result.passed for result in results) else 1
 
 
 def cmd_data_pipeline(args) -> int:

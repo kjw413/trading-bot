@@ -212,3 +212,40 @@ class TestInterchangeability:
             )
         )
         assert theme.members(END) == []
+
+
+class TestStrategyUniverseResolution:
+    """The strategy must take either kind without knowing which."""
+
+    def strategy(self, tmp_path, **overrides):
+        from tradingbot.strategies.theme_multifactor import ThemeMultifactorStrategy
+
+        params = {"theme": "ai_semiconductor", "market": "KR"}
+        params.update(overrides)
+        return ThemeMultifactorStrategy(**params)
+
+    def test_theme_is_the_default(self, tmp_path):
+        # Existing configs carry no `universe` key and must keep working.
+        assert self.strategy(tmp_path).params["universe"] == "theme"
+
+    def test_a_theme_universe_is_built_by_default(self, tmp_path):
+        from tradingbot.data.universe import ThemeUniverse
+
+        assert isinstance(self.strategy(tmp_path).universe(), ThemeUniverse)
+
+    def test_an_unknown_kind_fails_loudly(self, tmp_path):
+        with pytest.raises(ValueError, match="Unknown universe kind"):
+            self.strategy(tmp_path, universe="nonsense").universe()
+
+    def test_liquidity_is_us_only_for_now(self, tmp_path):
+        # The candidate pool is the NASDAQ directory. Silently returning an
+        # empty universe for KR would look like "nothing was investable".
+        with pytest.raises(ValueError, match="US-only"):
+            self.strategy(tmp_path, universe="liquidity", market="KR").universe()
+
+    def test_universe_size_is_separate_from_top_n(self, tmp_path):
+        # Two different numbers: how many candidates to narrow to, and how
+        # many of those to hold. Conflating them would silently buy 300 names.
+        strat = self.strategy(tmp_path, universe_size=300, top_n=20)
+        assert strat.params["universe_size"] == 300
+        assert strat.params["top_n"] == 20

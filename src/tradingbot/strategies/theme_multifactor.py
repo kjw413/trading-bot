@@ -33,7 +33,8 @@ from tradingbot.allocation.weights import (
 )
 from tradingbot.config import resolve_project_path
 from tradingbot.data.events import schedule_dates
-from tradingbot.data.universe import get_theme, members as theme_members
+from tradingbot.data.universe import ThemeUniverse, get_theme
+from tradingbot.data.universe_liquidity import LiquidityUniverse
 from tradingbot.engine.calendar import get_calendar
 from tradingbot.factors.registry import get_factor
 from tradingbot.factors.transform import combine, standardize
@@ -81,6 +82,17 @@ class ThemeMultifactorStrategy(Strategy):
         # 경로를 새로 만들지 않기 위해서다.
         "event_overlay_window_days": -1,
         "event_overlay_scale": 0.5,
+        # "theme"이면 config/themes.toml의 손으로 적은 목록을, "liquidity"면
+        # 거래대금 상위 N을 시점마다 계산해 쓴다. 전략 코드는 어느 쪽인지
+        # 모른다 — 둘 다 Universe 인터페이스를 만족한다.
+        "universe": "theme",
+        # 아래는 universe="liquidity"일 때만 쓰인다. top_n(보유 종목 수)과
+        # 다르다: universe_size는 후보를 몇 개까지 좁힐지이고, top_n은 그중
+        # 몇 개를 살지다.
+        "universe_size": 300,
+        "universe_lookback_days": 20,
+        "universe_min_listing_days": 400,
+        "universe_min_dollar_volume": 0.0,
         "bear_exposure": 0.5,
         "regime_series": "kospi",
         "regime_ma_days": 200,
@@ -106,6 +118,7 @@ class ThemeMultifactorStrategy(Strategy):
         self._ledger: SignalLedger | None = None
         # symbol -> the last observed announcement it was already trimmed for.
         self._event_trims: dict[str, str] = {}
+        self._universe = None
 
     @property
     def research(self) -> dict:
@@ -283,9 +296,8 @@ class ThemeMultifactorStrategy(Strategy):
             return
 
         scale = float(self.params["event_overlay_scale"])
-        theme = get_theme(str(self.params["theme"]), self.params["themes_path"])
         held = [
-            symbol for symbol in theme_members(theme, dt) if ctx.position(symbol).qty > 0
+            symbol for symbol in self.universe().members(dt) if ctx.position(symbol).qty > 0
         ]
         if not held:
             return
@@ -425,6 +437,48 @@ class ThemeMultifactorStrategy(Strategy):
             return True
         return False
 
+    def universe(self):
+        """The universe this strategy trades, built once and reused.
+
+        Both kinds satisfy the same interface, so nothing below this method
+        knows or asks which one it got. That is the whole point: a liquidity
+        screen and a hand-written theme differ in how membership is decided,
+        not in what a strategy does with it.
+        """
+        if self._universe is None:
+            kind = str(self.params["universe"]).lower()
+            if kind == "theme":
+                self._universe = ThemeUniverse(
+                    get_theme(str(self.params["theme"]), self.params["themes_path"])
+                )
+            elif kind == "liquidity":
+                from tradingbot.data.listings import UsCommonStockListing
+
+                market = str(self.params["market"])
+                if market.upper() != "US":
+                    raise ValueError(
+                        f"universe='liquidity' is US-only; the candidate pool is the "
+                        f"NASDAQ directory and there is no {market} equivalent yet."
+                    )
+                candidates = UsCommonStockListing(
+                    resolve_project_path(self.params["data_root"])
+                ).load()
+                self._universe = LiquidityUniverse(
+                    market=market,
+                    candidates=candidates,
+                    data_store=self._store(),
+                    top_n=int(self.params["universe_size"]),
+                    lookback_days=int(self.params["universe_lookback_days"]),
+                    min_listing_days=int(self.params["universe_min_listing_days"]),
+                    min_dollar_volume=float(self.params["universe_min_dollar_volume"]),
+                    rebalance=str(self.params["rebalance"]),
+                )
+            else:
+                raise ValueError(
+                    f"Unknown universe kind: {kind}. Available: theme, liquidity"
+                )
+        return self._universe
+
     def _store(self):
         """Lazily built local-only data store (prices + PIT panels)."""
         if self._data_store is None:
@@ -458,8 +512,7 @@ class ThemeMultifactorStrategy(Strategy):
         if not is_rebalance_date(dt, str(self.params["rebalance"]), calendar):
             return
 
-        theme = get_theme(str(self.params["theme"]), self.params["themes_path"])
-        universe = theme_members(theme, dt)
+        universe = self.universe().members(dt)
         targets = self.generate_targets(dt, universe, self._store())
         if not targets:
             self.persist_state()
