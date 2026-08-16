@@ -10,7 +10,7 @@ from datetime import datetime as _datetime
 from typing import Any
 
 from tradingbot.broker.paper import PaperBroker
-from tradingbot.config import load_config, resolve_project_path
+from tradingbot.config import load_config, load_dotenv, resolve_project_path
 from tradingbot.report.report import generate_backtest_report
 from tradingbot.services import build_paper_session, run_backtest, update_data
 from tradingbot.strategies.registry import list_strategies
@@ -22,6 +22,10 @@ LOGGER = get_logger(__name__)
 def main(argv: list[str] | None = None) -> int:
     configure_console()
     setup_logging()
+    loaded = load_dotenv()
+    if loaded:
+        # Names only. These are credentials.
+        LOGGER.info(".env loaded: %s", ", ".join(sorted(loaded)))
     parser = build_parser()
     args = parser.parse_args(argv)
     if not hasattr(args, "handler"):
