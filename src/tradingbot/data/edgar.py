@@ -218,6 +218,12 @@ def filings_to_events(
     one row. The choice is made here rather than by write order: the earnings
     release outranks the periodic report, and an original outranks its own
     amendment.
+
+    A consequence worth knowing before counting rows: an issuer that files its
+    10-Q the same day as the release keeps almost no periodic rows at all. A
+    live collection returned 47 provisional and 47 periodic for AAPL, which
+    files a day apart, against 47 and 9 for MSFT, which does not. Both are
+    correct. This panel is one event per day, not an archive of filings.
     """
     rows = []
     for item in filings:
