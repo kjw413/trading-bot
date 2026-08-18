@@ -218,6 +218,50 @@ Register-ScheduledTask -TaskName "TradingBot Paper KR" -Action $action -Trigger 
 
 실시간 세션 클록과 폴링 피드는 각각 `TradingSessionClock`과 `PollingDataFeed`로 분리되어 있습니다. 테스트에서는 `now_provider`와 가짜 price fetcher를 주입해 장 시간이나 네트워크에 의존하지 않고 검증합니다.
 
+## 주간 브리핑
+
+토스증권 계좌를 읽어 **마지막 실행 이후 무슨 일이 있었는지**를 주식 비전문가의 말로 정리해 텔레그램으로 보냅니다. PC를 끈 뒤에도 그 메시지는 폰에 남습니다.
+
+가장 쉬운 사용법은 저장소 루트의 **`주간 브리핑.bat` 더블클릭**입니다. `.venv`가 없으면 `uv sync`까지 자동으로 수행하고, GUI 런처와 달리 콘솔 창을 띄운 채 실행합니다 — 전송이 실패하면 그 화면이 브리핑을 읽을 수 있는 유일한 곳이기 때문입니다. 끝에서 키 입력을 기다리므로 성공·실패 모두 읽고 닫을 수 있습니다.
+
+```powershell
+.\.venv\Scripts\python.exe -m tradingbot briefing weekly
+.\.venv\Scripts\python.exe -m tradingbot briefing weekly --dry-run      # 렌더까지만, 전송 안 함
+.\.venv\Scripts\python.exe -m tradingbot briefing weekly --skip-update  # 가격 기록 갱신 생략
+```
+
+**언제 켜면 되는가.** 미국 금요일 장은 **한국 시간 토요일 새벽에 닫힙니다.** 한 주를 온전히 담으려면 **토요일 아침 이후**에 켜세요. 금요일 밤에 켜면 미국 쪽 마지막 하루가 빠집니다.
+
+자동 실행은 아직 없습니다. PC를 켜고 직접 더블클릭해야 합니다. 실행 간격이 불규칙해도 되도록, 브리핑은 늘 "지난 N일 동안"이라는 형태로 기간을 함께 알려줍니다.
+
+### 필요한 환경변수
+
+| 항목 | 발급처 |
+|---|---|
+| `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`, `TOSS_ACCOUNT_NO` | 토스증권 WTS → 설정 → Open API |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | 텔레그램 [@BotFather](https://t.me/BotFather)에서 봇 생성 → 토큰 발급 → 그 봇과 대화를 시작한 뒤 chat id 확인 |
+
+`.env.template`에 자리가 마련되어 있습니다. 값은 파일에 채우지 말고 환경변수로 등록하세요 (`.env.template` 상단 안내 참고). 자격증명을 저장소에 커밋하지 마세요.
+
+### 403이 뜨면 — 허용 IP 재등록
+
+토스 오픈 API는 **등록된 공인 IP에서 온 요청만** 받습니다. 집 인터넷의 공인 IP는 통신사가 바꿀 수 있어서, 키가 맞아도 몇 달에 한 번 403이 납니다. 그때는 이렇게 하세요.
+
+1. 브리핑이 알려주는 현재 공인 IP를 확인합니다 (403 메시지에 함께 나옵니다). 안 나오면 <https://ifconfig.me> 를 브라우저로 엽니다.
+2. 토스증권 WTS → 설정 → Open API → 허용 IP 목록에서 그 주소를 **추가**합니다.
+3. 다시 `주간 브리핑.bat`을 실행합니다.
+
+401은 다른 문제입니다 — IP가 아니라 토큰이 무효라는 뜻이고, 브리핑이 스스로 토큰을 다시 받아 재시도합니다. 계속 401이면 `client_secret`을 다시 확인하세요.
+
+### `state/account/` 백업
+
+수익률은 저장된 스냅샷 두 개를 비교해서 나옵니다. 즉 **`state/account/`가 수익률 이력의 유일한 원천이고, 이 PC에만 있습니다.** 이 폴더가 사라지면 지난 기록과의 비교가 처음부터 다시 시작됩니다.
+
+- 외장 디스크나 클라우드 폴더로 **주기적으로 복사**해 두세요. 용량은 실행당 몇 KB입니다.
+- **저장소에 커밋하지 마세요.** `.gitignore`가 `state/`를 통째로 무시하고 있으며, 이 폴더에는 실제 계좌번호와 잔고가 들어 있습니다.
+
+각 실행의 기록(보낸 브리핑 전문 포함)은 `state/briefing_log/`에 JSON으로 남습니다.
+
 ## 운영 PC 셋업 체크리스트
 
 개발 머신이 아닌 운영용 PC로 옮길 때 순서입니다.
