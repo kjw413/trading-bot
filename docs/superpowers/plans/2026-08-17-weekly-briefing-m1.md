@@ -76,7 +76,7 @@
 
 **"설명을 붙이면 허용" 예외를 두지 않는다.** 예외가 생기는 순간 검사가 무의미해진다. 필요한 개념에는 새 이름을 준다.
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `tests/test_report_glossary.py`:
 
@@ -168,12 +168,12 @@ class TestFindBannedTerms:
         assert glossary.find_banned_terms("") == []
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_report_glossary.py -v --basetemp="$env:TEMP\pytest_tmp"`
 Expected: FAIL — `ModuleNotFoundError: No module named 'tradingbot.report.glossary'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `src/tradingbot/report/glossary.py`:
 
@@ -307,14 +307,14 @@ def find_banned_terms(text: str) -> list[str]:
     return [term for term in BANNED if term in lowered]
 ```
 
-- [ ] **Step 4: 통과 확인**
+- [x] **Step 4: 통과 확인**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_report_glossary.py -v --basetemp="$env:TEMP\pytest_tmp"`
 Expected: PASS
 
 > `_pct`가 `f"{value:+.1%}"`로 음수에 `+-`를 만들지 않는지 실행으로 확인한다. 파이썬은 `-4.6%`를 바르게 내지만, 확인 없이 넘어가면 첫 마이너스 수익률 주에 처음 발견하게 된다.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```powershell
 git add src/tradingbot/report/glossary.py tests/test_report_glossary.py
@@ -345,7 +345,7 @@ git commit -m "BRIEF(part): Put the reader-facing wording in one enforceable pla
 
 **`weights_krw()`가 지금 필요한 이유:** M3의 `plan_rebalance(current_weights=...)` 입력이 바로 이 형태다. 계산은 지금 해두고 소비는 M3에서 한다 — 새 추상화를 만드는 게 아니라 이미 있는 함수의 입력 형태에 맞추는 것뿐이다.
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `tests/test_account_base.py`:
 
@@ -486,12 +486,12 @@ class TestPersistence:
             load_snapshots(tmp_path)
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_account_base.py -v --basetemp="$env:TEMP\pytest_tmp"`
 Expected: FAIL — `ModuleNotFoundError: No module named 'tradingbot.account'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `src/tradingbot/account/__init__.py`: 빈 파일.
 
@@ -635,12 +635,12 @@ def load_latest(root: str | Path) -> AccountSnapshot | None:
     return snapshots[-1] if snapshots else None
 ```
 
-- [ ] **Step 4: 통과 확인**
+- [x] **Step 4: 통과 확인**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_account_base.py -v --basetemp="$env:TEMP\pytest_tmp"`
 Expected: PASS
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```powershell
 git add src/tradingbot/account tests/test_account_base.py
@@ -679,7 +679,7 @@ unexplained = (지금 총액 − 직전 총액) − explained
 
 이 판별은 입금과 직접 매매를 **구분하지 못한다.** 그래서 사유 문구가 둘 다 묻는다. 구분하려 억지 규칙을 넣지 않는 이유는, 틀린 구분이 틀린 수익률을 만들기 때문이다.
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `tests/test_account_returns.py`:
 
@@ -810,12 +810,12 @@ class TestIntervalReturn:
         assert result.end_value_krw == pytest.approx(1_400_000.0)
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_account_returns.py -v --basetemp="$env:TEMP\pytest_tmp"`
 Expected: FAIL — `ModuleNotFoundError: No module named 'tradingbot.account.returns'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `src/tradingbot/account/returns.py`:
 
@@ -956,14 +956,14 @@ def interval_return(
     )
 ```
 
-- [ ] **Step 4: 통과 확인**
+- [x] **Step 4: 통과 확인**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_account_returns.py -v --basetemp="$env:TEMP\pytest_tmp"`
 Expected: PASS
 
 > `test_price_and_fx_are_separated_for_a_usd_holding`이 미묘하다. `price_part = total − fx`는 곱셈 분해의 근사이므로 교차항만큼 어긋난다. 테스트가 요구하는 정밀도(`abs=1e-9`)에서 실패하면 **테스트를 느슨하게 만들지 말고** `_fx_part`와 `price_part` 계산을 곱셈 분해(`(1+total) = (1+price)(1+fx)` → `price = (1+total)/(1+fx) − 1`)로 바꾼다. 사용자에게 "주가 몫 + 환율 몫 = 전체"로 보여줄 것이므로 덧셈 표기를 유지하되, 두 몫의 합이 전체와 0.1%p 이상 어긋나지 않아야 한다.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```powershell
 git add src/tradingbot/account/returns.py tests/test_account_returns.py
@@ -991,7 +991,7 @@ git commit -m "BRIEF(part): Measure returns between snapshots, or say why not"
 
 **레버리지 ETF 주석을 M1부터 넣는다.** 보유 중이면 이미 오해가 시작된다. 심볼 목록은 하드코딩하되, 목록에 없어도 브리핑이 깨지지 않는다.
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `tests/test_report_briefing.py`:
 
@@ -1130,12 +1130,12 @@ class TestSplitForTelegram:
         assert sum(len(part) for part in parts) >= 9000
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_report_briefing.py -v --basetemp="$env:TEMP\pytest_tmp"`
 Expected: FAIL — `ModuleNotFoundError: No module named 'tradingbot.report.briefing'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `src/tradingbot/report/briefing.py`를 작성한다. 위 테스트가 요구하는 동작을 전부 만족시키되, 아래 구조를 지킨다.
 
@@ -1158,12 +1158,12 @@ SECTIONS = ("summary", "totals", "holdings", "trend", "notes")
 - `curr.as_of`가 `now`보다 6시간 이상 이르면 `notes`에 기준 시각 경고를 넣는다.
 - `split_for_telegram`은 빈 줄(`\n\n`) 경계에서 나누고, 한 덩어리가 한도를 넘으면 그것만 강제로 잘라 넣는다.
 
-- [ ] **Step 4: 통과 확인**
+- [x] **Step 4: 통과 확인**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_report_briefing.py tests\test_report_glossary.py -v --basetemp="$env:TEMP\pytest_tmp"`
 Expected: PASS
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```powershell
 git add src/tradingbot/report/briefing.py tests/test_report_briefing.py
@@ -1192,7 +1192,7 @@ git commit -m "BRIEF(part): Render the account in words a non-expert can read"
 
 M1의 Notifier는 **단방향**이다. M3의 승인 버튼은 로컬 실행 덕에 같은 프로세스 안에서 콜백을 폴링할 수 있으므로(스펙 §4.6), 지금 양방향 추상화를 미리 만들지 않는다.
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `tests/test_notify_telegram.py`:
 
@@ -1292,12 +1292,12 @@ class TestRetry:
         assert "chat not found" in str(excinfo.value)
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_notify_telegram.py -v --basetemp="$env:TEMP\pytest_tmp"`
 Expected: FAIL — `ModuleNotFoundError: No module named 'tradingbot.notify'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `src/tradingbot/notify/base.py`:
 
@@ -1418,14 +1418,14 @@ def build_notifier() -> TelegramNotifier:
 
 `src/tradingbot/notify/__init__.py`: 빈 파일.
 
-- [ ] **Step 4: 통과 확인**
+- [x] **Step 4: 통과 확인**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_notify_telegram.py -v --basetemp="$env:TEMP\pytest_tmp"`
 Expected: PASS
 
 > `test_a_response_saying_not_ok_is_a_failure`가 예외 메시지에 `description`을 요구한다. `raise ... from last`만으로는 최종 메시지에 안 들어갈 수 있으니, 마지막 `NotifyError`에 `last`의 내용을 이어 붙인다.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```powershell
 git add src/tradingbot/notify tests/test_notify_telegram.py
@@ -1623,7 +1623,7 @@ git commit -m "BRIEF(part): Map the Toss balance response onto the read-only por
 
 **전송이 실패해도 브리핑 전문을 콘솔에 낸다.** 로컬 실행에서는 사용자가 화면 앞에 있으므로, 폰으로 못 갔어도 최소한 읽을 수는 있어야 한다.
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `tests/test_briefing_service.py`:
 
@@ -1745,12 +1745,12 @@ class TestFailures:
         assert len(list((tmp_path / "account").glob("*.json"))) == 1
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `.\.venv\Scripts\python.exe -m pytest tests\test_briefing_service.py -v --basetemp="$env:TEMP\pytest_tmp"`
 Expected: FAIL — `ModuleNotFoundError: No module named 'tradingbot.briefing_service'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `src/tradingbot/briefing_service.py`를 작성한다. 순서:
 
@@ -1782,14 +1782,14 @@ CLI (`cli.py`)에 서브파서를 추가한다:
 
 `cmd_briefing_weekly(args) -> int`는 성공 0, 실패 1을 반환하고 **브리핑 전문을 항상 print한다.**
 
-- [ ] **Step 4: 통과 확인**
+- [x] **Step 4: 통과 확인**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q --basetemp="$env:TEMP\pytest_tmp"
 ```
 Expected: 전체 통과 (기존 테스트 포함 — 회귀 없음)
 
-- [ ] **Step 5: 실행 경로와 문서**
+- [x] **Step 5: 실행 경로와 문서**
 
 1. **`주간 브리핑.bat`** — `트레이딩봇 실행.bat`을 본떠 만들되:
    - **ANSI/CP949로 저장한다. 주석은 ASCII만.** UTF-8로 저장하면 파일 전체가 깨진다.
@@ -1813,7 +1813,7 @@ Expected: 전체 통과 (기존 테스트 포함 — 회귀 없음)
    - **허용 IP 재등록 절차 3줄** — 403이 뜨면 무엇을 어디에 넣는지. 몇 달에 한 번 겪을 일이라 그때는 잊고 있다
    - **`state/account/` 백업 안내** — 수익률 이력의 유일한 원천이고 이 PC에만 있다. 저장소에 커밋하지는 말 것
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```powershell
 git add src/tradingbot/briefing_service.py src/tradingbot/cli.py tests/test_briefing_service.py ".env.template" README.md "주간 브리핑.bat"
@@ -1826,14 +1826,14 @@ git commit -m "BRIEF: Wire the weekly briefing to one double-click"
 
 - [ ] `주간 브리핑.bat` 더블클릭 → 계좌를 읽고 브리핑을 렌더해 텔레그램으로 보낸다
 - [ ] 폰에서 그 메시지를 받고, **PC를 끈 뒤에도** 읽을 수 있다
-- [ ] 시점을 달리해 두 번 실행하면 스냅샷 2개가 쌓이고, 두 번째 브리핑이 **구간 일수와 함께** 수익률(또는 "측정 불가" 사유)을 보여준다
-- [ ] USD 종목 보유 시 주가 몫과 환율 몫이 분리되어 표시된다
-- [ ] 금칙어 테스트가 존재하고 통과한다
+- [x] 시점을 달리해 두 번 실행하면 스냅샷 2개가 쌓이고, 두 번째 브리핑이 **구간 일수와 함께** 수익률(또는 "측정 불가" 사유)을 보여준다
+- [x] USD 종목 보유 시 주가 몫과 환율 몫이 분리되어 표시된다
+- [x] 금칙어 테스트가 존재하고 통과한다
 - [ ] 403(허용 IP 불일치)과 401(토큰 무효)이 서로 다른 메시지로 보고되고, 403에는 현재 공인 IP가 함께 나온다
-- [ ] 텔레그램 전송이 실패해도 브리핑 전문이 콘솔에 남는다
+- [x] 텔레그램 전송이 실패해도 브리핑 전문이 콘솔에 남는다
 - [ ] **토스 앱 화면의 수량·평단·평가금액과 브리핑의 숫자가 일치한다** (Task 6 Step 4)
-- [ ] 기존 `pytest`가 전부 통과한다 — 백테스트·모의투자 회귀 없음
-- [ ] **주문 관련 코드가 M1 diff에 없다**
+- [x] 기존 `pytest`가 전부 통과한다 — 백테스트·모의투자 회귀 없음
+- [x] **주문 관련 코드가 M1 diff에 없다**
 
 ## 알려진 한계 (범위 밖)
 
@@ -1844,3 +1844,59 @@ git commit -m "BRIEF: Wire the weekly briefing to one double-click"
 - **입출금과 직접 매매를 구분하지 못한다** (입출금 API가 없을 경우). 둘 다 "측정 불가"로 처리하고 되묻는다
 - **입출금 발생 시점을 구간 시작으로 가정한다.** 스냅샷이 양 끝에 하나씩뿐이라 그 이상 알 수 없다
 - `report/report.py`의 백테스트 리포트 워딩은 손대지 않는다. 사전이 생겼으니 나중에 같은 곳을 보게 만들 수 있다
+
+---
+
+## 실행 기록 (2026-08-18, 브랜치 `feat/weekly-briefing-m1`)
+
+**Task 1~5, 7 완료. Task 6만 남았고, 그것이 위 완료 기준 4개를 막고 있다.**
+테스트 829개 통과 (착수 시점 740개 + 신규 89개), 회귀 없음. `broker/`는 열지 않았다.
+
+| Task | 커밋 |
+|---|---|
+| 1 용어 사전 | `BRIEF(part): Put the reader-facing wording in one enforceable place` |
+| 2 계좌 포트 | `BRIEF(part): Read an account without implementing an order path` |
+| 3 구간 수익률 | `BRIEF(part): Measure returns between snapshots, or say why not` |
+| 4 렌더러 | `BRIEF(part): Render the account in words a non-expert can read` |
+| 5 텔레그램 | `BRIEF(part): Deliver the briefing somewhere it outlives the session` |
+| 7 배선·문서 | `BRIEF: Wire the weekly briefing to one double-click` |
+
+### 계획과 다르게 한 세 가지
+
+**1. 환율 분해는 곱셈 분해다. "주가 몫 + 환율 몫 = 전체"라고 쓰지 않는다.**
+Task 3 Step 4의 노트가 두 가지를 동시에 요구했는데 그 둘은 양립하지 않는다 —
+테스트는 `price_part == 0.10`을 `abs=1e-9`로 요구하고(곱셈 분해만 만족),
+같은 노트는 "두 몫의 합이 전체와 0.1%p 이내"를 요구한다. 해당 케이스의 교차항이
+0.37%p라 덧셈으로는 절대 들어오지 않는다. 테스트를 계약으로 삼아
+`price = (1+total)/(1+fx) − 1`을 쓰고, 브리핑은 두 몫을 나란히 적은 뒤
+"두 몫은 곱해져 전체가 되므로, 그냥 더한 값과는 조금 다릅니다"라고 밝힌다.
+덧셈으로 맞췄다면 앱 화면과 0.4%p 어긋난 숫자를 내보내게 된다.
+
+**2. 가격 캐시 갱신을 계좌 읽기 *뒤*로 옮겼다** (계획 Task 7 Step 3의 1번 ↔ 2번).
+갱신할 종목 목록의 유일한 진실은 계좌 응답이다. 먼저 갱신하면 직전 스냅샷의
+종목 목록을 쓰게 되고, 지난 실행 이후 새로 산 종목은 첫 브리핑에서 가격 기록이
+아예 없다. 계획이 지키라고 한 순서(직전 스냅샷 로드 → 저장)는 그대로다.
+
+**3. `cash_weight`는 부호를 붙이지 않는다.**
+계획의 `TERMS`는 `_pct`(항상 부호)를 썼는데, 렌더 결과를 눈으로 읽어보니
+현금 25.5%가 "+25.5%"로 나와 수익처럼 읽혔다. 비중은 방향이 없으므로
+`_pct_unsigned`를 따로 두고 테스트로 고정했다. 스펙 §4.4의 예시 문구
+("현금 비중은 8%입니다")와도 이쪽이 맞다.
+
+### Task 6을 위해 비워둔 자리
+
+`briefing_service.build_account_reader()`가 그 이음새다. 지금은
+`tradingbot.account.toss` import에 실패하면 `MissingCredentialsError`로
+**무엇을 해야 하는지 적어서** 던진다. CLI는 그것을 잡아 안내를 출력하고 1로 끝난다.
+`account/toss.py`에 `build_reader() -> AccountReader`를 만들면 그대로 연결된다.
+
+이 세션에서도 `developers.tossinvest.com` 응답 스펙을 확인할 수 없었다. 필드명을
+기억으로 쓰면 통과하는 테스트가 틀린 매핑을 보증하므로, 어댑터에 손대지 않았다.
+
+### 검증 방법 (네트워크·계좌 없이)
+
+`run_briefing`은 reader/notifier/cache를 전부 주입받으므로 `tests/test_briefing_service.py`가
+스냅샷 저장·구간 비교·전송 실패 경로를 모두 덮는다. CLI 경로(서브파서 → 핸들러 →
+종료코드)와 `주간 브리핑.bat`(cmd가 CP949로 파싱하는지, `errorlevel` 분기, `pause`)은
+스텁 리더로 실행해 확인했다. `.bat`은 기존 `트레이딩봇 실행.bat`과 동일하게
+저장된다 (디스크 CRLF + CP949, blob은 LF — `core.autocrlf=true`).
