@@ -49,6 +49,12 @@ class TestFormatValue:
     def test_zero_is_not_signed_as_negative(self):
         assert glossary.format_value("period_return", 0.0) == "+0.0%"
 
+    def test_a_share_of_the_account_is_not_signed(self):
+        # A weight has no direction. "+25.5%" reads as a gain that never
+        # happened, which is the same class of false statement as a fabricated
+        # zero.
+        assert glossary.format_value("cash_weight", 0.255) == "25.5%"
+
     def test_none_renders_as_the_unmeasured_label(self):
         # "측정 불가" must survive formatting; a None that becomes 0.0% is the
         # exact lie this project refuses to tell.

@@ -21,6 +21,16 @@ def _pct(value: float) -> str:
     return f"{value:+.1%}".replace("+-", "-")
 
 
+def _pct_unsigned(value: float) -> str:
+    """A share of the whole, not a change.
+
+    `_pct` signs everything, which is right for a return and wrong for a
+    weight: "현금 비중 +25.5%" reads as a gain of 25.5% rather than a quarter
+    of the account sitting in cash.
+    """
+    return f"{value:.1%}"
+
+
 def _plain(value: float) -> str:
     return f"{value:,.0f}"
 
@@ -61,7 +71,7 @@ TERMS: dict[str, Term] = {
     "cash_weight": Term(
         "현금 비중",
         "전체 자산 중 아직 투자하지 않고 남겨둔 돈의 비율",
-        _pct,
+        _pct_unsigned,
     ),
     "total_value": Term(
         "전체 평가금액",
