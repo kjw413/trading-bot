@@ -6,10 +6,19 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from tradingbot.account.base import AccountSnapshot, Holding
-from tradingbot.briefing_service import run_briefing
+from tradingbot.briefing_service import build_account_reader, run_briefing
 from tradingbot.notify.telegram import NotifyError
 
 KST = timezone(timedelta(hours=9))
+
+
+def test_build_account_reader_forwards_the_state_root(monkeypatch, tmp_path):
+    marker = object()
+    seen = []
+    monkeypatch.setattr("tradingbot.account.toss.build_reader", lambda root: seen.append(root) or marker)
+
+    assert build_account_reader(tmp_path) is marker
+    assert seen == [tmp_path]
 
 
 def snapshot(day=15):

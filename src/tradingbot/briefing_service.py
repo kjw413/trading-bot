@@ -70,15 +70,8 @@ class BriefingResult:
         }
 
 
-def build_account_reader() -> AccountReader:
-    """The live account reader.
-
-    Task 6 of the M1 plan supplies `account/toss.py`, and it is deliberately
-    not written yet: the Toss balance response has not been recorded, and an
-    adapter written from memory would have a passing test vouching for a wrong
-    field mapping. Until then this fails with instructions rather than
-    guessing at endpoints.
-    """
+def build_account_reader(state_root: str | Path) -> AccountReader:
+    """Build the live read-only account adapter under the configured state root."""
     try:
         from tradingbot.account.toss import build_reader
     except ImportError as exc:
@@ -89,7 +82,7 @@ def build_account_reader() -> AccountReader:
             "잔고 응답 원문을 tests/data/toss_balance_sample.json으로 기록하고 그 필드에 "
             "맞춰 어댑터를 작성합니다."
         ) from exc
-    return build_reader()
+    return build_reader(state_root)
 
 
 def _price_history(

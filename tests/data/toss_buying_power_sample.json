@@ -1,0 +1,14 @@
+{
+  "KRW": {
+    "result": {
+      "currency": "KRW",
+      "cashBuyingPower": "5000000"
+    }
+  },
+  "USD": {
+    "result": {
+      "currency": "USD",
+      "cashBuyingPower": "3500.5"
+    }
+  }
+}

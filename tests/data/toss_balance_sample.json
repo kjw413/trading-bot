@@ -1,0 +1,95 @@
+{
+  "result": {
+    "totalPurchaseAmount": {
+      "krw": "6500000",
+      "usd": "1553"
+    },
+    "marketValue": {
+      "amount": {
+        "krw": "7200000",
+        "usd": "1785"
+      },
+      "amountAfterCost": {
+        "krw": "7050000",
+        "usd": "1771.43"
+      }
+    },
+    "profitLoss": {
+      "amount": {
+        "krw": "700000",
+        "usd": "232"
+      },
+      "amountAfterCost": {
+        "krw": "550000",
+        "usd": "218.43"
+      },
+      "rate": "0.1179",
+      "rateAfterCost": "0.0983"
+    },
+    "dailyProfitLoss": {
+      "amount": {
+        "krw": "100000",
+        "usd": "25"
+      },
+      "rate": "0.0141"
+    },
+    "items": [
+      {
+        "symbol": "005930",
+        "name": "삼성전자",
+        "marketCountry": "KR",
+        "currency": "KRW",
+        "quantity": "100",
+        "lastPrice": "72000",
+        "averagePurchasePrice": "65000",
+        "marketValue": {
+          "purchaseAmount": "6500000",
+          "amount": "7200000",
+          "amountAfterCost": "7050000"
+        },
+        "profitLoss": {
+          "amount": "700000",
+          "amountAfterCost": "550000",
+          "rate": "0.1077",
+          "rateAfterCost": "0.0846"
+        },
+        "dailyProfitLoss": {
+          "amount": "100000",
+          "rate": "0.0141"
+        },
+        "cost": {
+          "commission": "14400",
+          "tax": "135600"
+        }
+      },
+      {
+        "symbol": "AAPL",
+        "name": "Apple Inc.",
+        "marketCountry": "US",
+        "currency": "USD",
+        "quantity": "10",
+        "lastPrice": "178.5",
+        "averagePurchasePrice": "155.3",
+        "marketValue": {
+          "purchaseAmount": "1553",
+          "amount": "1785",
+          "amountAfterCost": "1771.43"
+        },
+        "profitLoss": {
+          "amount": "232",
+          "amountAfterCost": "218.43",
+          "rate": "0.1494",
+          "rateAfterCost": "0.1406"
+        },
+        "dailyProfitLoss": {
+          "amount": "25",
+          "rate": "0.0142"
+        },
+        "cost": {
+          "commission": "3.57",
+          "tax": "10"
+        }
+      }
+    ]
+  }
+}

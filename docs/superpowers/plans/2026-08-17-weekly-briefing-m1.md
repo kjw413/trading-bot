@@ -1434,7 +1434,7 @@ git commit -m "BRIEF(part): Deliver the briefing somewhere it outlives the sessi
 
 ---
 
-### Task 6: 토스 어댑터 — **응답을 먼저 확인하고 나서 구현한다**
+### Task 6: 토스 어댑터 — **구현 완료, 실계좌 1회 대조만 남음**
 
 **Files:**
 - Create: `src/tradingbot/account/toss.py`
@@ -1460,7 +1460,7 @@ git commit -m "BRIEF(part): Deliver the briefing somewhere it outlives the sessi
 > 예시를 원문 그대로 쓴다 (근거: 설계서 §3.10). 아래 Step 1~5 대신 설계서 §10의 순서를
 > 따른다. 실계좌 1회 대조는 설계서 §12의 후속 확인 항목으로 남는다.
 
-- [ ] **Step 1: 실제 응답을 먼저 확보한다**
+- [x] **Step 1: 공식 OpenAPI v1.2.14 응답 예시를 확보한다**
 
 1. 토스증권 WTS → 설정 → Open API에서 `client_id` / `client_secret`을 발급하고, **개발 PC의 공인 IP를 허용 목록에 등록**한다.
 2. 토큰을 받고 잔고를 한 번 호출하는 **일회용 스크립트**를 `scratch/`(gitignore 대상)에 만들어 응답 원문을 저장한다. 저장소에 커밋하지 않는다.
@@ -1499,7 +1499,7 @@ git commit -m "BRIEF(part): Deliver the briefing somewhere it outlives the sessi
                               → 모듈에 주문 경로 문자열이 없음을 테스트로 고정한다
 ```
 
-- [ ] **Step 2: fixture에 맞춘 테스트 작성**
+- [x] **Step 2: fixture에 맞춘 테스트 작성**
 
 `tests/test_account_toss.py`. **아래는 뼈대다. 필드 접근은 Step 1의 실제 fixture에 맞춰 쓴다.**
 
@@ -1590,7 +1590,7 @@ class TestErrors:
         ...
 ```
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `src/tradingbot/account/toss.py`. 지켜야 할 것:
 
@@ -1608,7 +1608,7 @@ class TestErrors:
 - 환율이 응답에 없으면 `usdkrw` 폴백을 쓰고 `fx_source="macro"`로 기록한다.
 - 응답에 기준 시각이 없으면 호출 시각을 `as_of`로 쓰되, **그 사실을 로그로 남긴다.**
 
-- [ ] **Step 4: 통과 확인 + 실계좌 1회**
+- [ ] **Step 4: 자동 테스트 통과 확인 완료 + 실계좌 1회 대조 대기**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\test_account_toss.py -v --basetemp="$env:TEMP\pytest_tmp"
@@ -1849,7 +1849,7 @@ git commit -m "BRIEF: Wire the weekly briefing to one double-click"
 - [x] 시점을 달리해 두 번 실행하면 스냅샷 2개가 쌓이고, 두 번째 브리핑이 **구간 일수와 함께** 수익률(또는 "측정 불가" 사유)을 보여준다
 - [x] USD 종목 보유 시 주가 몫과 환율 몫이 분리되어 표시된다
 - [x] 금칙어 테스트가 존재하고 통과한다
-- [ ] 403(허용 IP 불일치)과 401(토큰 무효)이 서로 다른 메시지로 보고되고, 403에는 현재 공인 IP가 함께 나온다
+- [x] 403(허용 IP 불일치)과 401(토큰 무효)이 서로 다른 메시지로 보고되고, 403에는 현재 공인 IP가 함께 나온다 (주입형 transport 테스트 완료)
 - [x] 텔레그램 전송이 실패해도 브리핑 전문이 콘솔에 남는다
 - [ ] **토스 앱 화면의 수량·평단·평가금액과 브리핑의 숫자가 일치한다** (Task 6 Step 4)
 - [x] 기존 `pytest`가 전부 통과한다 — 백테스트·모의투자 회귀 없음
@@ -1869,8 +1869,13 @@ git commit -m "BRIEF: Wire the weekly briefing to one double-click"
 
 ## 실행 기록 (2026-08-18, 브랜치 `feat/weekly-briefing-m1`)
 
-**Task 1~5, 7 완료. Task 6만 남았고, 그것이 위 완료 기준 4개를 막고 있다.**
+**Task 1~7 구현 완료. Task 6의 실계좌 1회 대조와 실제 전달 확인만 남았다.**
 테스트 829개 통과 (착수 시점 740개 + 신규 89개), 회귀 없음. `broker/`는 열지 않았다.
+
+**2026-08-19 Task 6 구현 기록:** 공식 OpenAPI v1.2.14 fixture를 기반으로 읽기 전용
+토스 계좌 어댑터, 토큰 캐시, 계좌 선택, 오류 분류·재시도, 환율·현금 매핑을 구현했다.
+네트워크 없는 전체 테스트는 871개를 통과했다. 실제 계좌 응답 및 앱 화면 대조는
+`2026-08-19-toss-account-reader-design.md` §12에 따라 사용자 실행 후 확인한다.
 
 | Task | 커밋 |
 |---|---|

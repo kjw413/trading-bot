@@ -238,10 +238,18 @@ Register-ScheduledTask -TaskName "TradingBot Paper KR" -Action $action -Trigger 
 
 | 항목 | 발급처 |
 |---|---|
-| `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`, `TOSS_ACCOUNT_NO` | 토스증권 WTS → 설정 → Open API |
+| `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET` | 토스증권 WTS → 설정 → Open API |
+| `TOSS_ACCOUNT_NO` (선택) | 계좌가 여러 개일 때 읽을 계좌를 안전하게 확인하는 용도 |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | 텔레그램 [@BotFather](https://t.me/BotFather)에서 봇 생성 → 토큰 발급 → 그 봇과 대화를 시작한 뒤 chat id 확인 |
 
 `.env.template`에 자리가 마련되어 있습니다. 값은 파일에 채우지 말고 환경변수로 등록하세요 (`.env.template` 상단 안내 참고). 자격증명을 저장소에 커밋하지 마세요.
+
+브리핑의 현금은 예수금이 아니라 토스 API가 제공하는 **지금 바로 살 수 있는 금액
+(`cashBuyingPower`)** 기준입니다. 원화와 달러 조회가 모두 성공해야 스냅샷을 저장합니다.
+
+토스 액세스 토큰은 client당 하나만 유효하며 새로 발급하면 기존 토큰이 즉시 무효가 됩니다.
+브리핑은 `state/toss_token.json`의 유효한 토큰을 재사용합니다. 브리핑 실행 중에는 별도의
+토스 API 프로브나 토큰 발급 스크립트를 동시에 실행하지 마세요.
 
 ### 403이 뜨면 — 허용 IP 재등록
 

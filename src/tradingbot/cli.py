@@ -296,7 +296,7 @@ def cmd_briefing_weekly(args) -> int:
     state_root = resolve_project_path(config.get("paper", {}).get("state_dir", "state"))
 
     try:
-        reader = build_account_reader()
+        reader = build_account_reader(state_root)
         notifier = build_notifier() if notify else None
     except MissingCredentialsError as exc:
         # Not a transient failure: retrying changes nothing, so say what to set
