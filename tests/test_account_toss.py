@@ -24,6 +24,7 @@ from tradingbot.account.toss import (
     to_snapshot,
 )
 from tradingbot.data.credentials import MissingCredentialsError
+from tradingbot.report.briefing import render_briefing
 
 
 DATA = Path(__file__).parent / "data"
@@ -116,7 +117,13 @@ class TestToSnapshot:
 
     def test_an_empty_account_still_reports_cash(self):
         snap = to_snapshot(EMPTY, fetched_at=FETCHED, cash={"KRW": "12", "USD": "0"})
-        assert snap.holdings == () and snap.cash == {"KRW": 12.0, "USD": 0.0}
+        assert snap.holdings == () and snap.cash == {"KRW": 12.0}
+        assert snap.value_krw() == 12
+
+    def test_an_empty_account_snapshot_can_be_valued(self):
+        snap = to_snapshot(EMPTY, fetched_at=FETCHED, cash={"KRW": "12", "USD": "0"})
+
+        assert snap.value_krw() == 12
 
     @pytest.mark.parametrize("payload", [{"unexpected": True}, {"result": {"items": [{"symbol": "A"}]}}])
     def test_an_invalid_shape_raises(self, payload):
@@ -155,10 +162,52 @@ class TestFxAndCash:
     def test_a_krw_only_account_needs_no_rate(self):
         snap = to_snapshot(KRW_ONLY, fetched_at=FETCHED, cash={"KRW": "1", "USD": "0"})
         assert snap.fx_to_krw == {"KRW": 1.0}
+        assert snap.value_krw() == 7_200_001
+
+    def test_a_krw_only_snapshot_can_be_valued(self):
+        snap = to_snapshot(
+            KRW_ONLY,
+            fetched_at=FETCHED,
+            cash={"KRW": "5000000", "USD": "0"},
+        )
+
+        assert snap.value_krw() == 12_200_000
+
+    def test_a_krw_only_snapshot_renders(self):
+        snap = to_snapshot(
+            KRW_ONLY,
+            fetched_at=FETCHED,
+            cash={"KRW": "5000000", "USD": "0"},
+        )
+
+        assert isinstance(render_briefing(snap, now=FETCHED), str)
 
     def test_a_dollar_holding_without_any_rate_raises(self):
         with pytest.raises(TossError, match="USD"):
             to_snapshot(BALANCE, fetched_at=FETCHED, cash={})
+
+    def test_a_balance_without_a_rate_is_named_not_a_keyerror(self):
+        with pytest.raises(TossError, match="USD"):
+            to_snapshot(
+                KRW_ONLY,
+                fetched_at=FETCHED,
+                cash={"KRW": "1", "USD": "100"},
+            )
+
+    def test_an_unknown_currency_fails_at_mapping_time(self):
+        payload = copy.deepcopy(KRW_ONLY)
+        payload["result"]["items"][0]["currency"] = "JPY"
+
+        with pytest.raises(TossError, match="JPY"):
+            to_snapshot(payload, fetched_at=FETCHED, cash={"KRW": "1"})
+
+    def test_the_crosscheck_is_skipped_when_there_is_no_rate(self):
+        payload = copy.deepcopy(KRW_ONLY)
+        payload["result"]["marketValue"]["amount"]["usd"] = "0"
+
+        snap = to_snapshot(payload, fetched_at=FETCHED, cash={"KRW": "1", "USD": "0"})
+
+        assert snap.value_krw() == 7_200_001
 
     def test_both_currencies_are_read(self):
         snap = to_snapshot(BALANCE, fetched_at=FETCHED, cash={"KRW": "5000000", "USD": "3500.5"}, usdkrw=1375)
@@ -232,6 +281,20 @@ class TestToken:
 
 
 class TestErrors:
+    def test_an_ip_block_on_exchange_rate_is_not_masked_by_fallback(self, tmp_path):
+        responses = [
+            token_response(),
+            ok(ACCOUNTS),
+            ok(BALANCE),
+            ok(BUYING_POWER["KRW"]),
+            ok(BUYING_POWER["USD"]),
+            FakeResponse(403, {"error": "access_denied"}),
+        ]
+        instance, _ = reader(tmp_path, responses, usdkrw_fallback=lambda: 1200.0)
+
+        with pytest.raises(TossIPNotAllowedError):
+            instance.snapshot()
+
     def test_403_names_the_ip_fix(self, tmp_path):
         instance, _ = reader(tmp_path, [FakeResponse(403, {"error": "access_denied"})])
         with pytest.raises(TossIPNotAllowedError, match="203.0.113.7") as exc:

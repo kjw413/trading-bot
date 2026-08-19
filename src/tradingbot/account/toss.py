@@ -1,4 +1,9 @@
-"""Read-only Toss Securities account adapter (OpenAPI specification 1.2.14)."""
+"""Read a Toss Securities account without exposing an order-capable interface.
+
+The broker response is authoritative for quantities, prices, and cash. This
+module only maps those values onto AccountSnapshot and supplies the exchange
+rate required to value them in won.
+"""
 
 from __future__ import annotations
 
@@ -27,6 +32,7 @@ HOLDINGS_PATH = "/api/v1/holdings"
 BUYING_POWER_PATH = "/api/v1/buying-power"
 EXCHANGE_RATE_PATH = "/api/v1/exchange-rate"
 SPEC_VERSION = "1.2.14"
+# The buy rate includes a spread that would permanently overstate dollar assets.
 FX_FIELD = "midRate"
 KST = timezone(timedelta(hours=9))
 TOKEN_REFRESH_MARGIN = timedelta(seconds=60)
@@ -136,6 +142,7 @@ Transport = Callable[..., HttpResponse]
 
 
 def _requests_transport(method: str, url: str, **kwargs: Any) -> HttpResponse:
+    """Return status and body intact so callers can distinguish 401/403/429."""
     return requests.request(method, url, timeout=20, **kwargs)
 
 
@@ -184,14 +191,22 @@ def to_snapshot(
         )
         for row in rows
     )
-    cash_values = {currency: _number(amount) for currency, amount in cash.items()}
-    needs_usd = any(h.currency == "USD" for h in holdings) or cash_values.get("USD", 0) != 0
-    if needs_usd and usdkrw is None:
-        raise TossError("USD 자산을 원화로 평가할 환율이 없습니다.")
-
+    values = {currency: _number(amount) for currency, amount in cash.items()}
+    needs_usd = any(h.currency == "USD" for h in holdings) or values.get("USD", 0) != 0
     fx = {"KRW": 1.0}
     if needs_usd:
+        if usdkrw is None:
+            raise TossError("USD 자산을 원화로 평가할 환율이 없습니다.")
         fx["USD"] = _number(usdkrw)
+
+    # A zero balance needs no rate. Keeping its currency would make
+    # AccountSnapshot.cash_krw() demand a rate that was intentionally not read.
+    cash_values = {currency: value for currency, value in values.items() if currency in fx or value}
+    unpriced = {currency for currency in cash_values if currency not in fx}
+    unpriced |= {holding.currency for holding in holdings if holding.currency not in fx}
+    if unpriced:
+        raise TossError(f"원화로 환산할 환율이 없는 통화가 있습니다: {sorted(unpriced)}")
+
     snapshot = AccountSnapshot(
         as_of=fetched_at,
         holdings=holdings,
@@ -202,10 +217,14 @@ def to_snapshot(
 
     amount = result["marketValue"]["amount"]
     theirs = _number(amount["krw"])
-    if amount.get("usd") is not None:
-        if usdkrw is None:
-            raise TossError("USD 평가금액을 교차 검증할 환율이 없습니다.")
-        theirs += _number(amount["usd"]) * _number(usdkrw)
+    reported_usd = amount.get("usd")
+    if reported_usd is not None:
+        rate = snapshot.fx_to_krw.get("USD")
+        if rate is None:
+            # Cross-checking is diagnostic; it must not make a valid snapshot fail.
+            LOGGER.info("달러 평가금액 교차 검증을 건너뜁니다 (적용 환율 없음).")
+        else:
+            theirs += _number(reported_usd) * rate
     ours = sum(snapshot.holding_value_krw(h) for h in holdings)
     if theirs and abs(ours - theirs) / abs(theirs) > VALUE_CROSSCHECK_TOLERANCE:
         LOGGER.warning(
@@ -258,10 +277,8 @@ class TossAccountReader:
         )
 
     def _send(self, method: str, path: str, **kwargs: Any) -> HttpResponse:
-        last: HttpResponse | None = None
         for attempt in range(MAX_ATTEMPTS):
             response = self.transport(method, API_BASE + path, **kwargs)
-            last = response
             if response.status_code < 400:
                 return response
             if response.status_code == 403:
@@ -287,8 +304,6 @@ class TossAccountReader:
                     continue
                 raise TossError(f"{code}: {message}")
             raise TossError(f"{code}: {message}")
-        assert last is not None
-        return last
 
     def _issue_token(self) -> Token:
         response = self._send(
@@ -317,7 +332,15 @@ class TossAccountReader:
             return cached
         return self._issue_token()
 
-    def _get(self, path: str, token: Token, *, params: Mapping[str, str] | None = None, account_seq: int | None = None, retry_auth: bool = True) -> tuple[Any, Token]:
+    def _get(
+        self,
+        path: str,
+        token: Token,
+        *,
+        params: Mapping[str, str] | None = None,
+        account_seq: int | None = None,
+        retry_auth: bool = True,
+    ) -> tuple[Any, Token]:
         headers = {"Authorization": f"Bearer {token.access_token}"}
         if account_seq is not None:
             headers["X-Tossinvest-Account"] = str(account_seq)
@@ -327,7 +350,13 @@ class TossAccountReader:
                 raise TossAuthError("토스증권 액세스 토큰 인증에 두 번 실패했습니다.")
             self.token_store.clear()
             replacement = self._issue_token()
-            return self._get(path, replacement, params=params, account_seq=account_seq, retry_auth=False)
+            return self._get(
+                path,
+                replacement,
+                params=params,
+                account_seq=account_seq,
+                retry_auth=False,
+            )
         return response.json(), token
 
     @staticmethod
@@ -360,6 +389,8 @@ class TossAccountReader:
         account_seq = self._select_account(accounts)
         holdings, token = self._get(HOLDINGS_PATH, token, account_seq=account_seq)
         cash: dict[str, str] = {}
+        # Both reads must succeed. A zero substituted after failure would poison
+        # the only snapshot future interval returns can use.
         for currency in CASH_CURRENCIES:
             payload, token = self._get(
                 BUYING_POWER_PATH,
@@ -369,7 +400,10 @@ class TossAccountReader:
             )
             cash[currency] = payload["result"]["cashBuyingPower"]
 
-        needs_usd = any(row["currency"] == "USD" for row in holdings["result"]["items"]) or _number(cash["USD"]) != 0
+        needs_usd = (
+            any(row["currency"] == "USD" for row in holdings["result"]["items"])
+            or _number(cash["USD"]) != 0
+        )
         rate: float | None = None
         source = "broker"
         if needs_usd:
@@ -380,6 +414,8 @@ class TossAccountReader:
                     params={"baseCurrency": "USD", "quoteCurrency": "KRW"},
                 )
                 rate = _number(payload["result"][FX_FIELD])
+            except (TossAuthError, TossIPNotAllowedError):
+                raise
             except TossError:
                 if self.usdkrw_fallback is None:
                     raise
@@ -389,8 +425,16 @@ class TossAccountReader:
                 raise TossError("USD 자산을 원화로 평가할 환율이 없습니다.")
 
         fetched_at = self.now()
-        LOGGER.info("토스 응답에 기준 시각이 없어 호출 시각(KST)을 스냅샷 시각으로 사용합니다.")
-        return to_snapshot(holdings, fetched_at=fetched_at, cash=cash, usdkrw=rate, fx_source=source)
+        LOGGER.info(
+            "토스 응답에 기준 시각이 없어 호출 시각(KST)을 스냅샷 시각으로 사용합니다."
+        )
+        return to_snapshot(
+            holdings,
+            fetched_at=fetched_at,
+            cash=cash,
+            usdkrw=rate,
+            fx_source=source,
+        )
 
 
 _CREDENTIAL_HINT = (

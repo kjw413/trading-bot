@@ -76,11 +76,8 @@ def build_account_reader(state_root: str | Path) -> AccountReader:
         from tradingbot.account.toss import build_reader
     except ImportError as exc:
         raise MissingCredentialsError(
-            "토스증권 계좌 읽기 어댑터(src/tradingbot/account/toss.py)가 아직 없습니다. "
-            "M1 계획서 Task 6을 먼저 진행하세요: 토스증권 WTS > 설정 > Open API에서 "
-            "client_id/client_secret을 발급하고 이 PC의 공인 IP를 허용 목록에 등록한 뒤, "
-            "잔고 응답 원문을 tests/data/toss_balance_sample.json으로 기록하고 그 필드에 "
-            "맞춰 어댑터를 작성합니다."
+            "토스증권 계좌 읽기 모듈을 불러오지 못했습니다. 가상환경 의존성을 "
+            "설치한 뒤 다시 실행하세요: .\\.venv\\Scripts\\python.exe -m pip install -e ."
         ) from exc
     return build_reader(state_root)
 
