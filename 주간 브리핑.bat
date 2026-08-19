@@ -1,23 +1,28 @@
 @echo off
 REM Double-click launcher for the weekly account briefing.
-REM IMPORTANT: this file must stay in ANSI/CP949 encoding, NOT UTF-8.
-REM cmd parses .bat files in the OEM codepage, so UTF-8 Korean text
-REM desyncs the parser and garbles the whole file. Comments ASCII-only.
-REM Runs python.exe rather than pythonw.exe on purpose: when Telegram
-REM delivery fails, this console is the only place the briefing is left,
-REM so it has to stay visible. Same reason for the pause at the end.
+REM
+REM ENCODING: UTF-8, no BOM, and the chcp line below is what makes that safe --
+REM same arrangement as "ë°ì´í„° ìˆ˜ì§‘.bat". Do NOT convert this file to ANSI/CP949:
+REM Windows 11 opens .bat files in Windows Terminal, whose console is UTF-8 (65001)
+REM whatever the registry OEM codepage says, so CP949 bytes print as garbage.
+REM Every line above the chcp is ASCII, so the parser cannot desync reaching it.
+REM
+REM Runs python.exe rather than pythonw.exe on purpose: when Telegram delivery
+REM fails, this console is the only place the briefing is left, so it has to
+REM stay visible. Same reason for the pause at the end.
+chcp 65001 > nul
 cd /d "%~dp0"
 
 if exist ".venv\Scripts\python.exe" goto run
 
-echo Ã³À½ ½ÇÇàÀÌ¶ó ÇÁ·Î±×·¥ ±¸¼º ¿ä¼Ò¸¦ ¼³Ä¡ÇÕ´Ï´Ù. ¸î ºÐ °É¸± ¼ö ÀÖ¾î¿ä...
+echo ì²˜ìŒ ì‹¤í–‰ì´ë¼ í”„ë¡œê·¸ëž¨ êµ¬ì„± ìš”ì†Œë¥¼ ì„¤ì¹˜í•©ë‹ˆë‹¤. ëª‡ ë¶„ ê±¸ë¦´ ìˆ˜ ìžˆì–´ìš”...
 py -m uv --version >nul 2>&1
 if errorlevel 1 py -m pip install uv
 py -m uv sync --extra dev
 if errorlevel 1 (
     echo.
-    echo ¼³Ä¡¿¡ ½ÇÆÐÇß½À´Ï´Ù. ÀÎÅÍ³Ý ¿¬°áÀ» È®ÀÎÇÑ µÚ ´Ù½Ã ½ÇÇàÇØ º¸¼¼¿ä.
-    echo °è¼Ó ½ÇÆÐÇÏ¸é README.md ¹®¼­¸¦ Âü°íÇÏ¼¼¿ä.
+    echo ì„¤ì¹˜ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤. ì¸í„°ë„· ì—°ê²°ì„ í™•ì¸í•œ ë’¤ ë‹¤ì‹œ ì‹¤í–‰í•´ ë³´ì„¸ìš”.
+    echo ê³„ì† ì‹¤íŒ¨í•˜ë©´ README.md ë¬¸ì„œë¥¼ ì°¸ê³ í•˜ì„¸ìš”.
     pause
     exit /b 1
 )
@@ -26,9 +31,9 @@ if errorlevel 1 (
 ".venv\Scripts\python.exe" -m tradingbot briefing weekly
 echo.
 if errorlevel 1 (
-    echo ºê¸®ÇÎÀ» ÆùÀ¸·Î º¸³»Áö ¸øÇß½À´Ï´Ù. À§¿¡ ÀûÈù ³»¿ëÀ» ÀÐ¾îº¸¼¼¿ä.
-    echo °èÁÂ ±â·ÏÀº ÀúÀåµÇ¾úÀ¸´Ï, ¹®Á¦¸¦ °íÄ£ µÚ ´Ù½Ã ½ÇÇàÇÏ¸é µË´Ï´Ù.
+    echo ë¸Œë¦¬í•‘ì„ í°ìœ¼ë¡œ ë³´ë‚´ì§€ ëª»í–ˆìŠµë‹ˆë‹¤. ìœ„ì— ì ížŒ ë‚´ìš©ì„ ì½ì–´ë³´ì„¸ìš”.
+    echo ê³„ì¢Œ ê¸°ë¡ì€ ì €ìž¥ë˜ì—ˆìœ¼ë‹ˆ, ë¬¸ì œë¥¼ ê³ ì¹œ ë’¤ ë‹¤ì‹œ ì‹¤í–‰í•˜ë©´ ë©ë‹ˆë‹¤.
 ) else (
-    echo ºê¸®ÇÎÀ» ÆùÀ¸·Î º¸³Â½À´Ï´Ù. ÀÌ Ã¢Àº ´Ý¾Æµµ µË´Ï´Ù.
+    echo ë¸Œë¦¬í•‘ì„ í°ìœ¼ë¡œ ë³´ëƒˆìŠµë‹ˆë‹¤. ì´ ì°½ì€ ë‹«ì•„ë„ ë©ë‹ˆë‹¤.
 )
 pause
