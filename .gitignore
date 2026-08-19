@@ -17,3 +17,6 @@ state/
 .env
 .env.*
 !.env.template
+
+# One-off probe scripts that touch live credentials (M1 plan Task 6 Step 1).
+scratch/

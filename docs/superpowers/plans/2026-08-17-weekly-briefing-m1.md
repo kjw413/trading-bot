@@ -1451,6 +1451,15 @@ git commit -m "BRIEF(part): Deliver the briefing somewhere it outlives the sessi
 
 **⚠️ 이 태스크는 앞의 다섯 개와 다르게 진행한다.** 이 계획을 쓴 세션에서 토스 개발자 문서에 접근하지 못했다. 필드명·중첩 구조·숫자 타입(문자열인지 숫자인지)을 모르는 상태다. **기억으로 짐작해 쓰면, 통과하는 테스트가 틀린 매핑을 보증하게 된다.**
 
+> **2026-08-19 갱신 — 이 태스크의 진행 방식은 별도 설계서로 대체되었다:**
+> **`docs/superpowers/plans/2026-08-19-toss-account-reader-design.md`**
+>
+> 공식 기계판독 스펙(`https://openapi.tossinvest.com/openapi-docs/latest/openapi.json`,
+> v1.2.14)을 확보해서 필드명·타입·nullable 여부·오류 코드가 모두 확정되었다. 그래서
+> **실계좌 호출 없이 구현할 수 있고**, fixture는 실계좌 응답을 가공하는 대신 스펙의 공식
+> 예시를 원문 그대로 쓴다 (근거: 설계서 §3.10). 아래 Step 1~5 대신 설계서 §10의 순서를
+> 따른다. 실계좌 1회 대조는 설계서 §12의 후속 확인 항목으로 남는다.
+
 - [ ] **Step 1: 실제 응답을 먼저 확보한다**
 
 1. 토스증권 WTS → 설정 → Open API에서 `client_id` / `client_secret`을 발급하고, **개발 PC의 공인 IP를 허용 목록에 등록**한다.
@@ -1462,21 +1471,32 @@ git commit -m "BRIEF(part): Deliver the briefing somewhere it outlives the sessi
 4. 아래를 이 문서에 적어 넣는다 (다음 사람이 다시 알아낼 필요 없게):
 
 ```text
-확인 결과 기록 — Step 1에서 채울 것
-- 잔고 엔드포인트:            (경로)
-- 계좌 헤더:                  X-Tossinvest-Account 형식
-- 토큰 엔드포인트 / expires_in: (초)
-- 국내·해외가 한 응답인가:     (예/아니오)
-- 보유 수량 필드 / 타입:       (문자열? 숫자? 소수점 자릿수)
-- 매입단가 필드 / 통화:
-- 현재가 필드:
-- 원화 평가금액 필드:          (있음/없음)
-- 적용 환율 필드:              (있음/없음 — 없으면 macro usdkrw 폴백)
-- 원화 매입금액 필드:          (있음/없음 — 있으면 종목별 원화 누적 수익률 가능)
-- 예수금 필드 (통화별):
-- 응답 기준 시각 필드:         (없으면 호출 시각을 as_of로 쓰고 그 사실을 기록)
-- 입출금 내역 엔드포인트:      (있음/없음 — Task 3의 net_flow_krw 공급원)
-- 읽기 전용 스코프:            (있음/없음)
+확인 결과 기록 — 2026-08-19, 공식 스펙 v1.2.14 에서 확인
+- 잔고 엔드포인트:            GET /api/v1/holdings — 요약 + items 를 한 응답에 담는다
+- 계좌 헤더:                  X-Tossinvest-Account: <accountSeq> (정수)
+                              값은 GET /api/v1/accounts 의 result[].accountSeq
+                              계좌번호가 아니다 → TOSS_ACCOUNT_NO 는 안전 확인용
+- 토큰 엔드포인트 / expires_in: POST /oauth2/token (form-urlencoded), expires_in 은 초
+                              (문서 예시 86400). client당 유효 토큰 1개,
+                              재발급하면 이전 토큰이 즉시 무효화된다
+- 국내·해외가 한 응답인가:     예. result.items 에 KR/US 모두, marketCountry enum = KR|US
+- 보유 수량 필드 / 타입:       items[].quantity — 문자열 decimal (숫자 아님)
+                              자릿수는 응답이 준 그대로 → qty_display 는 원문 그대로
+- 매입단가 필드 / 통화:        items[].averagePurchasePrice — items[].currency 기준
+- 현재가 필드:                items[].lastPrice — items[].currency 기준
+- 원화 평가금액 필드:          없음(종목별). result.marketValue.amount.{krw,usd} 는
+                              통화별 합산이며 원화 환산 합계가 아니다
+- 적용 환율 필드:              없음 → GET /api/v1/exchange-rate 별도 호출.
+                              rate(매수 환율) 대신 midRate(매매기준율)를 쓴다
+- 원화 매입금액 필드:          없음 → 종목별 원화 누적 수익률은 M1에서 내지 않는다
+- 예수금 필드 (통화별):        없음 → GET /api/v1/buying-power?currency=KRW|USD 의
+                              result.cashBuyingPower. 예수금이 아니라 매수가능금액이다
+- 응답 기준 시각 필드:         없음 → 호출 시각(KST)을 as_of 로 쓰고 로그에 남긴다.
+                              결과적으로 브리핑의 6시간 지연 경고는 발동하지 않는다
+- 입출금 내역 엔드포인트:      없음 (스펙 전체에 입출금 API 부재)
+                              → Task 3 net_flow_krw 는 항상 None
+- 읽기 전용 스코프:            없음. scopes = {} — 이 토큰으로 주문도 가능하다
+                              → 모듈에 주문 경로 문자열이 없음을 테스트로 고정한다
 ```
 
 - [ ] **Step 2: fixture에 맞춘 테스트 작성**
@@ -1892,6 +1912,12 @@ Task 3 Step 4의 노트가 두 가지를 동시에 요구했는데 그 둘은 �
 
 이 세션에서도 `developers.tossinvest.com` 응답 스펙을 확인할 수 없었다. 필드명을
 기억으로 쓰면 통과하는 테스트가 틀린 매핑을 보증하므로, 어댑터에 손대지 않았다.
+
+**2026-08-19 추가:** 공식 기계판독 스펙(`openapi.json`, v1.2.14)을 확보해서 이 미지 구간이
+해소되었다. 설계는 `docs/superpowers/plans/2026-08-19-toss-account-reader-design.md`에
+있고, 위 「확인 결과 기록」도 그 스펙으로 채웠다. 구현은 그 설계서 §10의 순서를 따른다.
+이음새 시그니처는 `build_account_reader(state_root)`로 바뀐다(설계서 §3.13) — 토큰 캐시가
+스냅샷과 같은 state 루트 아래 있어야 하고 `--config`를 따라야 하기 때문이다.
 
 ### 검증 방법 (네트워크·계좌 없이)
 
