@@ -11,6 +11,7 @@ from typing import Any
 
 from tradingbot.broker.paper import PaperBroker
 from tradingbot.config import load_config, resolve_project_path
+from tradingbot.env_file import load_env_file
 from tradingbot.report.report import generate_backtest_report
 from tradingbot.services import build_paper_session, run_backtest, update_data
 from tradingbot.strategies.registry import list_strategies
@@ -22,6 +23,7 @@ LOGGER = get_logger(__name__)
 def main(argv: list[str] | None = None) -> int:
     configure_console()
     setup_logging()
+    load_env_file()  # after setup_logging so the "read these names" line is visible
     parser = build_parser()
     args = parser.parse_args(argv)
     if not hasattr(args, "handler"):

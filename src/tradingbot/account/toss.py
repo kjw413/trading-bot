@@ -439,9 +439,11 @@ class TossAccountReader:
 
 _CREDENTIAL_HINT = (
     "토스증권 WTS > 설정 > Open API 에서 client_id / client_secret 을 발급하고, "
-    "이 PC의 공인 IP를 허용 IP 목록에 등록한 뒤 TOSS_CLIENT_ID, TOSS_CLIENT_SECRET "
-    "환경변수로 등록하세요. 계좌가 여러 개면 TOSS_ACCOUNT_NO 도 지정하세요. "
-    "저장소에 커밋하지 마세요."
+    "이 PC의 공인 IP를 허용 IP 목록에 등록하세요. 발급받은 두 값은 저장소 폴더의 "
+    ".env 파일에 TOSS_CLIENT_ID=..., TOSS_CLIENT_SECRET=... 형태로 적으면 됩니다 "
+    "(.env.template 참고). 더블클릭 실행은 새 프로세스라 PowerShell 창에서 "
+    "$env: 로 넣은 값은 보지 못합니다. 계좌가 여러 개면 TOSS_ACCOUNT_NO 도 "
+    "지정하세요. 저장소에 커밋하지 마세요."
 )
 
 

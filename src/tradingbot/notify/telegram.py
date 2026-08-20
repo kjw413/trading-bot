@@ -92,8 +92,10 @@ class TelegramNotifier:
 def build_notifier() -> TelegramNotifier:
     hint = (
         "@BotFather에서 봇을 만들어 토큰을 받고, 그 봇과 대화를 시작한 뒤 "
-        "chat id를 확인해 TELEGRAM_BOT_TOKEN과 TELEGRAM_CHAT_ID 환경변수로 "
-        "등록하세요. 저장소에 커밋하지 마세요."
+        "chat id를 확인하세요. 그 두 값을 저장소 폴더의 .env 파일에 "
+        "TELEGRAM_BOT_TOKEN=..., TELEGRAM_CHAT_ID=... 형태로 적으면 됩니다 "
+        "(.env.template 참고). 더블클릭 실행은 새 프로세스라 PowerShell 창에서 "
+        "$env: 로 넣은 값은 보지 못합니다. 저장소에 커밋하지 마세요."
     )
     return TelegramNotifier(
         token=require_env("TELEGRAM_BOT_TOKEN", hint=hint),

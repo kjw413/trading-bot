@@ -242,7 +242,16 @@ Register-ScheduledTask -TaskName "TradingBot Paper KR" -Action $action -Trigger 
 | `TOSS_ACCOUNT_NO` (선택) | 계좌가 여러 개일 때 읽을 계좌를 안전하게 확인하는 용도 |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | 텔레그램 [@BotFather](https://t.me/BotFather)에서 봇 생성 → 토큰 발급 → 그 봇과 대화를 시작한 뒤 chat id 확인 |
 
-`.env.template`에 자리가 마련되어 있습니다. 값은 파일에 채우지 말고 환경변수로 등록하세요 (`.env.template` 상단 안내 참고). 자격증명을 저장소에 커밋하지 마세요.
+`.env.template`을 `.env`로 복사한 뒤 값을 채우면 됩니다. 실행할 때 `.env`를 읽어
+환경변수로 올립니다 — 이미 설정된 이름은 덮어쓰지 않으므로, 터미널에서 `$env:`로 넣은
+값이 항상 파일보다 우선합니다.
+
+`.env`를 쓰는 이유는 더블클릭 실행 때문입니다. `.bat`은 새 프로세스라 PowerShell 창에서
+`$env:TOSS_CLIENT_ID = "..."`로 넣은 값을 볼 수 없습니다. 터미널에서만 쓸 거라면
+`[System.Environment]::SetEnvironmentVariable("이름", "값", "User")`로 영구 등록해도 됩니다.
+
+`.gitignore`가 `.env`와 `.env.*`를 막습니다(`.env.template`만 예외). 자격증명을 저장소에
+커밋하지 마세요 — 특히 `config/*.toml`은 보호되지 않습니다.
 
 브리핑의 현금은 예수금이 아니라 토스 API가 제공하는 **지금 바로 살 수 있는 금액
 (`cashBuyingPower`)** 기준입니다. 원화와 달러 조회가 모두 성공해야 스냅샷을 저장합니다.
