@@ -5,7 +5,9 @@ REM ENCODING: UTF-8, no BOM, and the chcp line below is what makes that safe --
 REM same arrangement as "데이터 수집.bat". Do NOT convert this file to ANSI/CP949:
 REM Windows 11 opens .bat files in Windows Terminal, whose console is UTF-8 (65001)
 REM whatever the registry OEM codepage says, so CP949 bytes print as garbage.
-REM Every line above the chcp is ASCII, so the parser cannot desync reaching it.
+REM Every byte of a UTF-8 Korean character is >= 0x80, so no ASCII
+REM metacharacter can appear inside one and a console still sitting in CP949
+REM cannot desync on the comments above. Keep *commands* ASCII until the chcp.
 REM
 REM Runs python.exe rather than pythonw.exe on purpose: when Telegram delivery
 REM fails, this console is the only place the briefing is left, so it has to

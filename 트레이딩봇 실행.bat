@@ -1,20 +1,35 @@
 @echo off
 REM Double-click launcher for the trading bot GUI.
-REM IMPORTANT: this file must stay in ANSI/CP949 encoding, NOT UTF-8.
-REM cmd parses .bat files in the OEM codepage, so UTF-8 Korean text
-REM desyncs the parser and garbles the whole file. Comments ASCII-only.
+REM
+REM ENCODING: UTF-8, no BOM, with the "chcp 65001" below before the first
+REM Korean line -- the same arrangement as the other two launchers here.
+REM Do NOT convert this file back to ANSI/CP949. The comment that used to sit
+REM here said cmd parses .bat in the OEM codepage, which describes the old
+REM conhost world; Windows 11 opens .bat files in Windows Terminal, whose
+REM console is UTF-8 (65001) whatever the registry OEM codepage says, so
+REM CP949 bytes print as mojibake. That stale comment is what got the weekly
+REM briefing launcher written in CP949 in the first place.
+REM
+REM Every byte of a UTF-8 Korean character is >= 0x80, so no ASCII
+REM metacharacter can appear inside one and a console still sitting in CP949
+REM cannot desync on the comments above. Keep *commands* ASCII until the chcp.
+REM
+REM The echo lines only ever show on a first run, while the virtual
+REM environment is still being built. After that this window closes at once,
+REM because the GUI is started detached with pythonw.exe.
+chcp 65001 > nul
 cd /d "%~dp0"
 
 if exist ".venv\Scripts\pythonw.exe" goto run
 
-echo Ã³À½ ½ÇÇàÀÌ¶ó ÇÁ·Î±×·¥ ±¸¼º ¿ä¼Ò¸¦ ¼³Ä¡ÇÕ´Ï´Ù. ¸î ºÐ °É¸± ¼ö ÀÖ¾î¿ä...
+echo ì²˜ìŒ ì‹¤í–‰ì´ë¼ í”„ë¡œê·¸ëž¨ êµ¬ì„± ìš”ì†Œë¥¼ ì„¤ì¹˜í•©ë‹ˆë‹¤. ëª‡ ë¶„ ê±¸ë¦´ ìˆ˜ ìžˆì–´ìš”...
 py -m uv --version >nul 2>&1
 if errorlevel 1 py -m pip install uv
 py -m uv sync --extra dev
 if errorlevel 1 (
     echo.
-    echo ¼³Ä¡¿¡ ½ÇÆÐÇß½À´Ï´Ù. ÀÎÅÍ³Ý ¿¬°áÀ» È®ÀÎÇÑ µÚ ´Ù½Ã ½ÇÇàÇØ º¸¼¼¿ä.
-    echo °è¼Ó ½ÇÆÐÇÏ¸é README.md ¹®¼­¸¦ Âü°íÇÏ¼¼¿ä.
+    echo ì„¤ì¹˜ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤. ì¸í„°ë„· ì—°ê²°ì„ í™•ì¸í•œ ë’¤ ë‹¤ì‹œ ì‹¤í–‰í•´ ë³´ì„¸ìš”.
+    echo ê³„ì† ì‹¤íŒ¨í•˜ë©´ README.md ë¬¸ì„œë¥¼ ì°¸ê³ í•˜ì„¸ìš”.
     pause
     exit /b 1
 )
