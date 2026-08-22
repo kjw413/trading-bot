@@ -3,7 +3,15 @@ from __future__ import annotations
 from datetime import date
 
 from tradingbot.data.fundamentals import Disclosure
-from tradingbot.data.news import DART_VIEWER_URL, NewsItem, cap, dart_items, within
+from tradingbot.data.news import (
+    CAUSAL,
+    DART_VIEWER_URL,
+    NewsItem,
+    cap,
+    dart_items,
+    find_causal_terms,
+    within,
+)
 
 
 def news_item(symbol: str, published_at: date, title: str) -> NewsItem:
@@ -113,3 +121,23 @@ class TestWindowAndCap:
         # A Telegram-size cap must not make a partial list look complete.
         assert len(kept) + sum(dropped.values()) == len(items)
         assert sum(dropped.values()) == 2
+
+
+class TestCausalTerms:
+    def test_text_without_a_causal_connective_has_no_matches(self):
+        assert find_causal_terms("이번 주 주가는 2% 올랐습니다.") == []
+
+    def test_one_causal_connective_is_found(self):
+        assert find_causal_terms("뉴스의 여파로 주가가 움직였습니다.") == ["여파로"]
+
+    def test_every_causal_connective_in_the_text_is_found_in_policy_order(self):
+        text = "실적 탓에 하락했고, 수급 때문에 흔들렸으며, 환율 영향으로 반등했습니다."
+
+        assert find_causal_terms(text) == ["때문에", "영향으로", "탓에"]
+        assert all(term in CAUSAL for term in find_causal_terms(text))
+
+    def test_a_repeated_causal_connective_is_reported_once(self):
+        text = "첫 소식 때문에 올랐고, 둘째 소식 때문에 다시 올랐습니다."
+
+        # The full briefing can repeat the same connective across several news items.
+        assert find_causal_terms(text) == ["때문에"]

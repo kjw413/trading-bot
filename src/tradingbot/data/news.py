@@ -11,6 +11,7 @@ from tradingbot.data.fundamentals import Disclosure
 DART_VIEWER_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 PER_SYMBOL = 3
 TOTAL_CAP = 12
+CAUSAL = ("때문에", "덕분에", "영향으로", "로 인해", "여파로", "탓에", "때문인지")
 
 
 @dataclass(frozen=True)
@@ -67,3 +68,8 @@ def cap(
         kept_per_symbol[item.symbol] = symbol_count + 1
 
     return tuple(kept), dropped
+
+
+def find_causal_terms(text: str) -> list[str]:
+    """Every banned causal connective present in `text`, for enforcement tests."""
+    return [term for term in CAUSAL if term in text]
