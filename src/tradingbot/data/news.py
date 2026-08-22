@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from enum import Enum
 from typing import Sequence
 
 from tradingbot.data.fundamentals import Disclosure
@@ -12,6 +13,33 @@ DART_VIEWER_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 PER_SYMBOL = 3
 TOTAL_CAP = 12
 CAUSAL = ("때문에", "덕분에", "영향으로", "로 인해", "여파로", "탓에", "때문인지")
+
+# These products do not have company news of their own. Fetch representative
+# constituent news only for the products whose mapping is explicitly listed.
+UNDERLYING: dict[str, tuple[str, tuple[str, ...]]] = {
+    "SOXL": ("반도체 지수", ("NVDA", "AVGO", "AMD")),
+    "SOXS": ("반도체 지수", ("NVDA", "AVGO", "AMD")),
+    "TQQQ": ("나스닥 100 지수", ("AAPL", "MSFT", "NVDA")),
+    "SQQQ": ("나스닥 100 지수", ("AAPL", "MSFT", "NVDA")),
+}
+
+_LEVERAGED_PRODUCTS = frozenset(
+    {"SOXL", "SOXS", "TECL", "TECS", "TQQQ", "SQQQ", "FNGU", "LABU", "SPXL"}
+)
+
+
+class UnderlyingOutcome(Enum):
+    DIRECT = "direct"
+    MAPPED = "mapped"
+    UNMAPPED_LEVERAGED = "unmapped_leveraged"
+
+
+@dataclass(frozen=True)
+class UnderlyingResolution:
+    outcome: UnderlyingOutcome
+    symbols: tuple[str, ...]
+    via: str = ""
+    reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -33,6 +61,32 @@ class NewsResult:
 
     def for_symbol(self, symbol: str) -> tuple[NewsItem, ...]:
         return tuple(item for item in self.items if item.symbol == symbol)
+
+
+def resolve_underlying(symbol: str) -> UnderlyingResolution:
+    mapped = UNDERLYING.get(symbol)
+    if mapped is not None:
+        via, symbols = mapped
+        return UnderlyingResolution(
+            outcome=UnderlyingOutcome.MAPPED,
+            symbols=symbols,
+            via=via,
+        )
+
+    if symbol in _LEVERAGED_PRODUCTS:
+        return UnderlyingResolution(
+            outcome=UnderlyingOutcome.UNMAPPED_LEVERAGED,
+            symbols=(),
+            reason=(
+                "이 종목은 개별 회사가 아니라 여러 종목을 묶은 상품이고, "
+                "등록된 구성 종목 매핑이 없습니다."
+            ),
+        )
+
+    return UnderlyingResolution(
+        outcome=UnderlyingOutcome.DIRECT,
+        symbols=(symbol,),
+    )
 
 
 def dart_items(disclosures: Sequence[Disclosure], symbol: str) -> tuple[NewsItem, ...]:

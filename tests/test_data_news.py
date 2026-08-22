@@ -10,10 +10,13 @@ from tradingbot.data.fundamentals import Disclosure
 from tradingbot.data.news import (
     CAUSAL,
     DART_VIEWER_URL,
+    UNDERLYING,
     NewsItem,
+    UnderlyingOutcome,
     cap,
     dart_items,
     find_causal_terms,
+    resolve_underlying,
     within,
     yahoo_items,
 )
@@ -194,6 +197,40 @@ class TestWindowAndCap:
         # A Telegram-size cap must not make a partial list look complete.
         assert len(kept) + sum(dropped.values()) == len(items)
         assert sum(dropped.values()) == 2
+
+
+class TestUnderlyingMapping:
+    def test_a_leveraged_etf_is_mapped_to_its_index_constituents(self):
+        assert UNDERLYING == {
+            "SOXL": ("반도체 지수", ("NVDA", "AVGO", "AMD")),
+            "SOXS": ("반도체 지수", ("NVDA", "AVGO", "AMD")),
+            "TQQQ": ("나스닥 100 지수", ("AAPL", "MSFT", "NVDA")),
+            "SQQQ": ("나스닥 100 지수", ("AAPL", "MSFT", "NVDA")),
+        }
+
+        resolution = resolve_underlying("SOXL")
+
+        assert resolution.outcome is UnderlyingOutcome.MAPPED
+        assert resolution.symbols == ("NVDA", "AVGO", "AMD")
+
+    def test_a_mapped_item_records_where_it_came_from(self):
+        resolution = resolve_underlying("SOXL")
+        payload = yahoo_payload("yahoo_news_sample.json")[:1]
+
+        items = yahoo_items(payload, "SOXL", via=resolution.via)
+
+        assert items[0].via == "반도체 지수"
+
+    def test_an_unmapped_etf_is_not_guessed_at(self):
+        direct = resolve_underlying("AAPL")
+        unmapped = resolve_underlying("TECL")
+
+        # TECL is leveraged but has no row in the hand-written constituent table.
+        assert direct.outcome is UnderlyingOutcome.DIRECT
+        assert direct.symbols == ("AAPL",)
+        assert unmapped.outcome is UnderlyingOutcome.UNMAPPED_LEVERAGED
+        assert unmapped.symbols == ()
+        assert unmapped.reason
 
 
 class TestCausalTerms:
