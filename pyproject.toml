@@ -35,8 +35,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/tradingbot"]
 
-[tool.uv]
-environments = ["sys_platform == 'win32'"]
+# uv previously resolved for Windows only, which left uv.lock unusable on the
+# Linux host that runs collection. The GUI is the only Windows-shaped part and
+# it is imported lazily, so the CLI runs headless.
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

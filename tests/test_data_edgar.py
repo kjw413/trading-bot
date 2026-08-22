@@ -321,6 +321,64 @@ class TestAppleFiscal2024:
             assert reaction > filing_day
 
 
+class TestMicrosoftFiscal2024:
+    """MSFT files its 10-Q the same day as the earnings release.
+
+    A live collection returned 47 provisional rows for MSFT and only 9
+    periodic ones, against 47 and 47 for AAPL. That gap is the same-day
+    collapse doing its job, not a collection failure — but it is surprising
+    enough that someone counting periodic rows later would reasonably
+    conclude the collector was broken, so it is pinned here.
+    """
+
+    RELEASES = ["2024-01-30", "2024-04-25", "2024-07-30", "2024-10-30"]
+
+    def frame(self) -> pd.DataFrame:
+        filings = []
+        for index, day in enumerate(self.RELEASES):
+            filings.append(
+                filing(
+                    day,
+                    items="2.02,9.01",
+                    acceptance=f"{day}T16:07:00",
+                    accession=f"r{index}",
+                )
+            )
+            # Same day, a few hours earlier — still the periodic report.
+            filings.append(
+                filing(
+                    day,
+                    form="10-Q",
+                    items="",
+                    acceptance=f"{day}T16:05:00",
+                    accession=f"p{index}",
+                )
+            )
+        return filings_to_events(filings, "MSFT")
+
+    def test_one_row_per_day_and_the_release_wins(self):
+        frame = self.frame()
+        assert len(frame) == len(self.RELEASES)
+        assert set(frame["event_kind"]) == {"provisional"}
+
+    def test_the_periodic_report_is_absorbed_not_lost_to_chance(self):
+        # The panel keys on (date, symbol), so one of the two had to go. Which
+        # one is decided by _KIND_PRIORITY rather than by write order.
+        assert "periodic" not in set(self.frame()["event_kind"])
+
+    def test_the_schedule_is_still_quarterly(self):
+        from tradingbot.data.events import schedule_dates
+
+        dates = schedule_dates(self.frame())
+        assert dates == [date.fromisoformat(d) for d in self.RELEASES]
+        gaps = [(b - a).days for a, b in zip(dates, dates[1:])]
+        assert all(85 <= gap <= 100 for gap in gaps), gaps
+
+    def test_every_release_reacts_the_next_session(self):
+        frame = self.frame()
+        assert all(frame["reaction_date"] > frame["date"])
+
+
 class TestUserAgentFromEnv:
     def test_reads_the_configured_contact(self):
         assert user_agent_from_env({"SEC_USER_AGENT": "me me@example.com"}) == "me me@example.com"

@@ -62,6 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline_parser.add_argument("--log-root", default=None)
     pipeline_parser.set_defaults(handler=cmd_data_pipeline)
 
+    preflight_parser = data_subparsers.add_parser(
+        "preflight", help="Check this host can reach every collection source"
+    )
+    preflight_parser.add_argument("--data-root", default="data")
+    preflight_parser.set_defaults(handler=cmd_data_preflight)
+
     backtest_parser = subparsers.add_parser("backtest", help="Run offline backtest")
     add_market_symbols(backtest_parser)
     backtest_parser.add_argument("--strategy", required=True)
@@ -119,6 +125,29 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_parser.add_argument("--data-root", default=None)
     evaluate_parser.add_argument("--out", default="reports/evaluation")
     evaluate_parser.set_defaults(handler=cmd_research_evaluate)
+
+    survivorship_parser = research_subparsers.add_parser(
+        "survivorship", help="Measure how much of the past the candidate pool is missing"
+    )
+    survivorship_parser.add_argument("--start-year", type=int, default=2015)
+    survivorship_parser.add_argument("--end-year", type=int, default=None)
+    survivorship_parser.add_argument("--data-root", default="data/cache")
+    survivorship_parser.add_argument("--out", default="reports/research")
+    survivorship_parser.set_defaults(handler=cmd_research_survivorship)
+
+    event_study_parser = research_subparsers.add_parser(
+        "event-study", help="Bucket events by pre-runup and reaction; report what followed"
+    )
+    event_study_parser.add_argument("--market", choices=["KR", "US"], default="US")
+    event_study_parser.add_argument("--benchmark", default="SPY")
+    event_study_parser.add_argument("--event-kind", default="provisional")
+    event_study_parser.add_argument("--quantiles", type=int, default=5)
+    event_study_parser.add_argument("--pre-days", type=int, default=60)
+    event_study_parser.add_argument("--post-days", type=int, default=20)
+    event_study_parser.add_argument("--data-root", default="data/cache")
+    event_study_parser.add_argument("--processed-root", default="data/processed")
+    event_study_parser.add_argument("--out", default="reports/research")
+    event_study_parser.set_defaults(handler=cmd_research_event_study)
 
     fundamentals_parser = subparsers.add_parser("fundamentals", help="DART fundamentals commands")
     fundamentals_subparsers = fundamentals_parser.add_subparsers(dest="fundamentals_command")
@@ -463,6 +492,14 @@ def cmd_research_report(args) -> int:
     return 0
 
 
+def cmd_data_preflight(args) -> int:
+    from tradingbot.data.preflight import render, run_preflight
+
+    results = run_preflight(data_root=resolve_project_path(args.data_root))
+    print(render(results))
+    return 0 if all(result.passed for result in results) else 1
+
+
 def cmd_data_pipeline(args) -> int:
     from tradingbot.data.pipeline import run_pipeline
 
@@ -493,6 +530,115 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
+
+
+def cmd_research_event_study(args) -> int:
+    """Describe what followed announcements, bucketed two ways.
+
+    Deliberately descriptive: nothing is fitted here, so there is nothing to
+    overfit. If no effect shows in this table over a few thousand events, a
+    model over forty features would be finding noise.
+    """
+    from tradingbot.data.cache import ParquetCache
+    from tradingbot.data.panel import PanelStore
+    from tradingbot.research.event_study import (
+        EventWindow,
+        build_event_panel,
+        quantile_table,
+        render_markdown,
+    )
+
+    cache = ParquetCache(resolve_project_path(args.data_root))
+    events = PanelStore(
+        resolve_project_path(args.processed_root), "events", args.market
+    ).read()
+    if events.empty:
+        print("이벤트 패널이 비어 있습니다. 먼저 `data pipeline`으로 수집하세요.")
+        return 1
+
+    if "event_kind" in events.columns and args.event_kind:
+        events = events[events["event_kind"] == args.event_kind]
+    # The reaction date is what everything is measured from. Panels collected
+    # before that column existed fall back to the filing date, which misdates
+    # every after-close announcement by a session — so say so rather than
+    # quietly producing a table nobody can trust.
+    if "reaction_date" not in events.columns:
+        print("경고: reaction_date가 없는 옛 패널입니다. 접수일로 대체하며, 장 마감 후")
+        print("      발표가 하루씩 밀려 측정됩니다. 재수집을 권합니다.")
+        events = events.assign(reaction_date=events["date"])
+    print(f"이벤트 {len(events):,}건 ({args.event_kind})")
+
+    symbols = sorted(events["symbol"].astype(str).str.upper().unique())
+    closes: dict[str, Any] = {}
+    for symbol in symbols:
+        try:
+            closes[symbol] = cache.read(args.market, symbol)["close"].dropna()
+        except (FileNotFoundError, KeyError):
+            continue
+    print(f"가격 확보 {len(closes):,}/{len(symbols):,} 종목")
+
+    try:
+        benchmark = cache.read(args.market, args.benchmark)["close"].dropna()
+    except (FileNotFoundError, KeyError):
+        print(f"벤치마크 {args.benchmark}의 가격이 없습니다. 초과수익을 계산할 수 없습니다.")
+        return 1
+
+    window = EventWindow(
+        pre_start=-abs(args.pre_days), pre_end=-1, post_start=1, post_end=abs(args.post_days)
+    )
+    panel = build_event_panel(events, closes, benchmark, window)
+    table = quantile_table(panel, n_quantiles=args.quantiles)
+    markdown = render_markdown(table, panel)
+    print()
+    print(markdown)
+
+    out_dir = resolve_project_path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{_datetime.now():%Y%m%d_%H%M%S}_event_study_{args.market}.md"
+    out_path.write_text(markdown, encoding="utf-8")
+    print(f"이벤트 스터디 리포트: {out_path}")
+    return 0
+
+
+def cmd_research_survivorship(args) -> int:
+    """Size the survivorship bias in the candidate pool and write it down.
+
+    The pool is today's listings, so every result computed on it is biased
+    toward companies that survived. This does not remove that; it says how
+    large it is per year, which is what lets a reader discount the years that
+    deserve it.
+    """
+    from datetime import date as _d
+
+    from tradingbot.data.cik import CikStore
+    from tradingbot.data.listings import UsCommonStockListing
+    from tradingbot.research.survivorship import (
+        render_markdown,
+        requests_fetcher,
+        survival_by_year,
+    )
+
+    cache_root = resolve_project_path(args.data_root)
+    tickers = UsCommonStockListing(cache_root).load()
+    ciks = CikStore(cache_root).cik_for(tickers)
+    if not ciks:
+        print("후보 풀의 CIK를 하나도 해석하지 못했습니다. 측정할 수 없습니다.")
+        return 1
+    print(f"후보 풀 {len(tickers)}종목 중 {len(ciks)}개의 CIK 확보")
+
+    end_year = args.end_year or _d.today().year - 1
+    rates = survival_by_year(
+        range(args.start_year, end_year + 1), set(ciks.values()), fetcher=requests_fetcher()
+    )
+    markdown = render_markdown(rates)
+    print(markdown)
+
+    out_dir = resolve_project_path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{_datetime.now():%Y%m%d_%H%M%S}_survivorship.md"
+    out_path.write_text(markdown, encoding="utf-8")
+    print(f"생존율 리포트: {out_path}")
+    return 0
 
 
 def cmd_research_evaluate(args) -> int:

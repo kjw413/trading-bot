@@ -1,9 +1,19 @@
-"""Date-aware theme universes.
+"""Date-aware universes: which symbols are investable on a given date.
 
-A theme is a hand-maintained list of symbols with inclusion and removal
-dates. `members(theme, dt)` answers "which symbols were in this theme on that
-date" — without that, a backtest silently trades companies that had not yet
-joined the theme, or keeps trading ones that left.
+Two kinds answer that question, and callers should not have to know which one
+they hold.
+
+A **theme** is a hand-maintained list with inclusion and removal dates. It
+works at five names, where a person can vouch for each one, and its `from`
+dates are what stop a backtest from trading a company before it joined.
+
+A **liquidity universe** (`data/universe_liquidity.py`) is recomputed from
+price history at each rebalance. It is what five hundred names require: nobody
+maintains that list by hand, and filling it from today's listings would
+backdate today's winners into the past — exactly what the theme loader rejects
+undated members to prevent.
+
+Both satisfy `Universe`, so a strategy takes either.
 """
 
 from __future__ import annotations
@@ -12,6 +22,7 @@ import tomllib
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Protocol
 
 from tradingbot.config import PROJECT_ROOT
 
@@ -87,3 +98,32 @@ def get_theme(key: str, path: str | Path | None = None) -> Theme:
     except KeyError as exc:
         available = ", ".join(sorted(themes))
         raise ValueError(f"Unknown theme: {key}. Available: {available}") from exc
+
+
+class Universe(Protocol):
+    """What a strategy needs from a universe: who is investable on a date.
+
+    Deliberately narrow. A strategy that could ask "what kind of universe are
+    you" would grow a branch per kind, and the point of this interface is that
+    a liquidity screen and a hand-written theme are interchangeable.
+    """
+
+    market: str
+
+    def members(self, dt: date) -> list[str]:
+        """Symbols investable on `dt`, sorted. Only data knowable at `dt`."""
+        ...
+
+
+@dataclass(frozen=True)
+class ThemeUniverse:
+    """A static theme behind the `Universe` interface."""
+
+    theme: Theme
+
+    @property
+    def market(self) -> str:
+        return self.theme.market
+
+    def members(self, dt: date) -> list[str]:
+        return members(self.theme, dt)
