@@ -25,9 +25,10 @@ import pandas as pd
 
 from tradingbot.account.base import AccountSnapshot
 from tradingbot.account.returns import IntervalReturn, holding_return, interval_return
+from tradingbot.data.news import NewsResult
 from tradingbot.report import glossary
 
-SECTIONS: tuple[str, ...] = ("summary", "totals", "holdings", "trend", "notes")
+SECTIONS: tuple[str, ...] = ("summary", "totals", "holdings", "trend", "news", "notes")
 
 # How far the broker's own timestamp may lag our clock before the reader is
 # told the numbers may not be current.
@@ -50,6 +51,7 @@ class _Context:
     price_history: dict[str, Any] | None
     now: datetime
     long_gap_days: int
+    news: NewsResult | None
 
 
 def _money(value: float, currency: str) -> str:
@@ -206,6 +208,48 @@ def _render_trend(ctx: _Context) -> list[str]:
     return ["[이 기간 주가 움직임]", *lines]
 
 
+def _render_news(ctx: _Context) -> list[str]:
+    if ctx.news is None:
+        return []
+
+    news = ctx.news
+    lines = ["[새 소식]"]
+
+    for item in news.items:
+        lines.append(
+            f"- {item.published_at.isoformat()} · {item.symbol} · {item.source}"
+        )
+        if item.via:
+            lines.append(
+                f"  {item.symbol} 자체 소식이 아닙니다. "
+                f"{item.via}에서 가져온 소식입니다."
+            )
+        lines.extend((f"  {item.title}", f"  {item.url}"))
+
+    for source, reason in news.failures.items():
+        lines.append(
+            f"- 소식을 가져오지 못했습니다 ({source}: {reason}). "
+            "계좌 숫자는 영향받지 않습니다."
+        )
+
+    for source, reason in news.skipped.items():
+        if source.casefold() == "dart":
+            lines.append("- 국내 공시는 DART_API_KEY가 없어 확인하지 못했습니다.")
+        else:
+            lines.append(f"- {source} 소식은 확인하지 못했습니다 ({reason}).")
+
+    if news.dropped:
+        counts = ", ".join(
+            f"{symbol} {count}건" for symbol, count in news.dropped.items()
+        )
+        lines.append(f"- 이 밖에 {counts}이 더 있습니다.")
+
+    if len(lines) == 1:
+        lines.append("- 이 기간에 새로 올라온 소식이 없습니다.")
+
+    return lines
+
+
 def _render_notes(ctx: _Context) -> list[str]:
     notes: list[str] = []
 
@@ -250,6 +294,7 @@ _RENDERERS: dict[str, Callable[[_Context], list[str]]] = {
     "totals": _render_totals,
     "holdings": _render_holdings,
     "trend": _render_trend,
+    "news": _render_news,
     "notes": _render_notes,
 }
 
@@ -259,6 +304,7 @@ def render_briefing(
     prev: AccountSnapshot | None = None,
     *,
     price_history: dict[str, Any] | None = None,
+    news: NewsResult | None = None,
     now: datetime | None = None,
     long_gap_days: int = 14,
 ) -> str:
@@ -275,6 +321,7 @@ def render_briefing(
         price_history=price_history,
         now=now if now is not None else datetime.now(curr.as_of.tzinfo),
         long_gap_days=long_gap_days,
+        news=news,
     )
     blocks = []
     for name in SECTIONS:

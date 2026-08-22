@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
 
 from tradingbot.account.base import AccountSnapshot, Holding
+from tradingbot.data.news import NewsItem, NewsResult, find_causal_terms
 from tradingbot.report import glossary
 from tradingbot.report.briefing import render_briefing, split_for_telegram
 
@@ -30,6 +31,33 @@ def snap(day, holdings=None, cash=300_000.0, usd=1350.0, hour=9):
 
 
 NOW = datetime(2026, 8, 15, 10, 0, tzinfo=KST)
+
+
+def news_item(
+    *,
+    symbol="005930",
+    source="DART",
+    title="주요사항보고서 제출",
+    url="https://example.com/news/1",
+    via="",
+):
+    return NewsItem(
+        symbol=symbol,
+        source=source,
+        published_at=date(2026, 8, 14),
+        title=title,
+        url=url,
+        via=via,
+    )
+
+
+def news_result(*items, failures=None, dropped=None, skipped=None):
+    return NewsResult(
+        items=tuple(items),
+        failures=failures or {},
+        dropped=dropped or {},
+        skipped=skipped or {},
+    )
 
 
 class TestPlainLanguage:
@@ -111,6 +139,94 @@ class TestContent:
     def test_an_empty_account_renders_without_crashing(self):
         text = render_briefing(snap(15, [], cash=0.0), None, now=NOW)
         assert text.strip()
+
+
+class TestNewsSection:
+    def test_the_news_section_is_absent_when_no_news_is_given(self):
+        # Existing M1 callers omit the keyword, so their output must not gain a block.
+        omitted = render_briefing(snap(15), snap(1), now=NOW)
+        explicit_none = render_briefing(snap(15), snap(1), news=None, now=NOW)
+        assert explicit_none == omitted
+        assert "[새 소식]" not in omitted
+
+    def test_each_item_shows_its_date_title_and_source(self):
+        title = "매출액 또는 손익구조 30% 이상 변경"
+        item = news_item(title=title)
+        text = render_briefing(snap(15), snap(1), news=news_result(item), now=NOW)
+        assert item.published_at.isoformat() in text
+        assert f"  {title}" in text
+        assert item.source in text
+        assert item.url in text
+
+    def test_a_mapped_item_says_it_is_not_the_etfs_own_news(self):
+        item = news_item(
+            symbol="SOXL",
+            source="Yahoo",
+            title="NVIDIA announces quarterly results",
+            via="NVDA",
+        )
+        text = render_briefing(snap(15), snap(1), news=news_result(item), now=NOW)
+        assert "SOXL 자체 소식이 아닙니다." in text
+        assert "NVDA에서 가져온 소식입니다." in text
+
+    def test_no_news_and_a_failed_fetch_read_differently(self):
+        # An outage must not be presented as a quiet week with no publications.
+        empty = render_briefing(snap(15), snap(1), news=news_result(), now=NOW)
+        failed = render_briefing(
+            snap(15),
+            snap(1),
+            news=news_result(failures={"Yahoo": "연결 시간 초과"}),
+            now=NOW,
+        )
+        assert "이 기간에 새로 올라온 소식이 없습니다." in empty
+        assert "소식을 가져오지 못했습니다 (Yahoo: 연결 시간 초과). 계좌 숫자는 영향받지 않습니다." in failed
+        assert "이 기간에 새로 올라온 소식이 없습니다." not in failed
+
+    def test_what_the_cap_dropped_is_stated(self):
+        # A capped list must not look like the complete set of publications.
+        text = render_briefing(
+            snap(15),
+            snap(1),
+            news=news_result(news_item(), dropped={"005930": 4, "AAPL": 2}),
+            now=NOW,
+        )
+        assert "이 밖에 005930 4건, AAPL 2건이 더 있습니다." in text
+
+    def test_the_briefing_never_claims_a_cause(self):
+        rendered = render_briefing(
+            snap(15), snap(1), news=news_result(news_item()), now=NOW
+        )
+        assert find_causal_terms(rendered) == []
+
+    def test_the_news_section_passes_the_jargon_check(self):
+        rendered = render_briefing(
+            snap(15),
+            snap(1),
+            news=news_result(
+                news_item(),
+                failures={"Yahoo": "연결 시간 초과"},
+                dropped={"005930": 2},
+                skipped={"dart": "missing key"},
+            ),
+            now=NOW,
+        )
+        assert glossary.find_banned_terms(rendered) == []
+
+    def test_a_long_news_list_still_splits_at_section_boundaries(self):
+        # A near-limit news block should move whole instead of splitting a headline.
+        items = tuple(
+            news_item(
+                symbol=f"NEWS{number}",
+                title=f"{number} " + "가" * 270,
+                url=f"https://example.com/news/{number}",
+            )
+            for number in range(12)
+        )
+        text = render_briefing(snap(15), snap(1), news=news_result(*items), now=NOW)
+        parts = split_for_telegram(text)
+        assert len(parts) > 1
+        assert parts[-1].startswith("[새 소식]")
+        assert all(len(part) <= 4096 for part in parts)
 
 
 class TestSplitForTelegram:
