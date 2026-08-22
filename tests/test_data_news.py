@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
 from datetime import date
+from pathlib import Path
+
+import pytest
 
 from tradingbot.data.fundamentals import Disclosure
 from tradingbot.data.news import (
@@ -11,6 +15,7 @@ from tradingbot.data.news import (
     dart_items,
     find_causal_terms,
     within,
+    yahoo_items,
 )
 
 
@@ -22,6 +27,11 @@ def news_item(symbol: str, published_at: date, title: str) -> NewsItem:
         title=title,
         url=f"https://example.test/{symbol}/{title}",
     )
+
+
+def yahoo_payload(filename: str) -> list[dict]:
+    path = Path(__file__).parent / "data" / filename
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 class TestDartItems:
@@ -69,6 +79,69 @@ class TestDartItems:
 
     def test_an_empty_filing_list_is_an_empty_result_not_a_failure(self):
         assert dart_items([], "005930") == ()
+
+
+class TestYahooItems:
+    def test_every_article_in_the_sample_becomes_one_item(self):
+        payload = yahoo_payload("yahoo_news_sample.json")
+
+        items = yahoo_items(payload, "AAPL")
+
+        assert len(items) == len(payload)
+        assert all(item.symbol == "AAPL" for item in items)
+        assert all(item.source == "yahoo" for item in items)
+
+    def test_the_title_date_and_url_come_from_the_response(self):
+        payload = yahoo_payload("yahoo_news_sample.json")
+
+        items = yahoo_items(payload, "AAPL", via="Apple")
+
+        assert [item.title for item in items] == [
+            entry["content"]["title"] for entry in payload
+        ]
+        assert [item.published_at.isoformat() for item in items] == [
+            entry["content"]["pubDate"][:10] for entry in payload
+        ]
+        assert [item.url for item in items] == [
+            entry["content"]["canonicalUrl"]["url"] for entry in payload
+        ]
+        assert all(item.via == "Apple" for item in items)
+
+    def test_a_video_with_an_empty_display_time_still_maps_from_pub_date(self):
+        payload = yahoo_payload("yahoo_news_video_sample.json")
+        video_index = next(
+            index
+            for index, entry in enumerate(payload)
+            if entry["content"]["contentType"] == "VIDEO"
+            and entry["content"]["displayTime"] == ""
+        )
+
+        items = yahoo_items(payload, "NVDA")
+
+        # The recorded Yahoo video has an empty displayTime but a usable pubDate.
+        assert items[video_index].published_at == date(2026, 8, 21)
+        assert items[video_index].title == payload[video_index]["content"]["title"]
+
+    def test_an_unexpected_shape_raises_instead_of_returning_nothing(self):
+        content = yahoo_payload("yahoo_news_sample.json")[0]["content"]
+        malformed_payloads = (
+            {"content": content},
+            [
+                {
+                    "id": "missing-title",
+                    "content": {
+                        key: value
+                        for key, value in content.items()
+                        if key != "title"
+                    },
+                }
+            ],
+            [{"id": "missing-url", "content": {**content, "canonicalUrl": {}}}],
+        )
+
+        for payload in malformed_payloads:
+            with pytest.raises((KeyError, TypeError, ValueError)):
+                yahoo_items(payload, "AAPL")
 
 
 class TestWindowAndCap:

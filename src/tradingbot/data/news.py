@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Sequence
 
 from tradingbot.data.fundamentals import Disclosure
@@ -46,6 +46,52 @@ def dart_items(disclosures: Sequence[Disclosure], symbol: str) -> tuple[NewsItem
         )
         for disclosure in disclosures
     )
+
+
+def yahoo_items(
+    payload: list[dict], symbol: str, *, via: str = ""
+) -> tuple[NewsItem, ...]:
+    if not isinstance(payload, list):
+        raise TypeError("Yahoo news payload must be a list")
+
+    items: list[NewsItem] = []
+    for index, entry in enumerate(payload):
+        try:
+            content = entry["content"]
+            title = content["title"]
+            published = content["pubDate"]
+            url = content["canonicalUrl"]["url"]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(f"unexpected Yahoo news item shape at index {index}") from exc
+
+        if not isinstance(title, str) or not title:
+            raise ValueError(f"Yahoo news item {index} has no title")
+        if not isinstance(published, str):
+            raise ValueError(f"Yahoo news item {index} has no publication date")
+        if not isinstance(url, str) or not url:
+            raise ValueError(f"Yahoo news item {index} has no URL")
+
+        try:
+            published_at = datetime.fromisoformat(
+                published.replace("Z", "+00:00")
+            ).date()
+        except ValueError as exc:
+            raise ValueError(
+                f"Yahoo news item {index} has an invalid publication date"
+            ) from exc
+
+        items.append(
+            NewsItem(
+                symbol=symbol,
+                source="yahoo",
+                published_at=published_at,
+                title=title,
+                url=url,
+                via=via,
+            )
+        )
+
+    return tuple(items)
 
 
 def within(items, *, since: date, until: date) -> tuple[NewsItem, ...]:
