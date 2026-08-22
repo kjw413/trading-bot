@@ -37,6 +37,7 @@ FX_FIELD = "midRate"
 KST = timezone(timedelta(hours=9))
 TOKEN_REFRESH_MARGIN = timedelta(seconds=60)
 CASH_CURRENCIES = ("KRW", "USD")
+_NO_POSITION = object()
 MAX_ATTEMPTS = 3
 BACKOFF_SECONDS = (2, 4)
 VALUE_CROSSCHECK_TOLERANCE = 0.005
@@ -276,7 +277,14 @@ class TossAccountReader:
             "WTS 설정에서 허용 IP를 확인하세요." + suffix
         )
 
-    def _send(self, method: str, path: str, **kwargs: Any) -> HttpResponse:
+    def _send(
+        self,
+        method: str,
+        path: str,
+        *,
+        usd_position_optional: bool = False,
+        **kwargs: Any,
+    ) -> HttpResponse:
         for attempt in range(MAX_ATTEMPTS):
             response = self.transport(method, API_BASE + path, **kwargs)
             if response.status_code < 400:
@@ -284,6 +292,8 @@ class TossAccountReader:
             if response.status_code == 403:
                 raise self._ip_error()
             if response.status_code == 401:
+                return response
+            if usd_position_optional and response.status_code in (400, 404):
                 return response
             code, message = self._error_parts(response)
             if response.status_code == 404 and code == "account-not-found":
@@ -340,11 +350,18 @@ class TossAccountReader:
         params: Mapping[str, str] | None = None,
         account_seq: int | None = None,
         retry_auth: bool = True,
+        usd_position_optional: bool = False,
     ) -> tuple[Any, Token]:
         headers = {"Authorization": f"Bearer {token.access_token}"}
         if account_seq is not None:
             headers["X-Tossinvest-Account"] = str(account_seq)
-        response = self._send("GET", path, headers=headers, params=params)
+        response = self._send(
+            "GET",
+            path,
+            headers=headers,
+            params=params,
+            usd_position_optional=usd_position_optional,
+        )
         if response.status_code == 401:
             if not retry_auth:
                 raise TossAuthError("토스증권 액세스 토큰 인증에 두 번 실패했습니다.")
@@ -356,7 +373,10 @@ class TossAccountReader:
                 params=params,
                 account_seq=account_seq,
                 retry_auth=False,
+                usd_position_optional=usd_position_optional,
             )
+        if usd_position_optional and response.status_code in (400, 404):
+            return _NO_POSITION, token
         return response.json(), token
 
     @staticmethod
@@ -389,15 +409,19 @@ class TossAccountReader:
         account_seq = self._select_account(accounts)
         holdings, token = self._get(HOLDINGS_PATH, token, account_seq=account_seq)
         cash: dict[str, str] = {}
-        # Both reads must succeed. A zero substituted after failure would poison
-        # the only snapshot future interval returns can use.
+        # A normal all-KRW account may expose no USD buying-power resource.
+        # Only that USD leg may treat 400/404 as an absent position.
         for currency in CASH_CURRENCIES:
             payload, token = self._get(
                 BUYING_POWER_PATH,
                 token,
                 params={"currency": currency},
                 account_seq=account_seq,
+                usd_position_optional=currency == "USD",
             )
+            if payload is _NO_POSITION:
+                cash[currency] = "0"
+                continue
             cash[currency] = payload["result"]["cashBuyingPower"]
 
         needs_usd = (
