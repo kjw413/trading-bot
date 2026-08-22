@@ -26,6 +26,7 @@ LOGGER = get_logger(__name__)
 API_BASE = "https://api.telegram.org"
 MAX_ATTEMPTS = 3
 BACKOFF_SECONDS = (2, 4)
+_TOKEN_PLACEHOLDER = "<redacted-bot-token>"
 
 Transport = Callable[[str, dict], dict]
 
@@ -34,9 +35,59 @@ class NotifyError(RuntimeError):
     """Delivery failed after every retry."""
 
 
+class _TelegramHTTPError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        error_code: object | None = None,
+        description: str | None = None,
+        body_is_json_object: bool = True,
+    ) -> None:
+        self.status_code = status_code
+        self.error_code = error_code
+        self.description = description
+
+        details = [f"HTTP {status_code}"]
+        if error_code is not None:
+            details.append(f"Telegram error_code {error_code}")
+        message = f"Telegram API request failed ({', '.join(details)})"
+        if description:
+            message = f"{message}: {description}"
+        elif body_is_json_object:
+            message = f"{message}: Telegram response did not include a description"
+        else:
+            message = f"{message}: response body was empty or not valid JSON"
+        super().__init__(message)
+
+
+def _http_error_from_response(response: requests.Response) -> _TelegramHTTPError:
+    try:
+        body = response.json()
+    except Exception:
+        return _TelegramHTTPError(
+            status_code=response.status_code,
+            body_is_json_object=False,
+        )
+
+    if not isinstance(body, dict):
+        return _TelegramHTTPError(
+            status_code=response.status_code,
+            body_is_json_object=False,
+        )
+
+    description = body.get("description")
+    return _TelegramHTTPError(
+        status_code=response.status_code,
+        error_code=body.get("error_code"),
+        description=description if isinstance(description, str) else None,
+    )
+
+
 def _requests_transport(url: str, payload: dict) -> dict:
     response = requests.post(url, json=payload, timeout=20)
-    response.raise_for_status()
+    if not 200 <= response.status_code < 300:
+        raise _http_error_from_response(response) from None
     return response.json()
 
 
@@ -68,14 +119,13 @@ class TelegramNotifier:
         for attempt in range(MAX_ATTEMPTS):
             try:
                 result = self._transport(self._url, payload)
-            except Exception as exc:  # transport-level failure
-                last = exc
-            else:
                 if result.get("ok"):
                     return
-                last = NotifyError(
+                raise NotifyError(
                     f"Telegram rejected the message: {result.get('description')}"
                 )
+            except Exception as exc:  # transport or Telegram-level failure
+                last = self._sanitized_error(exc)
             LOGGER.warning(
                 "Telegram send attempt %s/%s failed: %s", attempt + 1, MAX_ATTEMPTS, last
             )
@@ -87,6 +137,15 @@ class TelegramNotifier:
         raise NotifyError(
             f"Telegram delivery failed after {MAX_ATTEMPTS} attempts: {last}"
         ) from last
+
+    def _sanitized_error(self, exc: Exception) -> NotifyError:
+        try:
+            message = str(exc)
+        except Exception:
+            message = f"{type(exc).__name__} (message unavailable)"
+        if self._token:
+            message = message.replace(self._token, _TOKEN_PLACEHOLDER)
+        return NotifyError(message)
 
 
 def build_notifier() -> TelegramNotifier:
