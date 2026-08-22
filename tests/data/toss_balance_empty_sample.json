@@ -1,0 +1,38 @@
+{
+  "result": {
+    "totalPurchaseAmount": {
+      "krw": "0",
+      "usd": null
+    },
+    "marketValue": {
+      "amount": {
+        "krw": "0",
+        "usd": null
+      },
+      "amountAfterCost": {
+        "krw": "0",
+        "usd": null
+      }
+    },
+    "profitLoss": {
+      "amount": {
+        "krw": "0",
+        "usd": null
+      },
+      "amountAfterCost": {
+        "krw": "0",
+        "usd": null
+      },
+      "rate": "0",
+      "rateAfterCost": "0"
+    },
+    "dailyProfitLoss": {
+      "amount": {
+        "krw": "0",
+        "usd": null
+      },
+      "rate": "0"
+    },
+    "items": []
+  }
+}

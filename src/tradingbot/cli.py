@@ -10,7 +10,8 @@ from datetime import datetime as _datetime
 from typing import Any
 
 from tradingbot.broker.paper import PaperBroker
-from tradingbot.config import load_config, load_dotenv, resolve_project_path
+from tradingbot.config import load_config, resolve_project_path
+from tradingbot.env_file import load_env_file
 from tradingbot.report.report import generate_backtest_report
 from tradingbot.services import build_paper_session, run_backtest, update_data
 from tradingbot.strategies.registry import list_strategies
@@ -22,10 +23,7 @@ LOGGER = get_logger(__name__)
 def main(argv: list[str] | None = None) -> int:
     configure_console()
     setup_logging()
-    loaded = load_dotenv()
-    if loaded:
-        # Names only. These are credentials.
-        LOGGER.info(".env loaded: %s", ", ".join(sorted(loaded)))
+    load_env_file()
     parser = build_parser()
     args = parser.parse_args(argv)
     if not hasattr(args, "handler"):
@@ -134,6 +132,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fund_update_parser.add_argument("--market", choices=["KR", "US"], default="KR")
     fund_update_parser.set_defaults(handler=cmd_fundamentals_update)
+
+    briefing_parser = subparsers.add_parser("briefing", help="계좌 현황 브리핑")
+    briefing_subparsers = briefing_parser.add_subparsers(dest="briefing_command")
+    weekly_parser = briefing_subparsers.add_parser(
+        "weekly", help="주간 계좌 브리핑을 만들어 보낸다"
+    )
+    weekly_parser.add_argument(
+        "--dry-run", action="store_true", help="렌더까지만 하고 보내지 않는다"
+    )
+    weekly_parser.add_argument(
+        "--no-notify", action="store_true", help="전송 생략 (--dry-run과 동일)"
+    )
+    weekly_parser.add_argument(
+        "--skip-update", action="store_true", help="가격 캐시 갱신 생략"
+    )
+    weekly_parser.set_defaults(handler=cmd_briefing_weekly)
 
     gui_parser = subparsers.add_parser("gui", help="Launch the desktop GUI")
     gui_parser.set_defaults(handler=cmd_gui)
@@ -265,6 +279,58 @@ def print_paper_snapshot(args, broker: PaperBroker, snapshot: dict[str, object],
     for reason, count in Counter(order.reject_reason or "unknown" for order in broker.rejected_orders).items():
         print(f"  - {reason}: {count}")
     print(f"만료 주문: {len(broker.expired_orders)}")
+
+
+def cmd_briefing_weekly(args) -> int:
+    """Build the account briefing and send it to the phone.
+
+    The full text is printed whatever happens to delivery: the user is sitting
+    at this console, and a briefing that only exists in a failed HTTP request
+    helps nobody.
+    """
+    from tradingbot.briefing_service import build_account_reader, run_briefing
+    from tradingbot.data.credentials import MissingCredentialsError
+    from tradingbot.notify.telegram import build_notifier
+    from tradingbot.services import build_cache
+
+    config = load_config(args.config)
+    notify = not (args.dry_run or args.no_notify)
+    state_root = resolve_project_path(config.get("paper", {}).get("state_dir", "state"))
+
+    try:
+        reader = build_account_reader(state_root)
+        notifier = build_notifier() if notify else None
+    except MissingCredentialsError as exc:
+        # Not a transient failure: retrying changes nothing, so say what to set
+        # rather than reporting a crash.
+        print("주간 브리핑을 실행할 준비가 아직 되지 않았습니다.")
+        print(f"  {exc}")
+        return 1
+
+    result = run_briefing(
+        config,
+        reader=reader,
+        notifier=notifier,
+        cache=build_cache(config),
+        state_root=state_root,
+        skip_update=args.skip_update,
+        notify=notify,
+    )
+
+    if result.text:
+        print(result.text)
+        print()
+    for message in result.messages:
+        print(f"[알림] {message}")
+    if result.snapshot_path:
+        print(f"계좌 기록을 저장했습니다: {result.snapshot_path}")
+    if not notify:
+        print("전송은 생략했습니다.")
+    elif result.sent:
+        print("텔레그램으로 보냈습니다.")
+    else:
+        print("텔레그램으로 보내지 못했습니다. 위 내용을 이 화면에서 읽어주세요.")
+    return 0 if result.ok else 1
 
 
 def cmd_strategies(args) -> int:
