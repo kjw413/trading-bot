@@ -1,22 +1,29 @@
 from __future__ import annotations
 
+import ast
 import json
 from datetime import date
 from pathlib import Path
 
 import pytest
 
+import tradingbot.data.news as news_module
+from tradingbot.account.base import Holding
 from tradingbot.data.fundamentals import Disclosure
 from tradingbot.data.news import (
     CAUSAL,
     DART_VIEWER_URL,
     UNDERLYING,
     NewsItem,
+    NewsResult,
     UnderlyingOutcome,
     cap,
     dart_items,
+    fetch_news,
     find_causal_terms,
+    load_news,
     resolve_underlying,
+    save_news,
     within,
     yahoo_items,
 )
@@ -283,3 +290,179 @@ class TestCausalTerms:
 
         # The full briefing can repeat the same connective across several news items.
         assert find_causal_terms(text) == ["때문에"]
+
+
+def holding(symbol: str, market: str) -> Holding:
+    return Holding(
+        symbol=symbol,
+        market=market,
+        qty=1.0,
+        qty_display="1",
+        avg_price=100.0,
+        last_price=100.0,
+        currency="KRW" if market == "KR" else "USD",
+    )
+
+
+def yahoo_article(title: str, published_at: date) -> dict:
+    return {
+        "content": {
+            "title": title,
+            "pubDate": f"{published_at.isoformat()}T12:00:00Z",
+            "canonicalUrl": {"url": f"https://example.test/news/{title}"},
+        }
+    }
+
+
+class TestFetchNews:
+    def test_a_missing_dart_key_is_skipped_not_failed(self):
+        payload = [
+            yahoo_article("before", date(2026, 7, 31)),
+            yahoo_article("first", date(2026, 8, 1)),
+            yahoo_article("second", date(2026, 8, 2)),
+            yahoo_article("third", date(2026, 8, 3)),
+            yahoo_article("fourth", date(2026, 8, 4)),
+        ]
+
+        result = fetch_news(
+            (holding("005930", "KR"), holding("AAPL", "US")),
+            since=date(2026, 8, 1),
+            until=date(2026, 8, 7),
+            dart=None,
+            yahoo=lambda ticker: payload,
+            corp_codes={"005930": "00126380"},
+        )
+
+        assert result.failures == {}
+        assert "dart" in result.skipped
+        assert [item.title for item in result.items] == ["fourth", "third", "second"]
+        # Windowing precedes capping: the pre-window article was not hidden by the cap.
+        assert result.dropped == {"AAPL": 1}
+
+    def test_a_source_failure_is_recorded_with_its_reason(self):
+        def broken_yahoo(ticker: str) -> list[dict]:
+            raise RuntimeError(f"Yahoo unavailable for {ticker}")
+
+        result = fetch_news(
+            (holding("AAPL", "US"),),
+            since=date(2026, 8, 1),
+            until=date(2026, 8, 7),
+            yahoo=broken_yahoo,
+        )
+
+        assert result.items == ()
+        assert "Yahoo unavailable for AAPL" in result.failures["yahoo"]
+        assert result.skipped == {}
+
+    def test_one_failing_source_does_not_lose_the_other_source_items(self):
+        yahoo_calls: list[str] = []
+
+        def broken_dart(corp_code: str, start: date, end: date):
+            raise RuntimeError("DART maintenance")
+
+        def fake_yahoo(ticker: str) -> list[dict]:
+            yahoo_calls.append(ticker)
+            return [yahoo_article(f"{ticker} headline", date(2026, 8, 5))]
+
+        result = fetch_news(
+            (
+                holding("005930", "KR"),
+                holding("SOXL", "US"),
+                holding("TECL", "US"),
+            ),
+            since=date(2026, 8, 1),
+            until=date(2026, 8, 7),
+            dart=broken_dart,
+            yahoo=fake_yahoo,
+            corp_codes={"005930": "00126380"},
+        )
+
+        assert "DART maintenance" in result.failures["dart"]
+        assert yahoo_calls == ["NVDA", "AVGO", "AMD"]
+        assert len(result.items) == 3
+        assert all(item.symbol == "SOXL" for item in result.items)
+        assert {item.via for item in result.items} == {"NVDA", "AVGO", "AMD"}
+        assert "TECL" in result.skipped["yahoo"]
+
+    def test_a_symbol_with_no_corp_code_is_recorded_not_dropped_silently(self):
+        def dart_must_not_be_called(corp_code: str, start: date, end: date):
+            raise AssertionError("a missing corp code must be handled before fetching")
+
+        result = fetch_news(
+            (holding("005930", "KR"),),
+            since=date(2026, 8, 1),
+            until=date(2026, 8, 7),
+            dart=dart_must_not_be_called,
+            corp_codes={},
+        )
+
+        assert result.items == ()
+        assert result.failures == {}
+        assert "005930" in result.skipped["dart"]
+
+
+class TestIsolation:
+    def test_news_does_not_import_the_panel_modules(self):
+        source = Path(news_module.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    imported.add(node.module)
+                    imported.update(f"{node.module}.{alias.name}" for alias in node.names)
+
+        forbidden = {"panel", "fundamentals_panel", "features", "universe"}
+        assert not {
+            module
+            for module in imported
+            if any(module == name or module.endswith(f".{name}") for name in forbidden)
+        }
+
+    def test_saved_news_lives_under_the_state_root_not_the_panel_root(self, tmp_path):
+        state_root = tmp_path / "state"
+        panel_root = tmp_path / "panel"
+        result = NewsResult(items=(), failures={}, dropped={}, skipped={})
+
+        path = save_news(result, state_root)
+
+        assert path == state_root / "news" / "latest.json"
+        assert state_root in path.parents
+        assert panel_root not in path.parents
+        assert not panel_root.exists()
+
+
+class TestStore:
+    def test_a_saved_result_round_trips(self, tmp_path):
+        result = NewsResult(
+            items=(
+                NewsItem(
+                    symbol="SOXL",
+                    source="yahoo",
+                    published_at=date(2026, 8, 5),
+                    title="반도체 headline",
+                    url="https://example.test/news/soxl",
+                    via="반도체 지수",
+                ),
+            ),
+            failures={"dart": "DART maintenance"},
+            dropped={"SOXL": 2},
+            skipped={"yahoo": "TECL: 등록된 구성 종목 매핑이 없습니다."},
+        )
+
+        path = save_news(result, tmp_path)
+
+        assert path.exists()
+        assert load_news(tmp_path) == result
+
+    def test_a_corrupt_file_is_reported_not_silently_empty(self, tmp_path):
+        assert load_news(tmp_path) is None
+        path = save_news(
+            NewsResult(items=(), failures={}, dropped={}, skipped={}), tmp_path
+        )
+        path.write_text("{not valid json", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="Corrupt news result"):
+            load_news(tmp_path)
