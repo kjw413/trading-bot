@@ -206,6 +206,7 @@ class TestUnderlyingMapping:
             "SOXS": ("반도체 지수", ("NVDA", "AVGO", "AMD")),
             "TQQQ": ("나스닥 100 지수", ("AAPL", "MSFT", "NVDA")),
             "SQQQ": ("나스닥 100 지수", ("AAPL", "MSFT", "NVDA")),
+            "GGLL": ("Alphabet", ("GOOGL",)),
         }
 
         resolution = resolve_underlying("SOXL")
@@ -231,6 +232,37 @@ class TestUnderlyingMapping:
         assert unmapped.outcome is UnderlyingOutcome.UNMAPPED_LEVERAGED
         assert unmapped.symbols == ()
         assert unmapped.reason
+
+    def test_the_owners_five_holdings_are_classified_explicitly(self):
+        symbols = ("SPCX", "FNGU", "GGLL", "SOXL", "TECL")
+
+        resolutions = {symbol: resolve_underlying(symbol) for symbol in symbols}
+
+        assert {
+            symbol: resolution.outcome
+            for symbol, resolution in resolutions.items()
+        } == {
+            "SPCX": UnderlyingOutcome.UNMAPPED_LEVERAGED,
+            "FNGU": UnderlyingOutcome.UNMAPPED_LEVERAGED,
+            "GGLL": UnderlyingOutcome.MAPPED,
+            "SOXL": UnderlyingOutcome.MAPPED,
+            "TECL": UnderlyingOutcome.UNMAPPED_LEVERAGED,
+        }
+        assert resolutions["GGLL"].symbols == ("GOOGL",)
+        assert resolutions["GGLL"].via == "Alphabet"
+        assert resolutions["SOXL"].symbols == ("NVDA", "AVGO", "AMD")
+        assert all(
+            resolutions[symbol].symbols == () and resolutions[symbol].reason
+            for symbol in ("SPCX", "FNGU", "TECL")
+        )
+
+    def test_an_ordinary_single_stock_remains_direct(self):
+        resolution = resolve_underlying("MSFT")
+
+        assert resolution.outcome is UnderlyingOutcome.DIRECT
+        assert resolution.symbols == ("MSFT",)
+        assert resolution.via == ""
+        assert resolution.reason == ""
 
 
 class TestCausalTerms:

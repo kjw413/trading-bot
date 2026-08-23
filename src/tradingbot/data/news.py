@@ -21,11 +21,13 @@ UNDERLYING: dict[str, tuple[str, tuple[str, ...]]] = {
     "SOXS": ("반도체 지수", ("NVDA", "AVGO", "AMD")),
     "TQQQ": ("나스닥 100 지수", ("AAPL", "MSFT", "NVDA")),
     "SQQQ": ("나스닥 100 지수", ("AAPL", "MSFT", "NVDA")),
+    "GGLL": ("Alphabet", ("GOOGL",)),
 }
 
-_LEVERAGED_PRODUCTS = frozenset(
-    {"SOXL", "SOXS", "TECL", "TECS", "TQQQ", "SQQQ", "FNGU", "LABU", "SPXL"}
-)
+# A ticker alone cannot reliably distinguish a basket from a company. Keep an
+# explicit list of products known to need a constituent mapping, and never guess
+# at their constituents.
+_UNMAPPED_BASKETS = frozenset({"SPCX", "TECL", "TECS", "FNGU", "LABU", "SPXL"})
 
 
 class UnderlyingOutcome(Enum):
@@ -73,7 +75,7 @@ def resolve_underlying(symbol: str) -> UnderlyingResolution:
             via=via,
         )
 
-    if symbol in _LEVERAGED_PRODUCTS:
+    if symbol in _UNMAPPED_BASKETS:
         return UnderlyingResolution(
             outcome=UnderlyingOutcome.UNMAPPED_LEVERAGED,
             symbols=(),
