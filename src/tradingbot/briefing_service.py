@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +36,13 @@ from tradingbot.account.base import (
 )
 from tradingbot.data.cache import ParquetCache
 from tradingbot.data.credentials import MissingCredentialsError
+from tradingbot.data.news import (
+    DartFetcher,
+    NewsResult,
+    YahooFetcher,
+    fetch_news,
+    save_news,
+)
 from tradingbot.notify.base import Notifier
 from tradingbot.report.briefing import render_briefing
 from tradingbot.services import update_data
@@ -45,6 +52,8 @@ LOGGER = get_logger(__name__)
 
 ACCOUNT_DIRNAME = "account"
 LOG_DIRNAME = "briefing_log"
+
+NewsFetchers = tuple[DartFetcher | None, YahooFetcher | None, dict[str, str]]
 
 
 @dataclass(frozen=True)
@@ -152,6 +161,8 @@ def run_briefing(
     state_root: str | Path,
     skip_update: bool = False,
     notify: bool = True,
+    news: bool = True,
+    news_fetchers: NewsFetchers | None = None,
 ) -> BriefingResult:
     """One run of the weekly briefing. `notifier` may be None when notify=False."""
     started = datetime.now(timezone.utc)
@@ -182,10 +193,56 @@ def run_briefing(
     if not skip_update:
         _refresh_prices(config, curr, cache, messages)
 
+    news_result: NewsResult | None = None
+    if news:
+        until = curr.as_of.date()
+        since = prev.as_of.date() if prev is not None else until - timedelta(days=7)
+        try:
+            dart, yahoo, corp_codes = news_fetchers or (None, None, {})
+            news_result = fetch_news(
+                curr.holdings,
+                since=since,
+                until=until,
+                dart=dart,
+                yahoo=yahoo,
+                corp_codes=corp_codes,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Optional context must not stop the account briefing.
+            detail = str(exc).strip() or type(exc).__name__
+            news_result = NewsResult(
+                items=(),
+                failures={"collection": detail},
+                dropped={},
+                skipped={},
+            )
+            LOGGER.warning("News collection failed: %s", exc)
+
+        for source, reason in news_result.failures.items():
+            messages.append(f"뉴스 수집에 실패했습니다 ({source}): {reason}")
+
+        try:
+            save_news(news_result, state)
+        except Exception as exc:  # noqa: BLE001
+            # A missing archive must not make the rendered briefing undeliverable.
+            detail = str(exc).strip() or type(exc).__name__
+            messages.append(f"뉴스 기록을 저장하지 못했습니다: {detail}")
+            LOGGER.warning("News store failed: %s", exc)
+            news_result = NewsResult(
+                items=news_result.items,
+                failures={
+                    **news_result.failures,
+                    "store": f"뉴스 기록을 저장하지 못했습니다: {detail}",
+                },
+                dropped=news_result.dropped,
+                skipped=news_result.skipped,
+            )
+
     text = render_briefing(
         curr,
         prev,
         price_history=_price_history(cache, curr, prev.as_of if prev else None),
+        news=news_result,
     )
 
     sent = False

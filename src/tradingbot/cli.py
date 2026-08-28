@@ -176,6 +176,9 @@ def build_parser() -> argparse.ArgumentParser:
     weekly_parser.add_argument(
         "--skip-update", action="store_true", help="가격 캐시 갱신 생략"
     )
+    weekly_parser.add_argument(
+        "--no-news", action="store_true", help="새 소식 수집 및 표시 생략"
+    )
     weekly_parser.set_defaults(handler=cmd_briefing_weekly)
 
     gui_parser = subparsers.add_parser("gui", help="Launch the desktop GUI")
@@ -319,6 +322,7 @@ def cmd_briefing_weekly(args) -> int:
     """
     from tradingbot.briefing_service import build_account_reader, run_briefing
     from tradingbot.data.credentials import MissingCredentialsError
+    from tradingbot.data.news import build_fetchers
     from tradingbot.notify.telegram import build_notifier
     from tradingbot.services import build_cache
 
@@ -336,6 +340,8 @@ def cmd_briefing_weekly(args) -> int:
         print(f"  {exc}")
         return 1
 
+    news_fetchers = None if args.no_news else build_fetchers()
+
     result = run_briefing(
         config,
         reader=reader,
@@ -344,6 +350,8 @@ def cmd_briefing_weekly(args) -> int:
         state_root=state_root,
         skip_update=args.skip_update,
         notify=notify,
+        news=not args.no_news,
+        news_fetchers=news_fetchers,
     )
 
     if result.text:

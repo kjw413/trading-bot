@@ -122,3 +122,51 @@ class TestFailures:
     def test_a_send_failure_keeps_the_snapshot(self, tmp_path):
         run(tmp_path, notifier=FakeNotifier(exc=NotifyError("no network")))
         assert len(list((tmp_path / "account").glob("*.json"))) == 1
+
+
+def test_a_news_failure_is_reported_and_the_briefing_still_renders(tmp_path):
+    calls = []
+
+    def failing_dart(corp_code, since, until):
+        calls.append((corp_code, since, until))
+        raise TimeoutError("DART timed out")
+
+    notifier = FakeNotifier()
+    result = run(
+        tmp_path,
+        notifier=notifier,
+        news_fetchers=(failing_dart, None, {"005930": "00126380"}),
+    )
+
+    until = snapshot(15).as_of.date()
+    assert calls == [("00126380", until - timedelta(days=7), until)]
+    assert result.ok and result.sent
+    assert notifier.sent == [result.text]
+    assert "[새 소식]" in result.text
+    assert "DART timed out" in result.text
+    assert "계좌 숫자는 영향받지 않습니다." in result.text
+    assert "DART timed out" in " ".join(result.messages)
+    assert (tmp_path / "news" / "latest.json").is_file()
+
+
+def test_no_news_flag_skips_the_fetch_entirely(monkeypatch, tmp_path, capsys):
+    from tradingbot.cli import build_parser
+
+    def unexpected_build():
+        raise AssertionError("--no-news must not build live fetchers")
+
+    monkeypatch.setattr("tradingbot.cli.load_config", lambda _path: {})
+    monkeypatch.setattr("tradingbot.cli.resolve_project_path", lambda _path: tmp_path)
+    monkeypatch.setattr(
+        "tradingbot.briefing_service.build_account_reader", lambda _root: FakeReader()
+    )
+    monkeypatch.setattr("tradingbot.data.news.build_fetchers", unexpected_build)
+    monkeypatch.setattr("tradingbot.services.build_cache", lambda _config: None)
+
+    args = build_parser().parse_args(
+        ["briefing", "weekly", "--dry-run", "--skip-update", "--no-news"]
+    )
+
+    assert args.handler(args) == 0
+    assert "[새 소식]" not in capsys.readouterr().out
+    assert not (tmp_path / "news").exists()

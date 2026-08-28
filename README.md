@@ -233,7 +233,17 @@ Register-ScheduledTask -TaskName "TradingBot Paper KR" -Action $action -Trigger 
 .\.venv\Scripts\python.exe -m tradingbot briefing weekly
 .\.venv\Scripts\python.exe -m tradingbot briefing weekly --dry-run      # 렌더까지만, 전송 안 함
 .\.venv\Scripts\python.exe -m tradingbot briefing weekly --skip-update  # 가격 기록 갱신 생략
+.\.venv\Scripts\python.exe -m tradingbot briefing weekly --no-news      # 새 소식 수집·표시 생략
 ```
+
+### 새 소식
+
+브리핑의 `[새 소식]`에는 계좌에 보유한 종목과 관련해 같은 보고 기간에 올라온 국내 공시와
+미국 뉴스의 날짜, 제목, 출처, 링크가 표시됩니다. 새 소식이 필요하지 않으면 `--no-news`를
+사용하면 되며, 이때는 뉴스 소스를 만들거나 호출하지 않고 섹션도 표시하지 않습니다.
+
+`DART_API_KEY`는 선택 사항입니다. 키가 없으면 실행이 실패하지 않고 국내 공시만 건너뛰며,
+브리핑에는 `DART_API_KEY`가 없어 확인하지 못했다는 이유가 표시됩니다.
 
 **언제 켜면 되는가.** 미국 금요일 장은 **한국 시간 토요일 새벽에 닫힙니다.** 한 주를 온전히 담으려면 **토요일 아침 이후**에 켜세요. 금요일 밤에 켜면 미국 쪽 마지막 하루가 빠집니다.
 
