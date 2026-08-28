@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Mapping, Protocol, Sequence
 
 from tradingbot.account.base import Holding
-from tradingbot.data.fundamentals import Disclosure
+from tradingbot.data.credentials import MissingCredentialsError, require_env
+from tradingbot.data.fundamentals import DartClient, Disclosure, requests_transport
 
 DART_VIEWER_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 PER_SYMBOL = 3
@@ -292,6 +293,35 @@ def fetch_news(
         dropped=dropped,
         skipped=skipped,
     )
+
+
+def build_fetchers() -> tuple[
+    DartFetcher | None, YahooFetcher | None, dict[str, str]
+]:
+    """Build optional live sources without making a network request."""
+    try:
+        dart_api_key = require_env(
+            "DART_API_KEY",
+            hint=(
+                "Get a free key at https://opendart.fss.or.kr and set it as an "
+                "environment variable; never commit it to the repository."
+            ),
+        )
+    except MissingCredentialsError:
+        dart: DartFetcher | None = None
+    else:
+        dart = DartClient(dart_api_key, requests_transport()).disclosure_list
+
+    try:
+        import yfinance
+    except ImportError:
+        yahoo: YahooFetcher | None = None
+    else:
+
+        def yahoo(ticker: str) -> list[dict]:
+            return yfinance.Ticker(ticker).get_news(count=10)
+
+    return dart, yahoo, {}
 
 
 def _news_path(root: str | Path) -> Path:

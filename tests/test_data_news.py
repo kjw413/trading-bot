@@ -466,3 +466,87 @@ class TestStore:
 
         with pytest.raises(ValueError, match="Corrupt news result"):
             load_news(tmp_path)
+
+
+class TestBuildFetchers:
+    @staticmethod
+    def _missing_dart_key(name: str, *, hint: str) -> str:
+        assert name == "DART_API_KEY"
+        assert hint
+        raise news_module.MissingCredentialsError("DART_API_KEY is not set")
+
+    def test_configured_dart_wraps_the_existing_disclosure_client(self, monkeypatch):
+        def transport(url: str, params: dict) -> dict:
+            assert url.endswith("/list.json")
+            assert params["corp_code"] == "00126380"
+            assert params["bgn_de"] == "20260801"
+            assert params["end_de"] == "20260807"
+            return {
+                "status": "000",
+                "total_count": 1,
+                "list": [
+                    {
+                        "rcept_no": "20260805000123",
+                        "report_nm": "주요사항보고서",
+                        "rcept_dt": "20260805",
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(
+            news_module,
+            "require_env",
+            lambda name, *, hint: "test-dart-key",
+        )
+        monkeypatch.setattr(news_module, "requests_transport", lambda: transport)
+
+        dart, _, corp_codes = news_module.build_fetchers()
+
+        assert dart is not None
+        assert dart.__self__.transport is transport
+        assert dart.__func__ is news_module.DartClient.disclosure_list
+        assert dart("00126380", date(2026, 8, 1), date(2026, 8, 7)) == [
+            Disclosure(
+                rcept_no="20260805000123",
+                report_name="주요사항보고서",
+                rcept_dt=date(2026, 8, 5),
+            )
+        ]
+        assert corp_codes == {}
+
+    def test_unconfigured_dart_is_none(self, monkeypatch):
+        monkeypatch.setattr(news_module, "require_env", self._missing_dart_key)
+
+        dart, _, _ = news_module.build_fetchers()
+
+        assert dart is None
+
+    def test_configured_yahoo_returns_the_raw_get_news_list(self, monkeypatch):
+        payload = [yahoo_article("AAPL headline", date(2026, 8, 5))]
+        calls: list[tuple[str, int]] = []
+
+        class FakeTicker:
+            def __init__(self, ticker: str):
+                self.ticker = ticker
+
+            def get_news(self, *, count: int) -> list[dict]:
+                calls.append((self.ticker, count))
+                return payload
+
+        fake_yfinance = __import__("types").SimpleNamespace(Ticker=FakeTicker)
+        monkeypatch.setattr(news_module, "require_env", self._missing_dart_key)
+        monkeypatch.setitem(__import__("sys").modules, "yfinance", fake_yfinance)
+
+        _, yahoo, _ = news_module.build_fetchers()
+
+        assert yahoo is not None
+        assert yahoo("AAPL") is payload
+        assert calls == [("AAPL", 10)]
+
+    def test_unavailable_yfinance_makes_yahoo_none(self, monkeypatch):
+        monkeypatch.setattr(news_module, "require_env", self._missing_dart_key)
+        monkeypatch.setitem(__import__("sys").modules, "yfinance", None)
+
+        _, yahoo, _ = news_module.build_fetchers()
+
+        assert yahoo is None
