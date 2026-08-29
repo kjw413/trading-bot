@@ -496,6 +496,8 @@ def _numeric_threshold(value: object) -> float:
 
 
 def _promotion_verdict(criteria: Sequence[dict[str, Any]]) -> PromotionVerdict:
+    if not criteria:
+        return PromotionVerdict.UNMEASURABLE
     if any(criterion["passed"] is False for criterion in criteria):
         return PromotionVerdict.FAIL
     if any(criterion["passed"] is None for criterion in criteria):

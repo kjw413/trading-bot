@@ -584,6 +584,16 @@ class TestPromotionRecordFromReport:
 
         assert record.verdict is expected
 
+    def test_an_empty_criteria_list_is_unmeasurable(self):
+        record = promotion_record_from_report(
+            self._report([]),
+            evaluated_at=datetime(2026, 8, 29, 12, 0, tzinfo=UTC),
+            commit="abc123",
+            report_path="reports/evaluation/report.md",
+        )
+
+        assert record.verdict is PromotionVerdict.UNMEASURABLE
+
     def test_a_failed_criterion_wins_over_an_unmeasurable_one(self):
         criteria = [
             {
