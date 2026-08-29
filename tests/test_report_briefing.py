@@ -32,6 +32,17 @@ def snap(day, holdings=None, cash=300_000.0, usd=1350.0, hour=9):
 
 NOW = datetime(2026, 8, 15, 10, 0, tzinfo=KST)
 
+KNOWN_LEVERAGE_SENTENCE = (
+    "- SOXL은 하루 단위로 3배 움직임을 목표로 하는 상품입니다. "
+    "여러 날을 합치면 기준 가격 움직임의 정확히 3배가 아니며, "
+    "오래 들고 있을수록 차이가 커집니다."
+)
+UNKNOWN_LEVERAGE_SENTENCE = (
+    "- SPCX는 등록된 상품이지만 목표 배수를 확인하지 못했습니다. "
+    "1배 상품으로 가정하지 않습니다."
+)
+UNREGISTERED_LEVERAGE_SENTENCE = "- 005930은 상품 배수가 등록되지 않았습니다."
+
 
 def news_item(
     *,
@@ -106,11 +117,26 @@ class TestContent:
     def test_a_leveraged_etf_gets_its_warning(self):
         soxl = h(symbol="SOXL", currency="USD", market="US", avg=20.0, last=30.0)
         text = render_briefing(snap(15, [soxl]), snap(1, [soxl]), now=NOW)
-        assert "3배" in text
+        assert KNOWN_LEVERAGE_SENTENCE in text
+        assert UNKNOWN_LEVERAGE_SENTENCE not in text
 
-    def test_no_leveraged_warning_when_none_is_held(self):
-        text = render_briefing(snap(15), snap(1), now=NOW)
+    def test_a_two_times_product_gets_its_warning(self):
+        ggll = h(symbol="GGLL", currency="USD", market="US", avg=20.0, last=30.0)
+        text = render_briefing(snap(15, [ggll]), snap(1, [ggll]), now=NOW)
+        assert "2배" in text
+
+    def test_an_unknown_multiple_gets_its_own_warning(self):
+        spcx = h(symbol="SPCX", currency="USD", market="US", avg=20.0, last=30.0)
+        text = render_briefing(snap(15, [spcx]), snap(1, [spcx]), now=NOW)
+        assert UNKNOWN_LEVERAGE_SENTENCE in text
+        assert KNOWN_LEVERAGE_SENTENCE not in text
         assert "3배" not in text
+
+    def test_an_unregistered_unlevered_holding_gets_its_own_sentence(self):
+        text = render_briefing(snap(15), snap(1), now=NOW)
+        assert KNOWN_LEVERAGE_SENTENCE not in text
+        assert UNKNOWN_LEVERAGE_SENTENCE not in text
+        assert UNREGISTERED_LEVERAGE_SENTENCE in text
 
     def test_a_long_gap_is_called_out(self):
         text = render_briefing(snap(30), snap(1), now=datetime(2026, 8, 30, 10, 0, tzinfo=KST))

@@ -26,6 +26,7 @@ import pandas as pd
 from tradingbot.account.base import AccountSnapshot
 from tradingbot.account.returns import IntervalReturn, holding_return, interval_return
 from tradingbot.data.news import NewsResult
+from tradingbot.instruments import INSTRUMENTS, LeverageState
 from tradingbot.report import glossary
 
 SECTIONS: tuple[str, ...] = ("summary", "totals", "holdings", "trend", "news", "notes")
@@ -33,11 +34,6 @@ SECTIONS: tuple[str, ...] = ("summary", "totals", "holdings", "trend", "news", "
 # How far the broker's own timestamp may lag our clock before the reader is
 # told the numbers may not be current.
 STALE_AFTER = timedelta(hours=6)
-
-# Daily-reset leveraged ETFs. Held over more than a day, the multiple does
-# not hold — which is exactly the misunderstanding plain wording has to
-# prevent, and it starts the moment one of these is in the account.
-_LEVERAGED = {"SOXL", "SOXS", "TECL", "TECS", "TQQQ", "SQQQ", "FNGU", "LABU", "SPXL"}
 
 _MARKET_NAMES = {"KR": "한국", "US": "미국"}
 _CURRENCY_NAMES = {"KRW": "원", "USD": "달러"}
@@ -259,11 +255,35 @@ def _render_notes(ctx: _Context) -> list[str]:
             "주가가 그대로여도 숫자가 움직일 수 있습니다."
         )
 
-    if {held.symbol.upper() for held in ctx.curr.holdings} & _LEVERAGED:
+    known_leverage_products: set[tuple[str, float]] = set()
+    unknown_leverage_symbols: set[str] = set()
+    unregistered_symbols: set[str] = set()
+    for held in ctx.curr.holdings:
+        symbol = held.symbol.strip().upper()
+        instrument = INSTRUMENTS.get(symbol)
+        if instrument is None:
+            unregistered_symbols.add(symbol)
+            continue
+        if instrument.leverage is LeverageState.UNKNOWN:
+            unknown_leverage_symbols.add(symbol)
+        elif abs(instrument.leverage) > 1.0:
+            known_leverage_products.add((symbol, instrument.leverage))
+
+    for symbol, multiple in sorted(known_leverage_products):
         notes.append(
-            "- 3배 ETF는 하루 단위로 3배라서, 여러 날을 합치면 기초지수의 정확히 "
-            "3배가 아닙니다. 오래 들고 있을수록 차이가 커집니다."
+            f"- {symbol}은 하루 단위로 {multiple:g}배 움직임을 목표로 하는 상품입니다. "
+            f"여러 날을 합치면 기준 가격 움직임의 정확히 {multiple:g}배가 아니며, "
+            "오래 들고 있을수록 차이가 커집니다."
         )
+
+    for symbol in sorted(unknown_leverage_symbols):
+        notes.append(
+            f"- {symbol}는 등록된 상품이지만 목표 배수를 확인하지 못했습니다. "
+            "1배 상품으로 가정하지 않습니다."
+        )
+
+    for symbol in sorted(unregistered_symbols):
+        notes.append(f"- {symbol}은 상품 배수가 등록되지 않았습니다.")
 
     if ctx.curr.fx_source != "broker":
         notes.append(
