@@ -7,8 +7,19 @@ import pytest
 
 from tradingbot.account.base import AccountSnapshot, Holding
 from tradingbot.data.news import NewsItem, NewsResult, find_causal_terms
+from tradingbot.proposal import (
+    NoProposalReason,
+    PassedNoChange,
+    Proposal,
+    Refusal,
+)
 from tradingbot.report import glossary
 from tradingbot.report.briefing import render_briefing, split_for_telegram
+from tradingbot.research.promotion_ledger import (
+    CriterionResult,
+    PromotionRecord,
+    Verdict,
+)
 
 KST = timezone(timedelta(hours=9))
 
@@ -69,6 +80,45 @@ def news_result(*items, failures=None, dropped=None, skipped=None):
         dropped=dropped or {},
         skipped=skipped or {},
     )
+
+
+def promotion_basis(*, passed: bool, symbol: str = "005930") -> PromotionRecord:
+    return PromotionRecord(
+        strategy="briefing_test",
+        market="KR",
+        universe=(symbol,),
+        verdict=Verdict.PASS if passed else Verdict.FAIL,
+        criteria=(
+            CriterionResult(
+                "excess_return" if passed else "max_drawdown",
+                0.10 if passed else 0.25,
+                0.12 if passed else 0.41,
+                passed,
+            ),
+        ),
+        cadence="weekly",
+        rejected_orders=0,
+        total_orders=10,
+        evaluated_at=NOW,
+        commit="current",
+        report_path="reports/evaluation.md",
+    )
+
+
+def refusal(reason: NoProposalReason, *, symbol: str = "005930") -> Refusal:
+    basis = (
+        promotion_basis(passed=False, symbol=symbol)
+        if reason is NoProposalReason.DID_NOT_PASS
+        else None
+    )
+    return Refusal(symbol, reason, "internal detail must not be rendered", basis)
+
+
+def proposal_block(text: str) -> list[str]:
+    block = next(
+        block for block in text.split("\n\n") if block.startswith("[이번 주 판단]")
+    )
+    return block.splitlines()[1:]
 
 
 class TestPlainLanguage:
@@ -253,6 +303,135 @@ class TestNewsSection:
         assert len(parts) > 1
         assert parts[-1].startswith("[새 소식]")
         assert all(len(part) <= 4096 for part in parts)
+
+
+class TestProposalSection:
+    REFUSAL_SENTENCES = {
+        NoProposalReason.NEVER_EVALUATED: (
+            "- 005930: 아직 아무도 이 보유 종목의 성과를 재보지 않았고, "
+            "다음 단계는 평가 실행입니다."
+        ),
+        NoProposalReason.DID_NOT_PASS: (
+            "- 005930: 성과를 재봤지만 가장 크게 줄어든 폭 기준에 미치지 "
+            "못했으며, 전략을 고친 뒤 다시 평가해야 합니다."
+        ),
+        NoProposalReason.UNMEASURABLE: (
+            "- 005930: 평가를 시도했지만 자료가 판단을 뒷받침하지 못했으며, "
+            "충분한 자료를 갖춘 뒤 다시 평가해야 합니다."
+        ),
+        NoProposalReason.STALE_RECORD: (
+            "- 005930: 통과한 기록은 있지만 그 뒤 코드가 바뀌었으며, 지금 "
+            "코드로 평가를 다시 실행해야 합니다."
+        ),
+        NoProposalReason.CADENCE_MISMATCH: (
+            "- 005930: 통과한 기록의 점검 주기가 이번 브리핑과 다르며, 이번 "
+            "브리핑과 같은 주기로 다시 평가해야 합니다."
+        ),
+        NoProposalReason.DISCRETIONARY_HOLDING: (
+            "- 005930: 이 보유 종목은 구조상 앞으로도 봇이 측정할 수 없는 "
+            "재량 보유이며, 기다리지 말고 사람이 계속 판단해야 합니다."
+        ),
+    }
+    HOLD_SENTENCE = (
+        "- 005930: 평가를 통과해 정상적으로 작동하고 있으며, 이번 주에는 "
+        "보유한 그대로 유지하세요."
+    )
+
+    def test_the_section_is_absent_when_no_proposal_is_given(self):
+        omitted = render_briefing(snap(15), snap(1), now=NOW)
+        explicit_none = render_briefing(
+            snap(15), snap(1), proposal=None, now=NOW
+        )
+        assert explicit_none == omitted
+        assert "[이번 주 판단]" not in omitted
+
+    def test_each_refusal_has_its_own_actionable_sentence(self):
+        rendered = {}
+        for reason, expected in self.REFUSAL_SENTENCES.items():
+            text = render_briefing(
+                snap(15),
+                snap(1),
+                proposal=Proposal((refusal(reason),)),
+                now=NOW,
+            )
+            rendered[reason] = proposal_block(text)[0]
+            assert rendered[reason] == expected
+
+        assert len(rendered) == len(NoProposalReason) == 6
+        assert len(set(rendered.values())) == 6
+
+    def test_a_successful_hold_is_distinct_from_every_refusal(self):
+        decision = PassedNoChange(
+            "005930", promotion_basis(passed=True), "internal detail"
+        )
+        text = render_briefing(
+            snap(15), snap(1), proposal=Proposal((decision,)), now=NOW
+        )
+        rendered = proposal_block(text)[0]
+        assert rendered == self.HOLD_SENTENCE
+        assert rendered not in self.REFUSAL_SENTENCES.values()
+        assert "보유한 그대로 유지하세요" in rendered
+
+    def test_a_discretionary_holding_reads_as_permanent(self):
+        text = render_briefing(
+            snap(15),
+            snap(1),
+            proposal=Proposal(
+                (refusal(NoProposalReason.DISCRETIONARY_HOLDING),)
+            ),
+            now=NOW,
+        )
+        rendered = proposal_block(text)[0]
+        assert "구조상 앞으로도" in rendered
+        assert "기다리지 말고" in rendered
+
+    def test_measurable_and_discretionary_holdings_both_appear(self):
+        soxl = h(
+            symbol="SOXL", currency="USD", market="US", avg=20.0, last=30.0
+        )
+        fngu = h(
+            symbol="FNGU", currency="USD", market="US", avg=100.0, last=120.0
+        )
+        proposal = Proposal(
+            (
+                PassedNoChange(
+                    "SOXL",
+                    promotion_basis(passed=True, symbol="SOXL"),
+                    "internal detail",
+                ),
+                refusal(
+                    NoProposalReason.DISCRETIONARY_HOLDING, symbol="FNGU"
+                ),
+            )
+        )
+        lines = proposal_block(
+            render_briefing(
+                snap(15, [soxl, fngu]),
+                snap(1, [soxl, fngu]),
+                proposal=proposal,
+                now=NOW,
+            )
+        )
+        assert lines == [
+            self.HOLD_SENTENCE.replace("005930", "SOXL"),
+            self.REFUSAL_SENTENCES[
+                NoProposalReason.DISCRETIONARY_HOLDING
+            ].replace("005930", "FNGU"),
+        ]
+
+    def test_the_section_passes_the_language_rules(self):
+        decisions = tuple(refusal(reason) for reason in NoProposalReason) + (
+            PassedNoChange(
+                "005930", promotion_basis(passed=True), "internal detail"
+            ),
+        )
+        rendered = render_briefing(
+            snap(15), snap(1), proposal=Proposal(decisions), now=NOW
+        )
+        assert glossary.find_banned_terms(rendered) == []
+        assert find_causal_terms(rendered) == []
+        block = "\n".join(proposal_block(rendered)).casefold()
+        assert all(word not in block for word in ("매수", "매도", "buy", "sell"))
 
 
 class TestSplitForTelegram:

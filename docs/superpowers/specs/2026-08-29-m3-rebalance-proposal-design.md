@@ -211,13 +211,13 @@ def propose_rebalance(snapshot, *, ledger_root, current_commit,
                       price_history=None, now=None) -> Proposal
 ```
 
-`refusals`가 종목별인 것이 §2의 결론을 담는다.
+`refusals`가 종목별인 것이 §2의 결론을 담는다. 한 계좌 안에서 어떤 보유는 측정 가능하고 어떤 보유는 영구 재량이다.
 
 §3.3의 **실행 불가능한 구간**은 이 목록에 없다. 그것은 보유 하나에 대한 판정이
 아니라 전략이 요구하는 다리를 계좌가 실행할 수 없다는 사실이므로, 목표 비중이
 생기는 Task 8 단계에서 다뤄진다. 초안에 있던 `INSUFFICIENT_DATA`도 뺐다 —
 `UNMEASURABLE`(재봤으나 데이터 부족)과 `DISCRETIONARY_HOLDING`(앞으로도 불가)이
-이미 그 공간을 정확히 나눠 갖고 있어서, 셋째 값은 경계를 흐릴 뿐이다. 한 계좌 안에서 어떤 보유는 측정 가능하고 어떤 보유는 영구 재량이다.
+이미 그 공간을 정확히 나눠 갖고 있어서, 셋째 값은 경계를 흐릴 뿐이다.
 
 ### `src/tradingbot/report/briefing.py` (수정)
 

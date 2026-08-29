@@ -27,9 +27,18 @@ from tradingbot.account.base import AccountSnapshot
 from tradingbot.account.returns import IntervalReturn, holding_return, interval_return
 from tradingbot.data.news import NewsResult
 from tradingbot.instruments import INSTRUMENTS, LeverageState
+from tradingbot.proposal import NoProposalReason, PassedNoChange, Proposal, Refusal
 from tradingbot.report import glossary
 
-SECTIONS: tuple[str, ...] = ("summary", "totals", "holdings", "trend", "news", "notes")
+SECTIONS: tuple[str, ...] = (
+    "summary",
+    "totals",
+    "holdings",
+    "trend",
+    "news",
+    "proposal",
+    "notes",
+)
 
 # How far the broker's own timestamp may lag our clock before the reader is
 # told the numbers may not be current.
@@ -48,6 +57,7 @@ class _Context:
     now: datetime
     long_gap_days: int
     news: NewsResult | None
+    proposal: Proposal | None
 
 
 def _money(value: float, currency: str) -> str:
@@ -246,6 +256,94 @@ def _render_news(ctx: _Context) -> list[str]:
     return lines
 
 
+_CRITERION_NAMES = {
+    "excess_return": "비교 대상보다 더 번 정도",
+    "sharpe": "위험을 함께 본 성과",
+    "max_drawdown": "가장 크게 줄어든 폭",
+    "annual_turnover": "한 해 동안 보유 종목을 바꾼 정도",
+    "walk_forward_win_rate": "기간을 나눠 다시 확인했을 때 나았던 비율",
+}
+
+
+def _plain_criterion_name(name: str) -> str:
+    known = _CRITERION_NAMES.get(name)
+    if known is not None:
+        return known
+    prefix = "excess_return_at_"
+    suffix = "x_costs"
+    if name.startswith(prefix) and name.endswith(suffix):
+        multiple = name.removeprefix(prefix).removesuffix(suffix)
+        return f"비용을 {multiple}배로 잡았을 때 비교 대상보다 더 번 정도"
+    return "평가 기록에 이름이 남지 않은 기준"
+
+
+def _failed_criterion_names(refusal: Refusal) -> str:
+    if refusal.basis is None:
+        return "평가 기록에 이름이 남지 않은 기준"
+    names = [
+        f"{_plain_criterion_name(criterion.name)} 기준"
+        for criterion in refusal.basis.criteria
+        if criterion.passed is False
+    ]
+    if not names:
+        return "평가 기록에 이름이 남지 않은 기준"
+    return ", ".join(names)
+
+
+def _render_proposal_decision(decision: Refusal | PassedNoChange) -> str:
+    symbol = decision.symbol
+    if isinstance(decision, PassedNoChange):
+        return (
+            f"- {symbol}: 평가를 통과해 정상적으로 작동하고 있으며, 이번 주에는 "
+            "보유한 그대로 유지하세요."
+        )
+
+    if decision.reason is NoProposalReason.NEVER_EVALUATED:
+        return (
+            f"- {symbol}: 아직 아무도 이 보유 종목의 성과를 재보지 않았고, "
+            "다음 단계는 평가 실행입니다."
+        )
+    if decision.reason is NoProposalReason.DID_NOT_PASS:
+        criteria = _failed_criterion_names(decision)
+        return (
+            f"- {symbol}: 성과를 재봤지만 {criteria}에 미치지 못했으며, "
+            "전략을 고친 뒤 다시 평가해야 합니다."
+        )
+    if decision.reason is NoProposalReason.UNMEASURABLE:
+        return (
+            f"- {symbol}: 평가를 시도했지만 자료가 판단을 뒷받침하지 못했으며, "
+            "충분한 자료를 갖춘 뒤 다시 평가해야 합니다."
+        )
+    if decision.reason is NoProposalReason.STALE_RECORD:
+        return (
+            f"- {symbol}: 통과한 기록은 있지만 그 뒤 코드가 바뀌었으며, 지금 "
+            "코드로 평가를 다시 실행해야 합니다."
+        )
+    if decision.reason is NoProposalReason.CADENCE_MISMATCH:
+        return (
+            f"- {symbol}: 통과한 기록의 점검 주기가 이번 브리핑과 다르며, 이번 "
+            "브리핑과 같은 주기로 다시 평가해야 합니다."
+        )
+    if decision.reason is NoProposalReason.DISCRETIONARY_HOLDING:
+        return (
+            f"- {symbol}: 이 보유 종목은 구조상 앞으로도 봇이 측정할 수 없는 "
+            "재량 보유이며, 기다리지 말고 사람이 계속 판단해야 합니다."
+        )
+    raise ValueError(f"unknown proposal reason: {decision.reason!r}")
+
+
+def _render_proposal(ctx: _Context) -> list[str]:
+    if ctx.proposal is None or not ctx.proposal.decisions:
+        return []
+    return [
+        "[이번 주 판단]",
+        *(
+            _render_proposal_decision(decision)
+            for decision in ctx.proposal.decisions
+        ),
+    ]
+
+
 def _render_notes(ctx: _Context) -> list[str]:
     notes: list[str] = []
 
@@ -315,6 +413,7 @@ _RENDERERS: dict[str, Callable[[_Context], list[str]]] = {
     "holdings": _render_holdings,
     "trend": _render_trend,
     "news": _render_news,
+    "proposal": _render_proposal,
     "notes": _render_notes,
 }
 
@@ -325,6 +424,7 @@ def render_briefing(
     *,
     price_history: dict[str, Any] | None = None,
     news: NewsResult | None = None,
+    proposal: Proposal | None = None,
     now: datetime | None = None,
     long_gap_days: int = 14,
 ) -> str:
@@ -342,6 +442,7 @@ def render_briefing(
         now=now if now is not None else datetime.now(curr.as_of.tzinfo),
         long_gap_days=long_gap_days,
         news=news,
+        proposal=proposal,
     )
     blocks = []
     for name in SECTIONS:
