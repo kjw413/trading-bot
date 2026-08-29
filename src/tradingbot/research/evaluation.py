@@ -15,11 +15,16 @@ from __future__ import annotations
 import copy
 import math
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from tradingbot.report.metrics import annual_turnover, calculate_metrics
+from tradingbot.research.promotion_ledger import (
+    CriterionResult as PromotionCriterionResult,
+    PromotionRecord,
+    Verdict as PromotionVerdict,
+)
 from tradingbot.research.walk_forward import WalkForwardWindow, walk_forward_windows
 from tradingbot.services import run_backtest
 from tradingbot.utils.log import get_logger
@@ -353,6 +358,7 @@ def evaluate_strategy(
     costs, walks rolling out-of-sample windows, and judges the result.
     """
     promotion = research["promotion"]
+    cadence = str(config["strategies"][strategy_name]["rebalance"])
     multiplier = float(promotion["cost_multiplier_check"])
     # A caller that omits --benchmark-config gets `benchmark_config is config`
     # (see cmd_research_evaluate) — the report must say so, since it makes
@@ -422,6 +428,7 @@ def evaluate_strategy(
         "strategy_name": strategy_name,
         "market": market.upper(),
         "symbols": list(symbols),
+        "cadence": cadence,
         "period": {"start": start, "end": end},
         # Recorded so the reproduction command can name the configs that
         # produced these numbers. Excess return is measured against whatever
@@ -475,6 +482,63 @@ def evaluate_strategy(
             ],
         },
     }
+
+
+def _numeric_threshold(value: object) -> float:
+    """Return the numeric part of an evaluator threshold such as ``">= 0.5"``."""
+    if not isinstance(value, str):
+        return float(value)
+
+    parts = value.split(maxsplit=1)
+    if len(parts) != 2 or parts[0] not in {">=", "<="}:
+        raise ValueError(f"Invalid evaluation threshold: {value!r}")
+    return float(parts[1])
+
+
+def _promotion_verdict(criteria: Sequence[dict[str, Any]]) -> PromotionVerdict:
+    if any(criterion["passed"] is False for criterion in criteria):
+        return PromotionVerdict.FAIL
+    if any(criterion["passed"] is None for criterion in criteria):
+        return PromotionVerdict.UNMEASURABLE
+    return PromotionVerdict.PASS
+
+
+def promotion_record_from_report(
+    report: dict[str, Any],
+    *,
+    evaluated_at: datetime,
+    commit: str,
+    report_path: str | Path,
+) -> PromotionRecord:
+    """Translate an evaluation report into the ledger's stable data contract."""
+    criteria = report["verdict"]["criteria"]
+    ledger_criteria = []
+    for criterion in criteria:
+        measured = criterion["measured"]
+        measured_value = None if math.isnan(float(measured)) else float(measured)
+        ledger_criteria.append(
+            PromotionCriterionResult(
+                name=criterion["name"],
+                threshold=_numeric_threshold(criterion["threshold"]),
+                measured=measured_value,
+                passed=criterion["passed"],
+            )
+        )
+
+    rejected_orders = int(report["strategy"]["rejected_orders"])
+    return PromotionRecord(
+        strategy=report["strategy_name"],
+        market=report["market"],
+        universe=tuple(report["symbols"]),
+        verdict=_promotion_verdict(criteria),
+        criteria=tuple(ledger_criteria),
+        cadence=report["cadence"],
+        rejected_orders=rejected_orders,
+        total_orders=int(report["strategy"]["trades"]) + rejected_orders,
+        evaluated_at=evaluated_at,
+        commit=commit,
+        report_path=str(report_path),
+    )
 
 
 def _verdict_sentence(report: dict[str, Any]) -> str:

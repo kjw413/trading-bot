@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import date
+from datetime import UTC, date, datetime
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -10,7 +11,17 @@ import pytest
 from tradingbot.cli import build_parser, cmd_research_evaluate
 from tradingbot.engine.engine import BacktestResult
 from tradingbot.models import Fill, OrderSide
-from tradingbot.research.evaluation import _verdict_sentence, evaluate_strategy, render_markdown
+from tradingbot.research.evaluation import (
+    _verdict_sentence,
+    evaluate_strategy,
+    promotion_record_from_report,
+    render_markdown,
+)
+from tradingbot.research.promotion_ledger import (
+    Verdict as PromotionVerdict,
+    latest_promotion,
+    record_promotion,
+)
 
 RESEARCH = {
     "promotion": {
@@ -24,7 +35,12 @@ RESEARCH = {
     "walk_forward": {"train_years": 3, "test_years": 1, "step_years": 1},
 }
 
-CONFIG = {"marker": "strategy", "fees": {"US": {"commission_rate": 0.001}}, "execution": {"slippage_bps": 5}}
+CONFIG = {
+    "marker": "strategy",
+    "fees": {"US": {"commission_rate": 0.001}},
+    "execution": {"slippage_bps": 5},
+    "strategies": {"theme_multifactor": {"rebalance": "monthly"}},
+}
 BENCHMARK = {"marker": "benchmark", "fees": {"US": {"commission_rate": 0.001}}, "execution": {"slippage_bps": 5}}
 
 
@@ -508,6 +524,120 @@ class TestVerdictSentenceUnmeasured:
         assert "백테스트가 실패했다는 뜻이 아닙니다" not in _verdict_sentence(report)
 
 
+class TestPromotionRecordFromReport:
+    @staticmethod
+    def _report(criteria):
+        return {
+            "strategy_name": "theme_multifactor",
+            "market": "US",
+            "symbols": ["SPY", "QQQ"],
+            "cadence": "monthly",
+            "strategy": {"trades": 8, "rejected_orders": 2},
+            "verdict": {"criteria": criteria},
+        }
+
+    @pytest.mark.parametrize(
+        ("criteria", "expected"),
+        [
+            (
+                [
+                    {
+                        "name": "sharpe",
+                        "threshold": ">= 0.5",
+                        "measured": 0.7,
+                        "passed": True,
+                    }
+                ],
+                PromotionVerdict.PASS,
+            ),
+            (
+                [
+                    {
+                        "name": "sharpe",
+                        "threshold": ">= 0.5",
+                        "measured": 0.2,
+                        "passed": False,
+                    }
+                ],
+                PromotionVerdict.FAIL,
+            ),
+            (
+                [
+                    {
+                        "name": "sharpe",
+                        "threshold": ">= 0.5",
+                        "measured": float("nan"),
+                        "passed": None,
+                    }
+                ],
+                PromotionVerdict.UNMEASURABLE,
+            ),
+        ],
+    )
+    def test_maps_each_evaluation_verdict(self, criteria, expected):
+        record = promotion_record_from_report(
+            self._report(criteria),
+            evaluated_at=datetime(2026, 8, 29, 12, 0, tzinfo=UTC),
+            commit="abc123",
+            report_path="reports/evaluation/report.md",
+        )
+
+        assert record.verdict is expected
+
+    def test_a_failed_criterion_wins_over_an_unmeasurable_one(self):
+        criteria = [
+            {
+                "name": "sharpe",
+                "threshold": ">= 0.5",
+                "measured": 0.2,
+                "passed": False,
+            },
+            {
+                "name": "walk_forward_win_rate",
+                "threshold": ">= 0.6",
+                "measured": float("nan"),
+                "passed": None,
+            },
+        ]
+
+        record = promotion_record_from_report(
+            self._report(criteria),
+            evaluated_at=datetime(2026, 8, 29, 12, 0, tzinfo=UTC),
+            commit="abc123",
+            report_path="reports/evaluation/report.md",
+        )
+
+        assert record.verdict is PromotionVerdict.FAIL
+
+    def test_nan_cadence_and_order_counts_round_trip(self, tmp_path):
+        criteria = [
+            {
+                "name": "walk_forward_win_rate",
+                "threshold": ">= 0.6",
+                "measured": float("nan"),
+                "passed": None,
+            }
+        ]
+        record = promotion_record_from_report(
+            self._report(criteria),
+            evaluated_at=datetime(2026, 8, 29, 12, 0, tzinfo=UTC),
+            commit="abc123",
+            report_path="reports/evaluation/report.md",
+        )
+
+        path = record_promotion(record, tmp_path)
+        loaded = latest_promotion(record.strategy, record.market, tmp_path)
+
+        assert loaded is not None
+        assert loaded.criteria[0].measured is None
+        assert loaded.cadence == "monthly"
+        assert loaded.rejected_orders == 2
+        assert loaded.total_orders == 10
+        assert loaded.commit == "abc123"
+        assert '"measured": null' in path.read_text(encoding="utf-8")
+        assert "NaN" not in path.read_text(encoding="utf-8")
+
+
 class TestCli:
     def test_parser_wires_research_evaluate(self):
         parser = build_parser()
@@ -560,7 +690,12 @@ class TestCmdResearchEvaluateWiring:
     def invoke(self, tmp_path, monkeypatch):
         import tradingbot.research.evaluation as evaluation_module
 
-        state: dict[str, object] = {"data_roots": [], "metrics": None}
+        state: dict[str, object] = {
+            "data_roots": [],
+            "metrics": None,
+            "promotion_record": None,
+            "promotion_root": None,
+        }
         real_evaluate_strategy = evaluation_module.evaluate_strategy
 
         def spy_runner(config, *, market, symbols, strategy_name, start, end=None, data_root=None):
@@ -584,9 +719,22 @@ class TestCmdResearchEvaluateWiring:
             state["metrics"] = metrics
             return tmp_path / "experiment.json"
 
+        def fake_record_promotion(record, root):
+            state["promotion_record"] = record
+            state["promotion_root"] = root
+            return tmp_path / "promotion" / "ledger.json"
+
         monkeypatch.setattr(evaluation_module, "evaluate_strategy", spy_evaluate_strategy)
         monkeypatch.setattr(
             "tradingbot.research.experiment.record_experiment", fake_record_experiment
+        )
+        monkeypatch.setattr(
+            "tradingbot.research.experiment.current_git_commit",
+            lambda cwd=None: "test-commit",
+        )
+        monkeypatch.setattr(
+            "tradingbot.research.promotion_ledger.record_promotion",
+            fake_record_promotion,
         )
 
         def run(*, data_root=None, start="2023-01-01", end="2023-06-30"):
@@ -627,3 +775,15 @@ class TestCmdResearchEvaluateWiring:
         assert metrics["walk_forward_win_rate"] is None
         assert metrics["annual_turnover"] is None
         assert "NaN" not in json.dumps(metrics)
+
+    def test_writes_the_machine_readable_record_beside_evaluation_reports(
+        self, invoke, tmp_path
+    ):
+        state = invoke()
+        record = state["promotion_record"]
+
+        assert record is not None
+        assert record.cadence == "monthly"
+        assert record.commit == "test-commit"
+        assert Path(record.report_path).exists()
+        assert state["promotion_root"] == tmp_path

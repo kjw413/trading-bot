@@ -650,17 +650,24 @@ def cmd_research_survivorship(args) -> int:
 
 
 def cmd_research_evaluate(args) -> int:
-    from datetime import datetime as _dt
+    from datetime import UTC, datetime as _dt
 
-    from tradingbot.research.evaluation import evaluate_strategy, render_markdown
-    from tradingbot.research.experiment import record_experiment
+    from tradingbot.research.evaluation import (
+        evaluate_strategy,
+        promotion_record_from_report,
+        render_markdown,
+    )
+    from tradingbot.research.experiment import current_git_commit, record_experiment
     from tradingbot.research.gate import load_research_config
+    from tradingbot.research.promotion_ledger import record_promotion
 
     config = load_config(args.config)
     benchmark_config = (
         load_config(args.benchmark_config) if args.benchmark_config else config
     )
     research = load_research_config(args.research_config)
+    evaluated_at = _dt.now(UTC)
+    evaluated_commit = current_git_commit(cwd=resolve_project_path("."))
 
     report = evaluate_strategy(
         config=config,
@@ -685,6 +692,15 @@ def cmd_research_evaluate(args) -> int:
     )
     out_path.write_text(markdown, encoding="utf-8")
     print(f"평가 리포트: {out_path}")
+
+    promotion_record = promotion_record_from_report(
+        report,
+        evaluated_at=evaluated_at,
+        commit=evaluated_commit,
+        report_path=out_path,
+    )
+    promotion_path = record_promotion(promotion_record, out_dir.parent)
+    print(f"승격 판정 원장: {promotion_path}")
 
     metrics = {
         "promoted": report["verdict"]["promoted"],
