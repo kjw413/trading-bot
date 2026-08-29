@@ -179,6 +179,9 @@ def build_parser() -> argparse.ArgumentParser:
     weekly_parser.add_argument(
         "--no-news", action="store_true", help="새 소식 수집 및 표시 생략"
     )
+    weekly_parser.add_argument(
+        "--no-proposal", action="store_true", help="주간 판단 생성 및 표시 생략"
+    )
     weekly_parser.set_defaults(handler=cmd_briefing_weekly)
 
     gui_parser = subparsers.add_parser("gui", help="Launch the desktop GUI")
@@ -324,6 +327,7 @@ def cmd_briefing_weekly(args) -> int:
     from tradingbot.data.credentials import MissingCredentialsError
     from tradingbot.data.news import build_fetchers
     from tradingbot.notify.telegram import build_notifier
+    from tradingbot.research.experiment import current_git_commit
     from tradingbot.services import build_cache
 
     config = load_config(args.config)
@@ -341,6 +345,13 @@ def cmd_briefing_weekly(args) -> int:
         return 1
 
     news_fetchers = None if args.no_news else build_fetchers()
+    proposal_enabled = not args.no_proposal
+    ledger_root = resolve_project_path("reports") if proposal_enabled else None
+    current_commit = (
+        current_git_commit(cwd=resolve_project_path("."))
+        if proposal_enabled
+        else None
+    )
 
     result = run_briefing(
         config,
@@ -352,6 +363,9 @@ def cmd_briefing_weekly(args) -> int:
         notify=notify,
         news=not args.no_news,
         news_fetchers=news_fetchers,
+        proposal=proposal_enabled,
+        ledger_root=ledger_root,
+        current_commit=current_commit,
     )
 
     if result.text:

@@ -170,3 +170,143 @@ def test_no_news_flag_skips_the_fetch_entirely(monkeypatch, tmp_path, capsys):
     assert args.handler(args) == 0
     assert "[새 소식]" not in capsys.readouterr().out
     assert not (tmp_path / "news").exists()
+
+
+def proposal_snapshot():
+    return AccountSnapshot(
+        as_of=datetime(2026, 8, 15, 9, 0, tzinfo=KST),
+        holdings=(
+            Holding("SOXL", "US", 1.0, "1", 20.0, 25.0, "USD"),
+            Holding("TECL", "US", 2.0, "2", 30.0, 35.0, "USD"),
+        ),
+        cash={"KRW": 300_000.0},
+        fx_to_krw={"KRW": 1.0, "USD": 1_350.0},
+        fx_source="broker",
+    )
+
+
+def test_an_absent_proposal_ledger_renders_never_evaluated_per_holding(tmp_path):
+    result = run(
+        tmp_path,
+        reader=FakeReader(proposal_snapshot()),
+        ledger_root=tmp_path / "missing-ledger-root",
+        current_commit="running-commit",
+    )
+
+    assert result.ok and result.sent
+    assert "[이번 주 판단]" in result.text
+    assert "SOXL: 아직 아무도 이 보유 종목의 성과를 재보지 않았고" in result.text
+    assert "TECL: 아직 아무도 이 보유 종목의 성과를 재보지 않았고" in result.text
+
+
+def test_a_proposal_failure_is_visible_and_does_not_fail_delivery(
+    monkeypatch, tmp_path
+):
+    def failing_proposal(*_args, **_kwargs):
+        raise ValueError("corrupt ledger")
+
+    monkeypatch.setattr(
+        "tradingbot.briefing_service.propose_rebalance", failing_proposal
+    )
+    notifier = FakeNotifier()
+    result = run(
+        tmp_path,
+        reader=FakeReader(proposal_snapshot()),
+        notifier=notifier,
+        ledger_root=tmp_path,
+        current_commit="running-commit",
+    )
+
+    assert result.ok and result.sent
+    assert notifier.sent == [result.text]
+    assert "[전체]" in result.text
+    assert "[이번 주 판단]" in result.text
+    assert "corrupt ledger" in result.text
+    assert "계좌 숫자는 영향받지 않습니다." in result.text
+    assert "corrupt ledger" in " ".join(result.messages)
+
+
+def test_cli_injects_the_proposal_ledger_root_and_running_commit(
+    monkeypatch, tmp_path
+):
+    from types import SimpleNamespace
+
+    from tradingbot.cli import build_parser
+
+    calls = {}
+
+    def resolve(path):
+        calls.setdefault("resolved", []).append(path)
+        return tmp_path / path
+
+    def fake_run(_config, **kwargs):
+        calls["run"] = kwargs
+        return SimpleNamespace(
+            text="",
+            messages=[],
+            snapshot_path=None,
+            sent=False,
+            ok=True,
+        )
+
+    monkeypatch.setattr("tradingbot.cli.load_config", lambda _path: {})
+    monkeypatch.setattr("tradingbot.cli.resolve_project_path", resolve)
+    monkeypatch.setattr(
+        "tradingbot.briefing_service.build_account_reader", lambda _root: FakeReader()
+    )
+    monkeypatch.setattr("tradingbot.briefing_service.run_briefing", fake_run)
+    monkeypatch.setattr("tradingbot.services.build_cache", lambda _config: None)
+
+    def fake_commit(*, cwd):
+        calls["commit_cwd"] = cwd
+        return "running-commit"
+
+    monkeypatch.setattr(
+        "tradingbot.research.experiment.current_git_commit", fake_commit
+    )
+
+    args = build_parser().parse_args(
+        ["briefing", "weekly", "--dry-run", "--skip-update", "--no-news"]
+    )
+
+    assert args.handler(args) == 0
+    assert calls["run"]["proposal"] is True
+    assert calls["run"]["ledger_root"] == tmp_path / "reports"
+    assert calls["run"]["current_commit"] == "running-commit"
+    assert calls["commit_cwd"] == tmp_path
+
+
+def test_no_proposal_flag_skips_the_ledger_read(monkeypatch, tmp_path, capsys):
+    from tradingbot.cli import build_parser
+
+    def unexpected_read(_root):
+        raise AssertionError("--no-proposal must not read the promotion ledger")
+
+    def unexpected_commit(*, cwd):
+        raise AssertionError("--no-proposal must not resolve the running commit")
+
+    monkeypatch.setattr("tradingbot.cli.load_config", lambda _path: {})
+    monkeypatch.setattr("tradingbot.cli.resolve_project_path", lambda _path: tmp_path)
+    monkeypatch.setattr(
+        "tradingbot.briefing_service.build_account_reader",
+        lambda _root: FakeReader(proposal_snapshot()),
+    )
+    monkeypatch.setattr("tradingbot.services.build_cache", lambda _config: None)
+    monkeypatch.setattr("tradingbot.proposal._load_records", unexpected_read)
+    monkeypatch.setattr(
+        "tradingbot.research.experiment.current_git_commit", unexpected_commit
+    )
+
+    args = build_parser().parse_args(
+        [
+            "briefing",
+            "weekly",
+            "--dry-run",
+            "--skip-update",
+            "--no-news",
+            "--no-proposal",
+        ]
+    )
+
+    assert args.handler(args) == 0
+    assert "[이번 주 판단]" not in capsys.readouterr().out

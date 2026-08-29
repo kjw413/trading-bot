@@ -234,6 +234,7 @@ Register-ScheduledTask -TaskName "TradingBot Paper KR" -Action $action -Trigger 
 .\.venv\Scripts\python.exe -m tradingbot briefing weekly --dry-run      # 렌더까지만, 전송 안 함
 .\.venv\Scripts\python.exe -m tradingbot briefing weekly --skip-update  # 가격 기록 갱신 생략
 .\.venv\Scripts\python.exe -m tradingbot briefing weekly --no-news      # 새 소식 수집·표시 생략
+.\.venv\Scripts\python.exe -m tradingbot briefing weekly --no-proposal  # 주간 판단 생성·표시 생략
 ```
 
 ### 새 소식
@@ -244,6 +245,14 @@ Register-ScheduledTask -TaskName "TradingBot Paper KR" -Action $action -Trigger 
 
 `DART_API_KEY`는 선택 사항입니다. 키가 없으면 실행이 실패하지 않고 국내 공시만 건너뛰며,
 브리핑에는 `DART_API_KEY`가 없어 확인하지 못했다는 이유가 표시됩니다.
+
+### 이번 주 판단
+
+브리핑의 `[이번 주 판단]`은 보유 종목마다 평가된 적이 없는지, 평가 기준에 미달했는지,
+측정할 수 없었는지, 통과 기록이 현재 코드나 주간 주기와 맞는지를 설명합니다. 아직 통과한
+전략은 없으므로, 지금은 무엇을 제안하는 대신 **왜 제안할 것이 없는지**를 보여줍니다.
+`--no-proposal`을 사용하면 승격 원장을 읽거나 판단 엔진을 호출하지 않고 섹션도 표시하지
+않습니다.
 
 **언제 켜면 되는가.** 미국 금요일 장은 **한국 시간 토요일 새벽에 닫힙니다.** 한 주를 온전히 담으려면 **토요일 아침 이후**에 켜세요. 금요일 밤에 켜면 미국 쪽 마지막 하루가 빠집니다.
 

@@ -44,6 +44,7 @@ from tradingbot.data.news import (
     save_news,
 )
 from tradingbot.notify.base import Notifier
+from tradingbot.proposal import Proposal, propose_rebalance
 from tradingbot.report.briefing import render_briefing
 from tradingbot.services import update_data
 from tradingbot.utils.log import get_logger
@@ -163,6 +164,9 @@ def run_briefing(
     notify: bool = True,
     news: bool = True,
     news_fetchers: NewsFetchers | None = None,
+    proposal: bool = True,
+    ledger_root: str | Path | None = None,
+    current_commit: str | None = None,
 ) -> BriefingResult:
     """One run of the weekly briefing. `notifier` may be None when notify=False."""
     started = datetime.now(timezone.utc)
@@ -238,12 +242,36 @@ def run_briefing(
                 skipped=news_result.skipped,
             )
 
+    proposal_result: Proposal | None = None
+    proposal_failure: str | None = None
+    if proposal and ledger_root is not None and current_commit is not None:
+        try:
+            proposal_result = propose_rebalance(
+                curr,
+                ledger_root=ledger_root,
+                current_commit=current_commit,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # A proposal is optional context. Account numbers and delivery are
+            # still useful when its ledger is unreadable or its engine fails.
+            detail = str(exc).strip() or type(exc).__name__
+            messages.append(f"주간 판단 생성에 실패했습니다: {detail}")
+            proposal_failure = (
+                "[이번 주 판단]\n"
+                f"- 이번 주 판단을 만들지 못했습니다 ({detail}). "
+                "계좌 숫자는 영향받지 않습니다."
+            )
+            LOGGER.warning("Proposal generation failed: %s", exc)
+
     text = render_briefing(
         curr,
         prev,
         price_history=_price_history(cache, curr, prev.as_of if prev else None),
         news=news_result,
+        proposal=proposal_result,
     )
+    if proposal_failure is not None:
+        text = "\n\n".join(part for part in (text, proposal_failure) if part)
 
     sent = False
     ok = True
