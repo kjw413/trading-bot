@@ -172,9 +172,14 @@ class NoProposalReason(Enum):
     UNMEASURABLE = "unmeasurable"
     STALE_RECORD = "stale_record"
     CADENCE_MISMATCH = "cadence_mismatch"
-    UNEXECUTABLE_LEG = "unexecutable_leg"
     DISCRETIONARY_HOLDING = "discretionary_holding"
-    INSUFFICIENT_DATA = "insufficient_data"
+
+
+# 거부가 아니다. 통과했고 이번 주 바꿀 것이 없다는 봇의 답이므로
+# 거부 목록에 넣지 않는다 (§4 마지막 줄).
+@dataclass(frozen=True)
+class PassedNoChange:
+    basis: PromotionRecord
 
 
 @dataclass(frozen=True)
@@ -206,7 +211,13 @@ def propose_rebalance(snapshot, *, ledger_root, current_commit,
                       price_history=None, now=None) -> Proposal
 ```
 
-`refusals`가 종목별인 것이 §2의 결론을 담는다. 한 계좌 안에서 어떤 보유는 측정 가능하고 어떤 보유는 영구 재량이다.
+`refusals`가 종목별인 것이 §2의 결론을 담는다.
+
+§3.3의 **실행 불가능한 구간**은 이 목록에 없다. 그것은 보유 하나에 대한 판정이
+아니라 전략이 요구하는 다리를 계좌가 실행할 수 없다는 사실이므로, 목표 비중이
+생기는 Task 8 단계에서 다뤄진다. 초안에 있던 `INSUFFICIENT_DATA`도 뺐다 —
+`UNMEASURABLE`(재봤으나 데이터 부족)과 `DISCRETIONARY_HOLDING`(앞으로도 불가)이
+이미 그 공간을 정확히 나눠 갖고 있어서, 셋째 값은 경계를 흐릴 뿐이다. 한 계좌 안에서 어떤 보유는 측정 가능하고 어떤 보유는 영구 재량이다.
 
 ### `src/tradingbot/report/briefing.py` (수정)
 
