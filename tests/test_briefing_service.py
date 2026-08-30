@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
+import pandas as pd
 import pytest
 
 from tradingbot.account.base import AccountSnapshot, Holding
 from tradingbot.briefing_service import build_account_reader, run_briefing
 from tradingbot.notify.telegram import NotifyError
+from tradingbot.proxy import ProxyMeasurement, ProxyStatus
+from tradingbot.reconciliation import load_reconciliation
 
 KST = timezone(timedelta(hours=9))
 
@@ -310,3 +313,252 @@ def test_no_proposal_flag_skips_the_ledger_read(monkeypatch, tmp_path, capsys):
 
     assert args.handler(args) == 0
     assert "[이번 주 판단]" not in capsys.readouterr().out
+def reconciliation_snapshot(day=15):
+    return AccountSnapshot(
+        as_of=datetime(2026, 8, day, 9, 0, tzinfo=KST),
+        holdings=(Holding("SOXL", "US", 1.0, "1", 20.0, 25.0, "USD"),),
+        cash={"KRW": 300_000.0},
+        fx_to_krw={"KRW": 1.0, "USD": 1_350.0},
+        fx_source="broker",
+    )
+
+
+def weekly_prices(start, end, first, last):
+    return pd.Series(
+        [first, last],
+        index=pd.to_datetime([start, end]),
+        dtype=float,
+    )
+
+
+def qualified_soxl_measurement():
+    return ProxyMeasurement(
+        traded_symbol="SOXL",
+        proxy_symbol="SOXX",
+        leverage=3.0,
+        beta=3.0,
+        r_squared=0.99,
+        observations=252,
+        qualifies=True,
+    )
+
+
+def test_the_first_reconciliation_run_writes_and_renders_its_first_entry(tmp_path):
+    result = run(
+        tmp_path,
+        reader=FakeReader(reconciliation_snapshot()),
+        news=False,
+        proposal=False,
+        reconciliation_holding_prices={
+            "SOXL": weekly_prices("2026-08-08", "2026-08-15", 100, 108)
+        },
+        reconciliation_proxy_prices={
+            "SOXX": weekly_prices("2026-08-08", "2026-08-15", 100, 102)
+        },
+        reconciliation_measurements={"SOXL": qualified_soxl_measurement()},
+    )
+
+    stored = load_reconciliation(tmp_path)
+    assert stored is not None
+    assert len(stored.entries) == 1
+    assert stored.entries[0].cumulative_gap_percentage_points == pytest.approx(2.0)
+    assert result.ok and result.sent
+    assert "[실현 수익과 예상 비교]" in result.text
+    assert "추적 시작 뒤 누적 차이는 +2.0%포인트" in result.text
+
+
+def test_reconciliation_uses_the_account_comparison_period(tmp_path):
+    run(
+        tmp_path,
+        reader=FakeReader(reconciliation_snapshot(1)),
+        notify=False,
+        news=False,
+        proposal=False,
+        reconciliation=False,
+    )
+
+    run(
+        tmp_path,
+        reader=FakeReader(reconciliation_snapshot(15)),
+        notify=False,
+        news=False,
+        proposal=False,
+        reconciliation_holding_prices={
+            "SOXL": weekly_prices("2026-08-01", "2026-08-15", 100, 108)
+        },
+        reconciliation_proxy_prices={
+            "SOXX": weekly_prices("2026-08-01", "2026-08-15", 100, 102)
+        },
+        reconciliation_measurements={"SOXL": qualified_soxl_measurement()},
+    )
+
+    stored = load_reconciliation(tmp_path)
+    assert stored is not None
+    assert stored.entries[0].period_start.isoformat() == "2026-08-01"
+    assert stored.entries[0].period_end.isoformat() == "2026-08-15"
+
+
+def test_a_reconciliation_failure_is_visible_and_does_not_fail_delivery(
+    monkeypatch, tmp_path
+):
+    def failing_reconciliation(**_kwargs):
+        raise ValueError("corrupt reconciliation history")
+
+    monkeypatch.setattr(
+        "tradingbot.briefing_service.reconcile_holdings", failing_reconciliation
+    )
+    notifier = FakeNotifier()
+    result = run(
+        tmp_path,
+        reader=FakeReader(reconciliation_snapshot()),
+        notifier=notifier,
+        news=False,
+        proposal=False,
+        reconciliation_holding_prices={
+            "SOXL": weekly_prices("2026-08-08", "2026-08-15", 100, 108)
+        },
+        reconciliation_proxy_prices={
+            "SOXX": weekly_prices("2026-08-08", "2026-08-15", 100, 102)
+        },
+        reconciliation_measurements={"SOXL": qualified_soxl_measurement()},
+    )
+
+    assert result.ok and result.sent
+    assert notifier.sent == [result.text]
+    assert "[전체]" in result.text
+    assert "[실현 수익과 예상 비교]" in result.text
+    assert "corrupt reconciliation history" in result.text
+    assert "계좌 숫자는 영향받지 않습니다." in result.text
+    assert "corrupt reconciliation history" in " ".join(result.messages)
+
+
+def cache_price_frames():
+    returns = [0.01 if index % 2 == 0 else -0.01 for index in range(252)]
+    proxy_values = [100.0]
+    holding_values = [100.0]
+    for period_return in returns:
+        proxy_values.append(proxy_values[-1] * (1.0 + period_return))
+        holding_values.append(holding_values[-1] * (1.0 + 3.0 * period_return))
+    index = pd.bdate_range(end="2026-08-14", periods=253)
+    return {
+        "SOXL": pd.DataFrame({"close": holding_values}, index=index),
+        "SOXX": pd.DataFrame({"close": proxy_values}, index=index),
+    }
+
+
+def test_cli_supplies_reconciliation_prices_and_measurements_from_the_cache(
+    monkeypatch, tmp_path, capsys
+):
+    from tradingbot.cli import build_parser
+
+    class FakeCache:
+        def __init__(self):
+            self.frames = cache_price_frames()
+            self.calls = []
+
+        def read(self, market, symbol):
+            self.calls.append((market, symbol))
+            return self.frames[symbol]
+
+    cache = FakeCache()
+    monkeypatch.setattr("tradingbot.cli.load_config", lambda _path: {})
+    monkeypatch.setattr("tradingbot.cli.resolve_project_path", lambda _path: tmp_path)
+    monkeypatch.setattr(
+        "tradingbot.briefing_service.build_account_reader",
+        lambda _root: FakeReader(reconciliation_snapshot()),
+    )
+    monkeypatch.setattr("tradingbot.services.build_cache", lambda _config: cache)
+
+    args = build_parser().parse_args(
+        [
+            "briefing",
+            "weekly",
+            "--dry-run",
+            "--skip-update",
+            "--no-news",
+            "--no-proposal",
+        ]
+    )
+
+    assert args.handler(args) == 0
+    assert ("US", "SOXL") in cache.calls
+    assert ("US", "SOXX") in cache.calls
+    assert load_reconciliation(tmp_path) is not None
+    assert "[실현 수익과 예상 비교]" in capsys.readouterr().out
+
+
+def test_no_reconciliation_flag_skips_proxy_cache_reads(
+    monkeypatch, tmp_path, capsys
+):
+    from tradingbot.cli import build_parser
+
+    class HoldingOnlyCache:
+        def read(self, market, symbol):
+            if symbol != "SOXL":
+                raise AssertionError(
+                    "--no-reconciliation must not read a proxy price series"
+                )
+            return cache_price_frames()[symbol]
+
+    monkeypatch.setattr("tradingbot.cli.load_config", lambda _path: {})
+    monkeypatch.setattr("tradingbot.cli.resolve_project_path", lambda _path: tmp_path)
+    monkeypatch.setattr(
+        "tradingbot.briefing_service.build_account_reader",
+        lambda _root: FakeReader(reconciliation_snapshot()),
+    )
+    monkeypatch.setattr(
+        "tradingbot.services.build_cache", lambda _config: HoldingOnlyCache()
+    )
+
+    args = build_parser().parse_args(
+        [
+            "briefing",
+            "weekly",
+            "--dry-run",
+            "--skip-update",
+            "--no-news",
+            "--no-proposal",
+            "--no-reconciliation",
+        ]
+    )
+
+    assert args.handler(args) == 0
+    assert "[실현 수익과 예상 비교]" not in capsys.readouterr().out
+    assert not (tmp_path / "reconciliation").exists()
+
+
+def test_an_unknown_leverage_holding_is_recorded_as_unmeasurable(tmp_path):
+    index = pd.bdate_range(end="2026-08-14", periods=52)
+    frame = pd.DataFrame({"close": range(100, 152)}, index=index)
+
+    class FakeCache:
+        def read(self, market, symbol):
+            assert market == "US"
+            assert symbol in {"SPCX", "SPY"}
+            return frame
+
+    current = AccountSnapshot(
+        as_of=datetime(2026, 8, 15, 9, 0, tzinfo=KST),
+        holdings=(Holding("SPCX", "US", 1.0, "1", 20.0, 25.0, "USD"),),
+        cash={"KRW": 300_000.0},
+        fx_to_krw={"KRW": 1.0, "USD": 1_350.0},
+        fx_source="broker",
+    )
+
+    result = run_briefing(
+        {},
+        reader=FakeReader(current),
+        notifier=FakeNotifier(),
+        cache=FakeCache(),
+        state_root=tmp_path,
+        skip_update=True,
+        news=False,
+        proposal=False,
+    )
+
+    stored = load_reconciliation(tmp_path)
+    assert stored is not None
+    assert stored.entries[0].symbol == "SPCX"
+    assert stored.entries[0].status is ProxyStatus.UNMEASURABLE
+    assert stored.entries[0].expected_return is None
+    assert "잴 자료가 부족해" in result.text

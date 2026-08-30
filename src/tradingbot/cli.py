@@ -187,6 +187,11 @@ def build_parser() -> argparse.ArgumentParser:
     weekly_parser.add_argument(
         "--no-proposal", action="store_true", help="주간 판단 생성 및 표시 생략"
     )
+    weekly_parser.add_argument(
+        "--no-reconciliation",
+        action="store_true",
+        help="실현 수익과 예상 비교 생성 및 표시 생략",
+    )
     weekly_parser.set_defaults(handler=cmd_briefing_weekly)
 
     gui_parser = subparsers.add_parser("gui", help="Launch the desktop GUI")
@@ -357,12 +362,13 @@ def cmd_briefing_weekly(args) -> int:
         if proposal_enabled
         else None
     )
+    cache = build_cache(config)
 
     result = run_briefing(
         config,
         reader=reader,
         notifier=notifier,
-        cache=build_cache(config),
+        cache=cache,
         state_root=state_root,
         skip_update=args.skip_update,
         notify=notify,
@@ -371,6 +377,7 @@ def cmd_briefing_weekly(args) -> int:
         proposal=proposal_enabled,
         ledger_root=ledger_root,
         current_commit=current_commit,
+        reconciliation=not args.no_reconciliation,
     )
 
     if result.text:

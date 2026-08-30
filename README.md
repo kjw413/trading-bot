@@ -235,6 +235,7 @@ Register-ScheduledTask -TaskName "TradingBot Paper KR" -Action $action -Trigger 
 .\.venv\Scripts\python.exe -m tradingbot briefing weekly --skip-update  # 가격 기록 갱신 생략
 .\.venv\Scripts\python.exe -m tradingbot briefing weekly --no-news      # 새 소식 수집·표시 생략
 .\.venv\Scripts\python.exe -m tradingbot briefing weekly --no-proposal  # 주간 판단 생성·표시 생략
+.\.venv\Scripts\python.exe -m tradingbot briefing weekly --no-reconciliation  # 실현·예상 비교 생략
 ```
 
 ### 새 소식
@@ -253,6 +254,14 @@ Register-ScheduledTask -TaskName "TradingBot Paper KR" -Action $action -Trigger 
 전략은 없으므로, 지금은 무엇을 제안하는 대신 **왜 제안할 것이 없는지**를 보여줍니다.
 `--no-proposal`을 사용하면 승격 원장을 읽거나 판단 엔진을 호출하지 않고 섹션도 표시하지
 않습니다.
+
+### 실현 수익과 예상 비교
+
+브리핑의 `[실현 수익과 예상 비교]`는 각 보유 종목의 실제 수익률과, 측정을 통과한 비교
+종목 수익률에 레버리지 배수를 적용한 예상 수익률을 나란히 보여줍니다. 이번 기간의 차이와
+추적을 시작한 뒤의 누적 차이도 함께 남습니다. 누적 차이는 첫 주 한 번으로 판단하는 숫자가
+아니며, 여러 주에 걸쳐 쌓인 뒤에야 추적 가정이 계속 어긋나는지 보는 데 의미가 생깁니다.
+`--no-reconciliation`을 사용하면 가격과 비교 측정을 읽지 않고 이 기록과 섹션을 생략합니다.
 
 **언제 켜면 되는가.** 미국 금요일 장은 **한국 시간 토요일 새벽에 닫힙니다.** 한 주를 온전히 담으려면 **토요일 아침 이후**에 켜세요. 금요일 밤에 켜면 미국 쪽 마지막 하루가 빠집니다.
 
