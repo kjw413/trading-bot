@@ -13,8 +13,10 @@ from tradingbot.proposal import (
     Proposal,
     Refusal,
 )
+from tradingbot.proxy import ProxyStatus
 from tradingbot.report import glossary
 from tradingbot.report.briefing import render_briefing, split_for_telegram
+from tradingbot.reconciliation import ReconciliationEntry, ReconciliationResult
 from tradingbot.research.promotion_ledger import (
     CriterionResult,
     PromotionRecord,
@@ -122,6 +124,61 @@ def proposal_block(text: str) -> list[str]:
         block for block in text.split("\n\n") if block.startswith("[이번 주 판단]")
     )
     return block.splitlines()[1:]
+
+
+def reconciliation_block(text: str) -> list[str]:
+    block = next(
+        block
+        for block in text.split("\n\n")
+        if block.startswith("[실현 수익과 예상 비교]")
+    )
+    return block.splitlines()[1:]
+
+
+def reconciliation_result() -> ReconciliationResult:
+    return ReconciliationResult(
+        entries=(
+            ReconciliationEntry(
+                symbol="SOXL",
+                proxy_symbol="SOXX",
+                leverage=3.0,
+                period_start=date(2026, 8, 1),
+                period_end=date(2026, 8, 15),
+                status=ProxyStatus.QUALIFIED,
+                realised_return=0.08,
+                proxy_return=0.02,
+                expected_return=0.06,
+                gap_percentage_points=2.0,
+                cumulative_gap_percentage_points=3.5,
+            ),
+            ReconciliationEntry(
+                symbol="SPCX",
+                proxy_symbol="SPY",
+                leverage=3.0,
+                period_start=date(2026, 8, 1),
+                period_end=date(2026, 8, 15),
+                status=ProxyStatus.UNMEASURABLE,
+                realised_return=0.04,
+                proxy_return=None,
+                expected_return=None,
+                gap_percentage_points=None,
+                cumulative_gap_percentage_points=None,
+            ),
+            ReconciliationEntry(
+                symbol="FNGU",
+                proxy_symbol="FNGS",
+                leverage=3.0,
+                period_start=date(2026, 8, 1),
+                period_end=date(2026, 8, 15),
+                status=ProxyStatus.DISCRETIONARY_HOLDING,
+                realised_return=0.04,
+                proxy_return=None,
+                expected_return=None,
+                gap_percentage_points=None,
+                cumulative_gap_percentage_points=None,
+            ),
+        )
+    )
 
 
 class TestPlainLanguage:
@@ -306,6 +363,63 @@ class TestNewsSection:
         assert len(parts) > 1
         assert parts[-1].startswith("[새 소식]")
         assert all(len(part) <= 4096 for part in parts)
+
+
+class TestReconciliationSection:
+    QUALIFIED_SENTENCE = (
+        "- SOXL: 실제 수익률은 +8.0%이고, SOXX 수익률을 3배로 본 예상은 "
+        "+6.0%입니다. 이번 차이는 +2.0%포인트이고, 추적 시작 뒤 누적 "
+        "차이는 +3.5%포인트입니다."
+    )
+    UNMEASURABLE_SENTENCE = (
+        "- SPCX: 실제 수익률은 +4.0%입니다. SPY가 비교 종목인지 잴 자료가 "
+        "부족해 예상 수익률과 차이는 계산하지 않았습니다."
+    )
+    REJECTED_SENTENCE = (
+        "- FNGU: 실제 수익률은 +4.0%입니다. FNGS를 비교 종목으로 재봤지만 이 "
+        "보유의 움직임을 충분히 따라가지 않아 예상 수익률과 차이는 계산하지 "
+        "않았습니다."
+    )
+
+    def test_the_section_is_absent_when_nothing_is_supplied(self):
+        omitted = render_briefing(snap(15), snap(1), now=NOW)
+        explicit_none = render_briefing(
+            snap(15), snap(1), reconciliation=None, now=NOW
+        )
+        assert explicit_none == omitted
+        assert "[실현 수익과 예상 비교]" not in omitted
+
+    def test_the_qualified_pair_states_realised_expected_and_both_gaps(self):
+        rendered = render_briefing(
+            snap(15),
+            snap(1),
+            reconciliation=reconciliation_result(),
+            now=NOW,
+        )
+        assert reconciliation_block(rendered)[0] == self.QUALIFIED_SENTENCE
+
+    def test_unmeasurable_and_rejected_pairs_read_differently_without_zero_gaps(self):
+        rendered = render_briefing(
+            snap(15),
+            snap(1),
+            reconciliation=reconciliation_result(),
+            now=NOW,
+        )
+        lines = reconciliation_block(rendered)
+        assert lines[1] == self.UNMEASURABLE_SENTENCE
+        assert lines[2] == self.REJECTED_SENTENCE
+        assert lines[1] != lines[2]
+        assert all("차이는 +0.0" not in line for line in lines[1:])
+
+    def test_the_section_passes_the_language_rules(self):
+        rendered = render_briefing(
+            snap(15),
+            snap(1),
+            reconciliation=reconciliation_result(),
+            now=NOW,
+        )
+        assert glossary.find_banned_terms(rendered) == []
+        assert find_causal_terms(rendered) == []
 
 
 class TestProposalSection:

@@ -28,6 +28,8 @@ from tradingbot.account.returns import IntervalReturn, holding_return, interval_
 from tradingbot.data.news import NewsResult
 from tradingbot.instruments import INSTRUMENTS, LeverageState
 from tradingbot.proposal import NoProposalReason, PassedNoChange, Proposal, Refusal
+from tradingbot.proxy import ProxyStatus
+from tradingbot.reconciliation import ReconciliationEntry, ReconciliationResult
 from tradingbot.report import glossary
 
 SECTIONS: tuple[str, ...] = (
@@ -37,6 +39,7 @@ SECTIONS: tuple[str, ...] = (
     "trend",
     "news",
     "proposal",
+    "reconciliation",
     "notes",
 )
 
@@ -58,6 +61,7 @@ class _Context:
     long_gap_days: int
     news: NewsResult | None
     proposal: Proposal | None
+    reconciliation: ReconciliationResult | None
 
 
 def _money(value: float, currency: str) -> str:
@@ -344,6 +348,56 @@ def _render_proposal(ctx: _Context) -> list[str]:
     ]
 
 
+def _percentage_points(value: float) -> str:
+    return f"{glossary.format_value('period_return', value / 100.0)}포인트"
+
+
+def _render_reconciliation_entry(entry: ReconciliationEntry) -> str:
+    realised = glossary.format_value("period_return", entry.realised_return)
+    if entry.status is ProxyStatus.UNMEASURABLE:
+        return (
+            f"- {entry.symbol}: 실제 수익률은 {realised}입니다. "
+            f"{entry.proxy_symbol}가 비교 종목인지 잴 자료가 부족해 예상 "
+            "수익률과 차이는 계산하지 않았습니다."
+        )
+    if entry.status is ProxyStatus.DISCRETIONARY_HOLDING:
+        return (
+            f"- {entry.symbol}: 실제 수익률은 {realised}입니다. "
+            f"{entry.proxy_symbol}를 비교 종목으로 재봤지만 이 보유의 움직임을 "
+            "충분히 따라가지 않아 예상 수익률과 차이는 계산하지 않았습니다."
+        )
+    if entry.status is not ProxyStatus.QUALIFIED:
+        raise ValueError(f"unknown reconciliation status: {entry.status!r}")
+    if (
+        entry.expected_return is None
+        or entry.gap_percentage_points is None
+        or entry.cumulative_gap_percentage_points is None
+    ):
+        raise ValueError("qualified reconciliation is missing comparison values")
+
+    expected = glossary.format_value("period_return", entry.expected_return)
+    gap = _percentage_points(entry.gap_percentage_points)
+    cumulative = _percentage_points(entry.cumulative_gap_percentage_points)
+    return (
+        f"- {entry.symbol}: 실제 수익률은 {realised}이고, "
+        f"{entry.proxy_symbol} 수익률을 {entry.leverage:g}배로 본 예상은 "
+        f"{expected}입니다. 이번 차이는 {gap}이고, 추적 시작 뒤 누적 "
+        f"차이는 {cumulative}입니다."
+    )
+
+
+def _render_reconciliation(ctx: _Context) -> list[str]:
+    if ctx.reconciliation is None or not ctx.reconciliation.entries:
+        return []
+    return [
+        "[실현 수익과 예상 비교]",
+        *(
+            _render_reconciliation_entry(entry)
+            for entry in ctx.reconciliation.entries
+        ),
+    ]
+
+
 def _render_notes(ctx: _Context) -> list[str]:
     notes: list[str] = []
 
@@ -414,6 +468,7 @@ _RENDERERS: dict[str, Callable[[_Context], list[str]]] = {
     "trend": _render_trend,
     "news": _render_news,
     "proposal": _render_proposal,
+    "reconciliation": _render_reconciliation,
     "notes": _render_notes,
 }
 
@@ -425,6 +480,7 @@ def render_briefing(
     price_history: dict[str, Any] | None = None,
     news: NewsResult | None = None,
     proposal: Proposal | None = None,
+    reconciliation: ReconciliationResult | None = None,
     now: datetime | None = None,
     long_gap_days: int = 14,
 ) -> str:
@@ -443,6 +499,7 @@ def render_briefing(
         long_gap_days=long_gap_days,
         news=news,
         proposal=proposal,
+        reconciliation=reconciliation,
     )
     blocks = []
     for name in SECTIONS:
