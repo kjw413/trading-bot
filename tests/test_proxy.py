@@ -73,6 +73,30 @@ def test_a_pair_with_the_right_beta_but_low_r_squared_does_not_qualify():
     assert measurement.status is ProxyStatus.DISCRETIONARY_HOLDING
 
 
+def test_a_pair_with_insufficient_history_is_unmeasurable():
+    proxy = proxy_returns()[:52]
+    measurement = measure_proxy_pair(
+        traded_symbol="SPCX",
+        proxy_symbol="SPY",
+        traded_prices=prices_from_returns(3.0 * proxy),
+        proxy_prices=prices_from_returns(proxy),
+        leverage=3.0,
+    )
+
+    assert measurement.observations == 52
+    assert measurement.status is ProxyStatus.UNMEASURABLE
+    assert not measurement.qualifies
+    assert measurement.beta is CostState.UNKNOWN
+    assert measurement.r_squared is CostState.UNKNOWN
+    assert "unmeasurable" in measurement.report
+    assert "beta=" not in measurement.report
+    assert "R²=" not in measurement.report
+    with pytest.raises(TypeError):
+        _ = measurement.beta + 0.0
+    with pytest.raises(TypeError):
+        _ = measurement.r_squared + 0.0
+
+
 def test_a_failed_pair_reports_both_beta_and_r_squared():
     proxy = proxy_returns()
     observations = np.arange(252, dtype=float)

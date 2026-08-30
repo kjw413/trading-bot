@@ -25,6 +25,7 @@ MIN_R_SQUARED = 0.95
 class ProxyStatus(str, Enum):
     QUALIFIED = "qualified"
     DISCRETIONARY_HOLDING = "discretionary_holding"
+    UNMEASURABLE = "unmeasurable"
 
 
 class CostState(Enum):
@@ -39,6 +40,7 @@ class CostState(Enum):
 
 
 AnnualCost = float | CostState
+ProxyMetric = float | CostState
 DateLike = str | date | datetime | pd.Timestamp
 
 
@@ -47,24 +49,31 @@ class ProxyMeasurement:
     traded_symbol: str
     proxy_symbol: str
     leverage: float
-    beta: float
-    r_squared: float
+    beta: ProxyMetric
+    r_squared: ProxyMetric
     observations: int
     qualifies: bool
 
     @property
     def status(self) -> ProxyStatus:
+        if self.beta is CostState.UNKNOWN or self.r_squared is CostState.UNKNOWN:
+            return ProxyStatus.UNMEASURABLE
         if self.qualifies:
             return ProxyStatus.QUALIFIED
         return ProxyStatus.DISCRETIONARY_HOLDING
 
     @property
     def report(self) -> str:
+        pair = f"{self.traded_symbol}/{self.proxy_symbol}"
+        if self.status is ProxyStatus.UNMEASURABLE:
+            return (
+                f"{pair}: unmeasurable (insufficient aligned return history; "
+                f"n={self.observations}); discretionary holding."
+            )
         measured = (
             f"beta={self.beta:.4f}; R²={self.r_squared:.4f}; "
             f"n={self.observations}"
         )
-        pair = f"{self.traded_symbol}/{self.proxy_symbol}"
         if self.qualifies:
             return f"{pair}: qualifies ({measured})."
         return (
@@ -141,8 +150,14 @@ def measure_proxy_pair(
         .tail(window)
     )
     if len(returns) < window:
-        raise ValueError(
-            f"proxy measurement needs {window} aligned returns; got {len(returns)}"
+        return ProxyMeasurement(
+            traded_symbol=traded_symbol.strip().upper(),
+            proxy_symbol=proxy_symbol.strip().upper(),
+            leverage=multiple,
+            beta=CostState.UNKNOWN,
+            r_squared=CostState.UNKNOWN,
+            observations=len(returns),
+            qualifies=False,
         )
 
     x = returns["proxy"].to_numpy(dtype=float)
