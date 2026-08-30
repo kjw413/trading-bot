@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import tomllib
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -18,19 +19,38 @@ from tradingbot.research.evaluation import (
     render_markdown,
 )
 from tradingbot.research.promotion_ledger import (
+    PromotionTrack,
     Verdict as PromotionVerdict,
     latest_promotion,
+    passing_strategies,
     record_promotion,
 )
 
 RESEARCH = {
     "promotion": {
-        "min_excess_return": 0.0,
-        "min_sharpe": 0.5,
-        "max_mdd": 0.25,
-        "max_annual_turnover": 6.0,
-        "min_walk_forward_win_rate": 0.6,
-        "cost_multiplier_check": 2.0,
+        "default": {
+            "track": "track_a",
+            "benchmark_mode": "equal_weight_unleveraged_universe",
+            "min_excess_return": 0.0,
+            "min_sharpe": 0.5,
+            "max_mdd": 0.25,
+            "target_mdd": 0.20,
+            "max_annual_turnover": 6.0,
+            "min_walk_forward_win_rate": 0.6,
+            "min_walk_forward_windows": 3,
+            "cost_multiplier_check": 2.0,
+        },
+        "leveraged": {
+            "track": "track_b",
+            "benchmark_mode": "traded_instrument_buy_and_hold",
+            "min_excess_return": 0.0,
+            "min_sharpe": 0.5,
+            "max_mdd": 0.60,
+            "max_annual_turnover": 6.0,
+            "min_walk_forward_win_rate": 0.6,
+            "min_walk_forward_windows": 3,
+            "cost_multiplier_check": 2.0,
+        },
     },
     "walk_forward": {"train_years": 3, "test_years": 1, "step_years": 1},
 }
@@ -102,6 +122,7 @@ class TestEvaluateStrategy:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -149,6 +170,7 @@ class TestEvaluateStrategy:
             config=CONFIG,
             benchmark_config=CONFIG,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -163,6 +185,7 @@ class TestEvaluateStrategy:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -177,6 +200,7 @@ class TestEvaluateStrategy:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -188,6 +212,111 @@ class TestEvaluateStrategy:
         assert wf["failed"] == 1
         assert wf["evaluated"] + wf["failed"] == wf["total"]
         assert wf["total"] == len(wf["windows"])
+
+
+class TestPromotionProfiles:
+    def test_an_unspecified_profile_fails_loudly(self):
+        with pytest.raises(ValueError, match="promotion profile must be specified"):
+            evaluate_strategy(
+                config=CONFIG,
+                benchmark_config=BENCHMARK,
+                research=RESEARCH,
+                promotion_profile=None,
+                market="US",
+                symbols=["SOXX"],
+                strategy_name="theme_multifactor",
+                start="2010-01-01",
+                end="2024-12-31",
+                runner=runner,
+            )
+
+    def test_an_unknown_profile_fails_loudly(self):
+        with pytest.raises(ValueError, match="unknown promotion profile: typo"):
+            evaluate_strategy(
+                config=CONFIG,
+                benchmark_config=BENCHMARK,
+                research=RESEARCH,
+                promotion_profile="typo",
+                market="US",
+                symbols=["SOXX"],
+                strategy_name="theme_multifactor",
+                start="2010-01-01",
+                end="2024-12-31",
+                runner=runner,
+            )
+
+    def test_the_default_profile_thresholds_are_unchanged(self):
+        config_path = Path(__file__).parents[1] / "config" / "research.toml"
+        with config_path.open("rb") as stream:
+            profile = tomllib.load(stream)["promotion"]["default"]
+
+        expected = {
+            "min_excess_return": 0.0,
+            "min_sharpe": 0.5,
+            "max_mdd": 0.25,
+            "target_mdd": 0.20,
+            "max_annual_turnover": 6.0,
+            "min_walk_forward_win_rate": 0.6,
+            "min_walk_forward_windows": 3,
+            "cost_multiplier_check": 2.0,
+        }
+        assert {name: profile[name] for name in expected} == expected
+
+    def test_the_leveraged_profile_declares_its_track_and_benchmark(self):
+        config_path = Path(__file__).parents[1] / "config" / "research.toml"
+        with config_path.open("rb") as stream:
+            profile = tomllib.load(stream)["promotion"]["leveraged"]
+
+        assert profile["track"] == "track_b"
+        assert profile["benchmark_mode"] == "traded_instrument_buy_and_hold"
+        assert profile["max_mdd"] == 0.60
+
+    def test_track_b_is_displayed_but_never_described_as_promotion(self):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            promotion_profile="leveraged",
+            market="US",
+            symbols=["SOXL", "TECL"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            runner=runner,
+        )
+        markdown = render_markdown(report)
+
+        assert "track_b / leveraged" in markdown
+        assert "Track B 결과는 의무 공시용" in markdown
+        assert "전략을 승격시키지 않습니다" in markdown
+
+    def test_a_track_a_pass_survives_report_and_ledger_end_to_end(self, tmp_path):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            promotion_profile="default",
+            market="US",
+            symbols=["SOXX", "XLK"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            runner=runner,
+        )
+        record = promotion_record_from_report(
+            report,
+            evaluated_at=datetime(2026, 8, 30, 12, 0, tzinfo=UTC),
+            commit="abc123",
+            report_path="reports/evaluation/report.md",
+        )
+        record_promotion(record, tmp_path)
+
+        assert record.verdict is PromotionVerdict.PASS
+        assert record.track is PromotionTrack.TRACK_A
+        assert record.profile_name == "default"
+        assert passing_strategies(
+            tmp_path, current_commit="abc123"
+        ) == (record,)
 
 
 class TestDataRootThreading:
@@ -207,6 +336,7 @@ class TestDataRootThreading:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -231,6 +361,7 @@ class TestDataRootThreading:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -248,6 +379,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -263,6 +395,7 @@ class TestRenderMarkdown:
         assert markdown.startswith("# ")
         assert "## 결론" in markdown
         assert _verdict_sentence(report) in markdown
+        assert "track_a / default" in markdown
         assert "| 기준 |" in markdown
 
     def test_shows_the_failed_window_count_under_the_section_heading(self):
@@ -270,6 +403,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -294,6 +428,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY", "QQQ"],
             strategy_name="theme_multifactor",
@@ -306,6 +441,7 @@ class TestRenderMarkdown:
         assert heading in markdown
         section = markdown.split(heading, 1)[1]
         assert "research evaluate" in section
+        assert "--promotion-profile default" in section
         assert "theme_multifactor" in section
         assert "US" in section
         assert "SPY" in section
@@ -322,6 +458,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -344,6 +481,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -363,6 +501,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -384,6 +523,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -403,6 +543,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -428,6 +569,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -454,6 +596,8 @@ class TestVerdictSentenceUnmeasured:
 
     def _report(self, criteria):
         return {
+            "promotion_profile": "default",
+            "promotion_track": "track_a",
             "verdict": {
                 "promoted": False,
                 "unmeasured": [c["name"] for c in criteria if c["passed"] is None],
@@ -531,6 +675,9 @@ class TestPromotionRecordFromReport:
             "strategy_name": "theme_multifactor",
             "market": "US",
             "symbols": ["SPY", "QQQ"],
+            "promotion_profile": "default",
+            "promotion_track": "track_a",
+            "promotion_benchmark_mode": "equal_weight_unleveraged_universe",
             "cadence": "monthly",
             "strategy": {"trades": 8, "rejected_orders": 2},
             "verdict": {"criteria": criteria},
@@ -652,7 +799,8 @@ class TestCli:
     def test_parser_wires_research_evaluate(self):
         parser = build_parser()
         args = parser.parse_args(
-            ["research", "evaluate", "--strategy", "theme_multifactor",
+            ["research", "evaluate", "--promotion-profile", "default",
+             "--strategy", "theme_multifactor",
              "--market", "US", "--symbols", "SPY", "--start", "2010-01-01"]
         )
         assert args.handler is cmd_research_evaluate
@@ -669,7 +817,8 @@ class TestCli:
     def test_data_root_defaults_to_none(self):
         parser = build_parser()
         args = parser.parse_args(
-            ["research", "evaluate", "--strategy", "theme_multifactor",
+            ["research", "evaluate", "--promotion-profile", "default",
+             "--strategy", "theme_multifactor",
              "--market", "US", "--symbols", "SPY", "--start", "2010-01-01"]
         )
         assert args.data_root is None
@@ -679,11 +828,21 @@ class TestCli:
         # declares it too (cli.py) and must not silently drop it.
         parser = build_parser()
         args = parser.parse_args(
-            ["research", "evaluate", "--strategy", "theme_multifactor",
+            ["research", "evaluate", "--promotion-profile", "default",
+             "--strategy", "theme_multifactor",
              "--market", "US", "--symbols", "SPY", "--start", "2010-01-01",
              "--data-root", "/custom/root"]
         )
         assert args.data_root == "/custom/root"
+
+    def test_parser_rejects_an_unspecified_promotion_profile(self):
+        parser = build_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(
+                ["research", "evaluate", "--strategy", "theme_multifactor",
+                 "--market", "US", "--symbols", "SPY",
+                 "--start", "2010-01-01"]
+            )
 
 
 class TestCmdResearchEvaluateWiring:
@@ -751,6 +910,7 @@ class TestCmdResearchEvaluateWiring:
             parser = build_parser()
             argv = [
                 "research", "evaluate",
+                "--promotion-profile", "default",
                 "--strategy", "theme_multifactor",
                 "--market", "US",
                 "--symbols", "SPY",

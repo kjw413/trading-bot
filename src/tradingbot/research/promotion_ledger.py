@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 
-PROMOTION_SCHEMA_VERSION = 1
+PROMOTION_SCHEMA_VERSION = 2
 PROMOTION_DIRNAME = "promotion"
 PROMOTION_FILENAME = "ledger.json"
 
@@ -17,6 +17,11 @@ class Verdict(Enum):
     PASS = "pass"
     FAIL = "fail"
     UNMEASURABLE = "unmeasurable"
+
+
+class PromotionTrack(str, Enum):
+    TRACK_A = "track_a"
+    TRACK_B = "track_b"
 
 
 @dataclass(frozen=True)
@@ -32,6 +37,8 @@ class PromotionRecord:
     strategy: str
     market: str
     universe: tuple[str, ...]
+    track: PromotionTrack
+    profile_name: str
     verdict: Verdict
     criteria: tuple[CriterionResult, ...]
     cadence: str
@@ -60,6 +67,8 @@ def _record_payload(record: PromotionRecord) -> dict[str, object]:
         "strategy": record.strategy,
         "market": record.market,
         "universe": list(record.universe),
+        "track": record.track.value,
+        "profile_name": record.profile_name,
         "verdict": record.verdict.value,
         "criteria": [_criterion_payload(criterion) for criterion in record.criteria],
         "cadence": record.cadence,
@@ -86,6 +95,8 @@ def _record_from_payload(row: dict[str, object]) -> PromotionRecord:
         strategy=row["strategy"],
         market=row["market"],
         universe=tuple(row["universe"]),
+        track=PromotionTrack(row["track"]),
+        profile_name=row["profile_name"],
         verdict=Verdict(row["verdict"]),
         criteria=tuple(
             _criterion_from_payload(criterion) for criterion in row["criteria"]
@@ -137,10 +148,10 @@ def _evaluated_at_utc(record: PromotionRecord) -> datetime:
 
 def _latest_records(
     records: tuple[PromotionRecord, ...],
-) -> dict[tuple[str, str], PromotionRecord]:
-    latest: dict[tuple[str, str], PromotionRecord] = {}
+) -> dict[tuple[str, str, PromotionTrack], PromotionRecord]:
+    latest: dict[tuple[str, str, PromotionTrack], PromotionRecord] = {}
     for record in records:
-        key = (record.strategy, record.market)
+        key = (record.strategy, record.market, record.track)
         previous = latest.get(key)
         if previous is None or _evaluated_at_utc(record) >= _evaluated_at_utc(previous):
             latest[key] = record
@@ -148,9 +159,20 @@ def _latest_records(
 
 
 def latest_promotion(
-    strategy: str, market: str, root: str | Path
+    strategy: str,
+    market: str,
+    root: str | Path,
+    *,
+    track: PromotionTrack | None = None,
 ) -> PromotionRecord | None:
-    return _latest_records(_load_records(root)).get((strategy, market))
+    matches = (
+        record
+        for record in _load_records(root)
+        if record.strategy == strategy
+        and record.market == market
+        and (track is None or record.track is track)
+    )
+    return max(matches, key=_evaluated_at_utc, default=None)
 
 
 def _is_passing(record: PromotionRecord) -> bool:
@@ -167,5 +189,7 @@ def passing_strategies(
     return tuple(
         record
         for record in latest.values()
-        if record.commit == current_commit and _is_passing(record)
+        if record.track is PromotionTrack.TRACK_A
+        and record.commit == current_commit
+        and _is_passing(record)
     )

@@ -17,6 +17,7 @@ from tradingbot.account.base import AccountSnapshot
 from tradingbot.instruments import INSTRUMENTS, LeverageState
 from tradingbot.research.promotion_ledger import (
     PromotionRecord,
+    PromotionTrack,
     Verdict,
     _latest_records,
     _load_records,
@@ -93,9 +94,14 @@ def _record_time(record: PromotionRecord) -> datetime:
 
 
 def _record_is_pass(record: PromotionRecord) -> bool:
-    return bool(record.criteria) and record.verdict is Verdict.PASS and all(
-        criterion.measured is not None and criterion.passed is True
-        for criterion in record.criteria
+    return (
+        record.track is PromotionTrack.TRACK_A
+        and bool(record.criteria)
+        and record.verdict is Verdict.PASS
+        and all(
+            criterion.measured is not None and criterion.passed is True
+            for criterion in record.criteria
+        )
     )
 
 
@@ -256,21 +262,34 @@ def propose_rebalance(
             )
             continue
 
-        candidates = [
+        covered_records = [
             record
             for record in latest
             if record.market.strip().upper() == holding.market.strip().upper()
             and symbol in _normalized_symbols(record)
         ]
+        candidates = [
+            record
+            for record in covered_records
+            if record.track is PromotionTrack.TRACK_A
+        ]
         if not candidates:
+            if covered_records:
+                detail = (
+                    f"{symbol}: Track B execution-risk measurements exist, but no "
+                    "Track A signal validation covers this holding; nothing can be "
+                    "proposed."
+                )
+            else:
+                detail = (
+                    f"{symbol}: no evaluation record covers this holding; "
+                    "nothing can be proposed."
+                )
             decisions.append(
                 Refusal(
                     symbol,
                     NoProposalReason.NEVER_EVALUATED,
-                    (
-                        f"{symbol}: no evaluation record covers this holding; "
-                        "nothing can be proposed."
-                    ),
+                    detail,
                 )
             )
             continue

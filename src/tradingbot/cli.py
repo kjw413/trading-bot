@@ -119,6 +119,11 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_parser.add_argument("--start", required=True)
     evaluate_parser.add_argument("--end", default=None)
     evaluate_parser.add_argument(
+        "--promotion-profile",
+        required=True,
+        help="Named threshold profile from [promotion.<name>] in research.toml",
+    )
+    evaluate_parser.add_argument(
         "--benchmark-config", default=None, help="Benchmark TOML (default: same as --config)"
     )
     evaluate_parser.add_argument("--research-config", default=None)
@@ -687,6 +692,7 @@ def cmd_research_evaluate(args) -> int:
         config=config,
         benchmark_config=benchmark_config,
         research=research,
+        promotion_profile=args.promotion_profile,
         market=args.market,
         symbols=args.symbols,
         strategy_name=args.strategy,
@@ -732,6 +738,7 @@ def cmd_research_evaluate(args) -> int:
             "strategy": args.strategy,
             "market": args.market,
             "symbols": args.symbols,
+            "promotion_profile": args.promotion_profile,
             "start": args.start,
             "end": args.end,
             "benchmark_config": args.benchmark_config,

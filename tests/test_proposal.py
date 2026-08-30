@@ -16,6 +16,7 @@ from tradingbot.proposal import (
 from tradingbot.research.promotion_ledger import (
     CriterionResult,
     PromotionRecord,
+    PromotionTrack,
     Verdict,
     record_promotion,
 )
@@ -47,6 +48,8 @@ def promotion_record(
     verdict: Verdict = Verdict.PASS,
     commit: str = "running-commit",
     cadence: str = "weekly",
+    track: PromotionTrack = PromotionTrack.TRACK_A,
+    profile_name: str = "default",
 ) -> PromotionRecord:
     if verdict is Verdict.PASS:
         criterion = CriterionResult("sharpe", 0.5, 0.72, True)
@@ -58,6 +61,8 @@ def promotion_record(
         strategy="direct_holding_strategy",
         market="US",
         universe=(symbol,),
+        track=track,
+        profile_name=profile_name,
         verdict=verdict,
         criteria=(criterion,),
         cadence=cadence,
@@ -207,6 +212,19 @@ class TestInterlock:
         assert isinstance(decision, PassedNoChange)
         assert decision.reason is ProposalReason.PASSED_NO_CHANGE
         assert decision.basis.commit == "running-commit"
+
+    def test_a_track_b_pass_cannot_be_a_considered_hold(self, tmp_path):
+        decision = decision_for(
+            tmp_path,
+            record=promotion_record(
+                track=PromotionTrack.TRACK_B,
+                profile_name="leveraged",
+            ),
+        )
+
+        assert isinstance(decision, Refusal)
+        assert decision.reason is NoProposalReason.NEVER_EVALUATED
+        assert "Track A" in decision.detail
 
     def test_a_mixed_account_is_decided_per_symbol(self, tmp_path):
         account = snapshot()

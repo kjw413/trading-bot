@@ -23,6 +23,7 @@ from tradingbot.report.metrics import annual_turnover, calculate_metrics
 from tradingbot.research.promotion_ledger import (
     CriterionResult as PromotionCriterionResult,
     PromotionRecord,
+    PromotionTrack,
     Verdict as PromotionVerdict,
 )
 from tradingbot.research.walk_forward import WalkForwardWindow, walk_forward_windows
@@ -337,11 +338,41 @@ def _measure(result: Any) -> dict[str, float]:
     }
 
 
+def _select_promotion_profile(
+    research: dict[str, Any], profile_name: str | None
+) -> tuple[dict[str, Any], PromotionTrack, str]:
+    """Resolve the exact threshold table used by this evaluation."""
+    if not isinstance(profile_name, str) or not profile_name:
+        raise ValueError("promotion profile must be specified")
+
+    profiles = research.get("promotion")
+    if not isinstance(profiles, dict):
+        raise ValueError("research config has no promotion profiles")
+    profile = profiles.get(profile_name)
+    if not isinstance(profile, dict):
+        raise ValueError(f"unknown promotion profile: {profile_name}")
+
+    try:
+        track = PromotionTrack(profile["track"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"promotion profile {profile_name!r} has no valid track"
+        ) from exc
+
+    benchmark_mode = profile.get("benchmark_mode")
+    if not isinstance(benchmark_mode, str) or not benchmark_mode:
+        raise ValueError(
+            f"promotion profile {profile_name!r} has no benchmark_mode"
+        )
+    return profile, track, benchmark_mode
+
+
 def evaluate_strategy(
     *,
     config: dict[str, Any],
     benchmark_config: dict[str, Any],
     research: dict[str, Any],
+    promotion_profile: str | None,
     market: str,
     symbols: Sequence[str],
     strategy_name: str,
@@ -357,7 +388,9 @@ def evaluate_strategy(
     Runs the full period for strategy and benchmark, repeats it at doubled
     costs, walks rolling out-of-sample windows, and judges the result.
     """
-    promotion = research["promotion"]
+    promotion, promotion_track, promotion_benchmark_mode = (
+        _select_promotion_profile(research, promotion_profile)
+    )
     cadence = str(config["strategies"][strategy_name]["rebalance"])
     multiplier = float(promotion["cost_multiplier_check"])
     # A caller that omits --benchmark-config gets `benchmark_config is config`
@@ -428,6 +461,9 @@ def evaluate_strategy(
         "strategy_name": strategy_name,
         "market": market.upper(),
         "symbols": list(symbols),
+        "promotion_profile": promotion_profile,
+        "promotion_track": promotion_track.value,
+        "promotion_benchmark_mode": promotion_benchmark_mode,
         "cadence": cadence,
         "period": {"start": start, "end": end},
         # Recorded so the reproduction command can name the configs that
@@ -532,6 +568,8 @@ def promotion_record_from_report(
         strategy=report["strategy_name"],
         market=report["market"],
         universe=tuple(report["symbols"]),
+        track=PromotionTrack(report["promotion_track"]),
+        profile_name=report["promotion_profile"],
         verdict=_promotion_verdict(criteria),
         criteria=tuple(ledger_criteria),
         cadence=report["cadence"],
@@ -549,12 +587,23 @@ def _verdict_sentence(report: dict[str, Any]) -> str:
     failed = [c["name"] for c in verdict["criteria"] if c["passed"] is False]
     unmeasured = verdict["unmeasured"]
 
-    if verdict["promoted"]:
+    if report["promotion_track"] == PromotionTrack.TRACK_B.value:
+        if verdict["promoted"]:
+            return (
+                f"이 실행 위험 측정은 {report['promotion_profile']} 프로파일의 기준을 "
+                "모두 충족했습니다. Track B 결과는 의무 공시용이며 전략을 "
+                "승격시키지 않습니다."
+            )
+        parts = [
+            "이 실행 위험 측정은 Track B 공시이며 전략 승격을 가르지 않습니다."
+        ]
+    elif verdict["promoted"]:
         return (
             "이 전략은 승격 기준 6개를 모두 충족했습니다. 다음 단계(모의투자)로 "
             "넘길 수 있습니다."
         )
-    parts = ["이 전략은 아직 실제 자금을 넣을 단계가 아닙니다."]
+    else:
+        parts = ["이 전략은 아직 실제 자금을 넣을 단계가 아닙니다."]
     if failed:
         parts.append(f"기준에 미달한 항목: {', '.join(failed)}.")
     if unmeasured:
@@ -601,6 +650,7 @@ def _reproduction_command(report: dict[str, Any]) -> str:
         parts.append(f"--config {report['config_path']}")
     parts += [
         "research evaluate",
+        f"--promotion-profile {report['promotion_profile']}",
         f"--strategy {report['strategy_name']}",
         f"--market {report['market']}",
         f"--symbols {' '.join(report['symbols'])}",
@@ -628,6 +678,14 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         f"- 기간: {period['start']} ~ {period['end'] or '최신'}",
         f"- 종목: {', '.join(report['symbols'])}",
+        (
+            "- 검증 트랙/프로파일: "
+            f"{report['promotion_track']} / {report['promotion_profile']}"
+        ),
+        (
+            "- 프로파일 벤치마크 의도 (구성은 후속 패키지): "
+            f"{report['promotion_benchmark_mode']}"
+        ),
     ]
     if not report.get("benchmark_separately_configured", True):
         lines.append(

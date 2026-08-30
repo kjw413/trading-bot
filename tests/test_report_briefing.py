@@ -18,6 +18,7 @@ from tradingbot.report.briefing import render_briefing, split_for_telegram
 from tradingbot.research.promotion_ledger import (
     CriterionResult,
     PromotionRecord,
+    PromotionTrack,
     Verdict,
 )
 
@@ -87,6 +88,8 @@ def promotion_basis(*, passed: bool, symbol: str = "005930") -> PromotionRecord:
         strategy="briefing_test",
         market="KR",
         universe=(symbol,),
+        track=PromotionTrack.TRACK_A,
+        profile_name="default",
         verdict=Verdict.PASS if passed else Verdict.FAIL,
         criteria=(
             CriterionResult(
