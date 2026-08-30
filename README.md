@@ -42,7 +42,7 @@ v1 이후 [`trading_bot_agentic_ai_execution_plan_260714.md`](trading_bot_agenti
     참고 — 현재 기준 미달로 **모의투자 승격 보류** 상태입니다.
 - 미국 시장 지원(`config/us_etf_rotation.toml`): 수집기 시장 가드,
   시장별 거시 시리즈, 전략의 명시적 팩터 목록과 절대 모멘텀 필터.
-  11개 ETF 자산배분 로테이션을 2007년부터 백테스트할 수 있습니다 —
+  25개 ETF 승격 후보와 기존 11개 ETF 참조 기준선을 별도 테마로 기록합니다 —
   판정은 [docs/us_etf_rotation_review.md](docs/us_etf_rotation_review.md).
 - 승격 기준 측정 도구(`research/evaluation.py`, `research evaluate`):
   Walk-forward 승률·연 회전율·비용 2배 검정을 실제로 재서, 전략이 승격
@@ -185,7 +185,7 @@ CLI 대신 데스크톱 GUI(Tkinter, 추가 의존성 없음)로 같은 기능�
 판정하고, 리포트 맨 위에 전문용어 없는 결론을 씁니다.
 
 ```powershell
-.\.venv\Scripts\python.exe -m tradingbot --config config\us_etf_rotation.toml research evaluate --strategy theme_multifactor --market US --symbols SPY QQQ IWM EFA EEM TLT IEF LQD GLD DBC VNQ --start 2007-01-01 --benchmark-config config\us_etf_benchmark.toml
+.\.venv\Scripts\python.exe -m tradingbot --config config\us_etf_rotation.toml research evaluate --strategy theme_multifactor --market US --theme us_asset_rotation --period out_of_sample --benchmark-config config\us_etf_benchmark.toml
 ```
 
 결과는 `reports/evaluation/`에 저장됩니다. 승격이면 종료코드 0, 아니면 1입니다.

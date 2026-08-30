@@ -102,8 +102,6 @@ def build_parser() -> argparse.ArgumentParser:
     factor_report_parser.add_argument(
         "--factors", nargs="+", default=None, help="Factor names (default: all registered)"
     )
-    factor_report_parser.add_argument("--start", default=None, help="Evaluation start (default: in_sample_start)")
-    factor_report_parser.add_argument("--end", default=None, help="Evaluation end (default: validation_end)")
     factor_report_parser.add_argument("--data-root", default=None)
     factor_report_parser.add_argument("--out", default="reports/research")
     factor_report_parser.add_argument(
@@ -115,9 +113,18 @@ def build_parser() -> argparse.ArgumentParser:
         "evaluate", help="Measure a strategy against the promotion criteria"
     )
     evaluate_parser.add_argument("--strategy", required=True)
-    add_market_symbols(evaluate_parser)
-    evaluate_parser.add_argument("--start", required=True)
-    evaluate_parser.add_argument("--end", default=None)
+    evaluate_parser.add_argument("--market", choices=["KR", "US"], required=True)
+    evaluation_universe = evaluate_parser.add_mutually_exclusive_group(required=True)
+    evaluation_universe.add_argument("--symbols", nargs="+")
+    evaluation_universe.add_argument(
+        "--theme", help="Resolve one recorded universe layer from config/themes.toml"
+    )
+    evaluate_parser.add_argument(
+        "--period",
+        choices=["in_sample", "validation", "out_of_sample"],
+        required=True,
+        help="Named window from config/research.toml [periods]",
+    )
     evaluate_parser.add_argument(
         "--promotion-profile",
         required=True,
@@ -445,7 +452,7 @@ def cmd_research_report(args) -> int:
     from tradingbot.data.cache import ParquetCache
     from tradingbot.data.store import ParquetDataStore
     from tradingbot.factors import get_factor, list_factors
-    from tradingbot.research.dates import month_end_trading_days
+    from tradingbot.research.dates import month_end_trading_days, research_period
     from tradingbot.research.experiment import record_experiment
     from tradingbot.research.gate import load_gate_thresholds, load_research_config
     from tradingbot.research.report import build_factor_report, render_markdown
@@ -453,22 +460,19 @@ def cmd_research_report(args) -> int:
 
     research = load_research_config(args.research_config)
     thresholds = load_gate_thresholds(research)
-    periods = research["periods"]
-    start = _date.fromisoformat(args.start or periods["in_sample_start"])
-    end = _date.fromisoformat(args.end or periods["validation_end"])
+    start, end = research_period(research, "in_sample")
+    if end is None:  # The canonical in-sample window is always closed.
+        raise ValueError("in_sample period must have an end date")
 
-    if args.theme:
-        from tradingbot.data.universe import get_theme, members as theme_members
+    from tradingbot.data.universe import get_theme, members as theme_members
 
-        theme = get_theme(args.theme)
-        market = theme.market
-        universe = theme_members(theme, end)
-        if not universe:
-            print(f"테마 {args.theme}에 {end} 기준 종목이 없습니다.")
-            return 1
-    else:
-        market = research["universe"]["market"]
-        universe = research["universe"]["symbols"]
+    theme_key = args.theme or research["universe"]["candidate_theme"]
+    theme = get_theme(theme_key)
+    market = theme.market
+    universe = theme_members(theme, end)
+    if not universe:
+        print(f"테마 {theme_key}에 {end} 기준 종목이 없습니다.")
+        return 1
 
     store = ParquetDataStore(
         ParquetCache(resolve_project_path(args.data_root or "data/cache")),
@@ -495,13 +499,15 @@ def cmd_research_report(args) -> int:
         dates=dates,
         windows=windows,
         thresholds=thresholds,
+        members_on=lambda dt: theme_members(theme, dt),
     )
+    report["universe_layer"] = theme.key
     markdown = render_markdown(report)
     print(markdown)
 
     out_dir = resolve_project_path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{_datetime.now():%Y%m%d_%H%M%S}_factor_report.md"
+    out_path = out_dir / f"{_datetime.now():%Y%m%d_%H%M%S}_{theme.key}_factor_report.md"
     out_path.write_text(markdown, encoding="utf-8")
     print(f"리포트 저장: {out_path}")
 
@@ -510,6 +516,7 @@ def cmd_research_report(args) -> int:
         kind="factor_report",
         params={
             "market": market,
+            "universe_layer": theme.key,
             "universe": universe,
             "factors": factor_names,
             "start": start.isoformat(),
@@ -685,6 +692,7 @@ def cmd_research_evaluate(args) -> int:
     )
     from tradingbot.research.experiment import current_git_commit, record_experiment
     from tradingbot.research.gate import load_research_config
+    from tradingbot.research.dates import research_period
     from tradingbot.research.promotion_ledger import record_promotion
 
     config = load_config(args.config)
@@ -692,8 +700,33 @@ def cmd_research_evaluate(args) -> int:
         load_config(args.benchmark_config) if args.benchmark_config else config
     )
     research = load_research_config(args.research_config)
+    period_start, period_end = research_period(research, args.period)
+    start = period_start.isoformat()
+    end = period_end.isoformat() if period_end else None
     evaluated_at = _dt.now(UTC)
     evaluated_commit = current_git_commit(cwd=resolve_project_path("."))
+
+    universe_layer = None
+    symbols = args.symbols
+    if args.theme:
+        from tradingbot.data.universe import get_theme
+
+        theme = get_theme(args.theme)
+        if theme.market != args.market:
+            raise ValueError(
+                f"Theme {theme.key} is market {theme.market}, not {args.market}"
+            )
+        for label, selected_config in (
+            ("strategy", config),
+            ("benchmark", benchmark_config),
+        ):
+            configured_theme = selected_config["strategies"][args.strategy].get("theme")
+            if configured_theme != theme.key:
+                raise ValueError(
+                    f"{label} config uses theme {configured_theme!r}, not {theme.key!r}"
+                )
+        universe_layer = theme.key
+        symbols = [member.symbol for member in theme.members]
 
     report = evaluate_strategy(
         config=config,
@@ -701,14 +734,17 @@ def cmd_research_evaluate(args) -> int:
         research=research,
         promotion_profile=args.promotion_profile,
         market=args.market,
-        symbols=args.symbols,
+        symbols=symbols,
         strategy_name=args.strategy,
-        start=args.start,
-        end=args.end,
+        start=start,
+        end=end,
         data_root=args.data_root,
         config_path=args.config,
         benchmark_config_path=args.benchmark_config,
     )
+    if universe_layer:
+        report["universe_layer"] = universe_layer
+    report["period_name"] = args.period
     markdown = render_markdown(report)
     print(markdown)
 
@@ -744,10 +780,12 @@ def cmd_research_evaluate(args) -> int:
         params={
             "strategy": args.strategy,
             "market": args.market,
-            "symbols": args.symbols,
+            "universe_layer": universe_layer,
+            "symbols": symbols,
             "promotion_profile": args.promotion_profile,
-            "start": args.start,
-            "end": args.end,
+            "period": args.period,
+            "start": start,
+            "end": end,
             "benchmark_config": args.benchmark_config,
         },
         metrics=metrics,

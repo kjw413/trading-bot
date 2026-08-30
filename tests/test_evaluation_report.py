@@ -801,7 +801,7 @@ class TestCli:
         args = parser.parse_args(
             ["research", "evaluate", "--promotion-profile", "default",
              "--strategy", "theme_multifactor",
-             "--market", "US", "--symbols", "SPY", "--start", "2010-01-01"]
+             "--market", "US", "--symbols", "SPY", "--period", "in_sample"]
         )
         assert args.handler is cmd_research_evaluate
         assert args.strategy == "theme_multifactor"
@@ -819,7 +819,7 @@ class TestCli:
         args = parser.parse_args(
             ["research", "evaluate", "--promotion-profile", "default",
              "--strategy", "theme_multifactor",
-             "--market", "US", "--symbols", "SPY", "--start", "2010-01-01"]
+             "--market", "US", "--symbols", "SPY", "--period", "in_sample"]
         )
         assert args.data_root is None
 
@@ -830,7 +830,7 @@ class TestCli:
         args = parser.parse_args(
             ["research", "evaluate", "--promotion-profile", "default",
              "--strategy", "theme_multifactor",
-             "--market", "US", "--symbols", "SPY", "--start", "2010-01-01",
+             "--market", "US", "--symbols", "SPY", "--period", "in_sample",
              "--data-root", "/custom/root"]
         )
         assert args.data_root == "/custom/root"
@@ -841,7 +841,7 @@ class TestCli:
             parser.parse_args(
                 ["research", "evaluate", "--strategy", "theme_multifactor",
                  "--market", "US", "--symbols", "SPY",
-                 "--start", "2010-01-01"]
+                 "--period", "in_sample"]
             )
 
 
@@ -906,7 +906,7 @@ class TestCmdResearchEvaluateWiring:
             fake_record_promotion,
         )
 
-        def run(*, data_root=None, start="2023-01-01", end="2023-06-30"):
+        def run(*, data_root=None, period="validation"):
             parser = build_parser()
             argv = [
                 "research", "evaluate",
@@ -914,8 +914,7 @@ class TestCmdResearchEvaluateWiring:
                 "--strategy", "theme_multifactor",
                 "--market", "US",
                 "--symbols", "SPY",
-                "--start", start,
-                "--end", end,
+                "--period", period,
                 "--out", str(tmp_path / "out"),
             ]
             if data_root is not None:

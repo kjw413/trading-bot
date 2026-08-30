@@ -21,22 +21,18 @@
 
 ### 1.2 투자 가능 유니버스 (US ETF)
 
-| 자산군 | 심볼 | 설명 |
-|---|---|---|
-| 미국 대형주 | SPY | S&P 500 |
-| 미국 기술주 | QQQ | Nasdaq 100 |
-| 미국 소형주 | IWM | Russell 2000 |
-| 선진국 주식 | EFA | MSCI EAFE |
-| 신흥국 주식 | EEM | MSCI Emerging Markets |
-| 미국 장기국채 | TLT | 20+ Year Treasury |
-| 미국 중기국채 | IEF | 7-10 Year Treasury |
-| 투자등급 회사채 | LQD | Investment Grade Corporate |
-| 금 | GLD | Gold |
-| 원자재 | DBC | Commodity Index |
-| 미국 리츠 | VNQ | US REIT |
+멤버와 편입일의 단일 원본은 [`config/themes.toml`](../config/themes.toml)이다.
+`config/research.toml [universe]`는 멤버를 복제하지 않고 아래 두 층의 테마 키만
+기록한다.
 
-- 유니버스 변경은 이 문서와 `config/research.toml`을 함께 수정하고 커밋에 사유를 남긴다.
-- 유니버스에 새 ETF를 추가할 때는 최소 상장기간(아래 필터 기준)을 충족해야 한다.
+| 층 | 테마 키 | 용도 |
+|---|---|---|
+| 승격 후보 | `us_asset_rotation` | 팩터 게이트, 후보 전략, 같은 종목의 동일비중 벤치마크 |
+| 참조 기준선 | `us_asset_rotation_reference` | 기존 11종 결과의 별도 비교 기준 |
+
+- 두 층의 결과는 합치지 않고 테마 키와 실제 종목 목록을 각각 기록한다.
+- 유니버스에 새 ETF를 추가할 때는 실제 캐시의 최초 거래일을 `from`으로 선언하고,
+  최소 상장기간(아래 필터 기준)을 충족해야 한다.
 
 ### 1.3 안전자산 (절대 모멘텀 미충족 시 대피처)
 
@@ -83,11 +79,16 @@ score = 0.2 × 3개월 수익률 + 0.3 × 6개월 수익률 + 0.5 × 12개월 �
 
 ## 4. 실험 기간 구분
 
-| 구간 | 기간 | 용도 |
+경계값은 이 문서에 복제하지 않는다. 실행 시
+[`config/research.toml`](../config/research.toml)의 아래 키를 직접 읽는다.
+
+| 구간 | 경계 키 | 용도 |
 |---|---|---|
-| In-sample | 2010-01-01 ~ 2018-12-31 | 전략 설계, 파라미터 탐색 |
-| Validation | 2019-01-01 ~ 2021-12-31 | 파라미터 확정, 모델 선택 |
-| Out-of-sample | 2022-01-01 ~ 현재 | **최종 평가 전용. 절대 파라미터 조정에 사용 금지** |
+| In-sample | `in_sample_start` ~ `in_sample_end` | 전략 설계, 파라미터 탐색 |
+| Validation | `validation_start` ~ `validation_end` | 파라미터 확정, 모델 선택 |
+| Out-of-sample | `out_of_sample_start` ~ 현재 | **최종 평가 전용. 절대 파라미터 조정에 사용 금지** |
+
+팩터 게이트 명령은 In-sample 두 키를 직접 사용하며 별도 날짜 재정의를 받지 않는다.
 
 규칙:
 

@@ -653,11 +653,17 @@ def _reproduction_command(report: dict[str, Any]) -> str:
         f"--promotion-profile {report['promotion_profile']}",
         f"--strategy {report['strategy_name']}",
         f"--market {report['market']}",
-        f"--symbols {' '.join(report['symbols'])}",
-        f"--start {period['start']}",
     ]
-    if period.get("end"):
-        parts.append(f"--end {period['end']}")
+    if report.get("universe_layer"):
+        parts.append(f"--theme {report['universe_layer']}")
+    else:
+        parts.append(f"--symbols {' '.join(report['symbols'])}")
+    if report.get("period_name"):
+        parts.append(f"--period {report['period_name']}")
+    else:
+        parts.append(f"--start {period['start']}")
+        if period.get("end"):
+            parts.append(f"--end {period['end']}")
     if report.get("benchmark_config_path"):
         parts.append(f"--benchmark-config {report['benchmark_config_path']}")
     if report.get("data_root"):
@@ -687,6 +693,8 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"{report['promotion_benchmark_mode']}"
         ),
     ]
+    if report.get("universe_layer"):
+        lines.append(f"- 유니버스 층: {report['universe_layer']}")
     if not report.get("benchmark_separately_configured", True):
         lines.append(
             "- 참고: 벤치마크가 별도로 설정되지 않아 전략과 동일한 설정을 "

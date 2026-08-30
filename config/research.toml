@@ -3,19 +3,10 @@
 
 [universe]
 market = "US"
-symbols = [
-    "SPY",  # 미국 대형주
-    "QQQ",  # 미국 기술주
-    "IWM",  # 미국 소형주
-    "EFA",  # 선진국 주식
-    "EEM",  # 신흥국 주식
-    "TLT",  # 미국 장기국채
-    "IEF",  # 미국 중기국채
-    "LQD",  # 투자등급 회사채
-    "GLD",  # 금
-    "DBC",  # 원자재
-    "VNQ",  # 미국 리츠
-]
+# 멤버와 편입일은 config/themes.toml만 소유한다. 승격 후보와 기존 11종
+# 참조 기준선을 이름으로 분리해, 두 결과가 같은 유니버스로 기록되지 않게 한다.
+candidate_theme = "us_asset_rotation"
+reference_theme = "us_asset_rotation_reference"
 safe_asset = "IEF"
 
 [benchmark]
@@ -23,7 +14,7 @@ primary = "SPY"
 secondary_weights = { SPY = 0.6, IEF = 0.4 }  # 60/40, 월간 리밸런싱
 
 [periods]
-in_sample_start = "2010-01-01"
+in_sample_start = "2007-01-01"
 in_sample_end = "2018-12-31"
 validation_start = "2019-01-01"
 validation_end = "2021-12-31"
