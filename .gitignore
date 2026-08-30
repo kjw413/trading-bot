@@ -21,3 +21,9 @@ state/
 
 # One-off probe scripts that touch live credentials (M1 plan Task 6 Step 1).
 scratch/
+
+# Sandboxed workers must keep pytest's basetemp inside the workspace, so their
+# run directories land here. They are run output, never source.
+.pytest_tmp*/
+.pytest-basetemp*/
+.pytest-tmp*/
