@@ -84,3 +84,29 @@ members = [
     { symbol = "SLV", from = "2007-01-03" },  # 은
     { symbol = "USO", from = "2007-01-03" },  # 원유
 ]
+
+[themes.us_asset_rotation_distinct]
+name = "미국 자산배분 ETF — 중복 제거 판별 레이어 (16종)"
+market = "US"
+# P4 판별 실험 전용 레이어다. 사전등록 20260831T132012_prereg_c5081009 참조.
+# 25종 확장에서 주식 베타 클러스터 9종(EWJ, IJH, IJR과 6개 미국 섹터)을 뺀
+# 구성이다. 명목 종목 수가 아니라 유효 독립 관측치가 문제였는지를 가른다.
+# from 날짜는 us_asset_rotation의 실측값을 그대로 쓴다.
+members = [
+    { symbol = "SPY", from = "2007-01-03" },  # 미국 대형주
+    { symbol = "QQQ", from = "2007-01-03" },  # 미국 기술주
+    { symbol = "IWM", from = "2007-01-03" },  # 미국 소형주
+    { symbol = "EFA", from = "2007-01-03" },  # 선진국 주식
+    { symbol = "EEM", from = "2007-01-03" },  # 신흥국 주식
+    { symbol = "TLT", from = "2007-01-03" },  # 미국 장기국채
+    { symbol = "IEF", from = "2007-01-03" },  # 미국 중기국채
+    { symbol = "LQD", from = "2007-01-03" },  # 투자등급 회사채
+    { symbol = "GLD", from = "2007-01-03" },  # 금
+    { symbol = "DBC", from = "2007-01-03" },  # 원자재
+    { symbol = "VNQ", from = "2007-01-03" },  # 미국 리츠
+    { symbol = "TIP", from = "2007-01-03" },  # 물가연동국채
+    { symbol = "SHY", from = "2007-01-03" },  # 단기국채
+    { symbol = "HYG", from = "2007-04-11" },  # 하이일드 회사채
+    { symbol = "SLV", from = "2007-01-03" },  # 은
+    { symbol = "USO", from = "2007-01-03" },  # 원유
+]

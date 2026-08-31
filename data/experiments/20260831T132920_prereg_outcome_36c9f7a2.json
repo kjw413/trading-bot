@@ -1,0 +1,47 @@
+{
+  "experiment_id": "20260831T132920_prereg_outcome_36c9f7a2",
+  "kind": "prereg_outcome",
+  "git_commit": "44eedebcd5e70879eeaba2eb9b7362012b86af85",
+  "created_at": "2026-08-31T13:29:20.763126+00:00",
+  "prereg_id": "20260831T132012_prereg_c5081009",
+  "params": {
+    "factor": "momentum_6m",
+    "period": "2007-01-01..2018-12-31 in-sample, 144 month-end dates",
+    "literal_rule_verdict": "redundancy_supported — ic_ir 0.1824 exceeds the pre-registered 0.18 boundary",
+    "effect_size_caveat": "It clears the boundary by 0.0006. The boundary was drawn at the reference layer's own value, so this margin is noise and must not be read as the distinct layer outperforming.",
+    "what_the_evidence_actually_shows": "Removing the nine redundant equity names recovers the entire fall (0.1455 -> 0.1824). Adding the five distinct names to the reference eleven buys 0.0006. Redundancy explains the damage; distinctness-adjusted expansion is still not a lever.",
+    "premise_failure": "The P1 pre-registration computed its noise-reduction premise from nominal counts, treating members as independent draws. Effective sample size is pinned near 3 across every layer tested and never rose above 3.02, so the predicted ~35% noise reduction was unavailable by construction.",
+    "conclusion": "Universe size is not a lever for this factor on this asset class. IC IR tracks effective sample size monotonically and effective sample size does not respond to adding correlated ETFs.",
+    "monotonicity_note": "Excluded from the decision in advance, as registered. Recorded only: 1.00 at both 11 and 16 names, 0.50 at 25."
+  },
+  "metrics": {
+    "reference_11": {
+      "ic_mean": 0.0904,
+      "ic_ir": 0.1818,
+      "mono": 1.0,
+      "wf_win": 0.67,
+      "nominal_n": 11,
+      "mean_pairwise_corr": 0.278,
+      "effective_n": 2.91
+    },
+    "distinct_16": {
+      "ic_mean": 0.0839,
+      "ic_ir": 0.1824,
+      "mono": 1.0,
+      "wf_win": 0.67,
+      "nominal_n": 16,
+      "mean_pairwise_corr": 0.286,
+      "effective_n": 3.02
+    },
+    "candidate_25": {
+      "ic_mean": 0.0626,
+      "ic_ir": 0.1455,
+      "mono": 0.5,
+      "wf_win": 0.44,
+      "nominal_n": 25,
+      "mean_pairwise_corr": 0.369,
+      "effective_n": 2.53
+    },
+    "gate_threshold_ir": 0.3
+  }
+}
