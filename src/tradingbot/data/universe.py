@@ -22,9 +22,11 @@ import tomllib
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from tradingbot.config import PROJECT_ROOT
+from tradingbot.data.store import ParquetDataStore
+from tradingbot.engine.calendar import get_calendar
 
 THEMES_PATH = PROJECT_ROOT / "config" / "themes.toml"
 
@@ -48,6 +50,16 @@ class Theme:
     name: str
     market: str
     members: tuple[ThemeMember, ...]
+
+
+@dataclass(frozen=True)
+class CoverageGap:
+    symbol: str
+    condition: Literal["absent", "starts_late", "ends_early"]
+    required_start: date
+    required_end: date
+    cached_start: date | None = None
+    cached_end: date | None = None
 
 
 def _parse_member(theme_key: str, raw: dict) -> ThemeMember:
@@ -89,6 +101,71 @@ def load_themes(path: str | Path | None = None) -> dict[str, Theme]:
 def members(theme: Theme, dt: date) -> list[str]:
     """Symbols that belonged to `theme` on `dt`, sorted for reproducibility."""
     return sorted(member.symbol for member in theme.members if member.active_on(dt))
+
+
+def coverage_gaps(
+    theme: Theme, store: ParquetDataStore, start: date, end: date
+) -> list[CoverageGap]:
+    """Missing cache coverage for theme membership that overlaps a date range."""
+    calendar = get_calendar(theme.market)
+    gaps: list[CoverageGap] = []
+    for member in theme.members:
+        required_start = max(start, member.start)
+        if required_start > end or not member.active_on(required_start):
+            continue
+        required_end = min(end, member.end) if member.end is not None else end
+        required_trading_days = calendar.trading_days(required_start, required_end)
+        if not required_trading_days:
+            continue
+
+        if not store.cache.exists(store.market, member.symbol):
+            gaps.append(
+                CoverageGap(
+                    symbol=member.symbol,
+                    condition="absent",
+                    required_start=required_start,
+                    required_end=required_end,
+                )
+            )
+            continue
+
+        history = store.cache.read(store.market, member.symbol)
+        if history.empty:
+            gaps.append(
+                CoverageGap(
+                    symbol=member.symbol,
+                    condition="absent",
+                    required_start=required_start,
+                    required_end=required_end,
+                )
+            )
+            continue
+
+        cached_start = history.index.min().date()
+        cached_end = history.index.max().date()
+        if cached_start > required_trading_days[0]:
+            gaps.append(
+                CoverageGap(
+                    symbol=member.symbol,
+                    condition="starts_late",
+                    required_start=required_start,
+                    required_end=required_end,
+                    cached_start=cached_start,
+                    cached_end=cached_end,
+                )
+            )
+        if cached_end < required_trading_days[-1]:
+            gaps.append(
+                CoverageGap(
+                    symbol=member.symbol,
+                    condition="ends_early",
+                    required_start=required_start,
+                    required_end=required_end,
+                    cached_start=cached_start,
+                    cached_end=cached_end,
+                )
+            )
+    return gaps
 
 
 def get_theme(key: str, path: str | Path | None = None) -> Theme:
