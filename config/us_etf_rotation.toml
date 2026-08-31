@@ -40,7 +40,9 @@ slippage_bps = 5
 # 이미 0.40을 강제한다. 이 값이 그보다 낮으면 같은 매수가 두 번 거부당한다 — 엔진
 # 리스크 캡은 전략 상한 위의 백스톱이어야지, 더 타이트한 거부권이면 안 된다.
 max_position_pct = 0.40
-max_positions = 5
+# The tilt path holds the full 25-name candidate universe. Keeping the old
+# five-position engine backstop would silently turn it back into a selector.
+max_positions = 25
 max_daily_loss_pct = 0.03
 stop_loss_pct = 0.05
 min_cash_buffer_pct = 0.02
@@ -67,6 +69,13 @@ theme = "us_asset_rotation"
 market = "US"
 rebalance = "monthly"
 top_n = 3
+# P3 switches. These disabled values preserve the pre-P3 reference behavior;
+# selection="tilt" enables S1, and a positive annualized target_vol replaces
+# the binary regime exposure with S2. The target itself is selected only by
+# the pre-registered research sequence, not guessed in implementation.
+selection = "top_n"
+tilt_strength = 0.5
+target_vol = 0.0
 weighting = "inverse_volatility"
 volatility_days = 60
 bear_exposure = 0.5

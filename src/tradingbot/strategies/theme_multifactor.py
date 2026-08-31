@@ -2,8 +2,9 @@
 
 Decision flow (spec §9):
     theme members at dt -> factor scores (weights config drives WHICH factors)
-    -> standardize -> combine -> top N -> equal or inverse-vol weights
-    -> regime exposure scaling -> concentration/cash constraints -> targets
+    -> standardize -> combine -> top N or full-universe rank tilt
+    -> equal or inverse-vol base weights -> regime or volatility exposure
+    -> concentration/cash constraints -> targets
 
 The factor-weights config is the single source of truth for which factors
 run: every key is resolved through the registry up front, so a typo'd name
@@ -17,6 +18,7 @@ trade on nothing.
 from __future__ import annotations
 
 from datetime import date
+import math
 from typing import Sequence
 
 import pandas as pd
@@ -28,8 +30,11 @@ from tradingbot.allocation.rebalance import is_rebalance_date, plan_rebalance
 from tradingbot.allocation.weights import (
     equal_weights,
     inverse_volatility_weights,
+    realized_portfolio_volatility,
     realized_volatility,
     scale_weights,
+    tilt_weights,
+    volatility_target_exposure,
 )
 from tradingbot.config import resolve_project_path
 from tradingbot.data.events import schedule_dates
@@ -48,6 +53,7 @@ from tradingbot.utils.log import get_logger
 LOGGER = get_logger(__name__)
 
 WEIGHTINGS = ("equal", "inverse_volatility")
+SELECTIONS = ("top_n", "tilt")
 
 
 class ThemeMultifactorStrategy(Strategy):
@@ -57,8 +63,15 @@ class ThemeMultifactorStrategy(Strategy):
         "market": "KR",
         "rebalance": "monthly",
         "top_n": 3,
+        # top_n is the reference behavior. tilt keeps every scoreable name
+        # and expresses the signal as a continuous exponential lean.
+        "selection": "top_n",
+        "tilt_strength": 0.5,
         "weighting": "inverse_volatility",
         "volatility_days": 60,
+        # Zero preserves the existing binary regime exposure. A positive
+        # annualized target replaces it with the no-leverage volatility rule.
+        "target_vol": 0.0,
         "band": 0.005,
         # Trading days of price staleness tolerated before a rebalance is
         # skipped. 3 absorbs a long weekend plus one failed collection run
@@ -109,6 +122,17 @@ class ThemeMultifactorStrategy(Strategy):
                 f"Unknown weighting: {self.params['weighting']}. "
                 f"Available: {', '.join(WEIGHTINGS)}"
             )
+        if self.params["selection"] not in SELECTIONS:
+            raise ValueError(
+                f"Unknown selection: {self.params['selection']}. "
+                f"Available: {', '.join(SELECTIONS)}"
+            )
+        tilt_strength = float(self.params["tilt_strength"])
+        if not math.isfinite(tilt_strength) or tilt_strength < 0:
+            raise ValueError("tilt_strength must be a finite non-negative number")
+        target_vol = float(self.params["target_vol"])
+        if not math.isfinite(target_vol) or target_vol < 0:
+            raise ValueError("target_vol must be a finite non-negative number")
         self._research: dict | None = None
         self._factor_weights: dict[str, float] | None = None
         self._data_store = None
@@ -178,8 +202,12 @@ class ThemeMultifactorStrategy(Strategy):
             )
             return {}
 
+        unfiltered = combined
         combined = self._apply_absolute_momentum(dt, combined, data_store)
-        selected = select_top(combined, int(self.params["top_n"]))
+        if self.params["selection"] == "top_n":
+            selected = select_top(combined, int(self.params["top_n"]))
+        else:
+            selected = [str(symbol) for symbol in combined.dropna().index]
         if not selected:
             return {}
 
@@ -197,13 +225,37 @@ class ThemeMultifactorStrategy(Strategy):
                 volatilities[symbol] = realized_volatility(history["close"], vol_days)
             base = inverse_volatility_weights(volatilities)
 
-        regime_state = market_regime(
-            data_store,
-            dt,
-            series=str(self.params["regime_series"]),
-            ma_days=int(self.params["regime_ma_days"]),
-        )
-        exposure = equity_exposure(regime_state, bear=float(self.params["bear_exposure"]))
+        if self.params["selection"] == "tilt":
+            # Keep explicit zeroes for names excluded by absolute momentum so
+            # the filter is represented as zero weight plus renormalization.
+            base = {str(symbol): base.get(str(symbol), 0.0) for symbol in unfiltered.index}
+            z_scores = standardize(combined).clip(lower=-3.0, upper=3.0)
+            base = tilt_weights(base, z_scores, float(self.params["tilt_strength"]))
+            if not base:
+                return {}
+
+        target_vol = float(self.params["target_vol"])
+        if target_vol > 0:
+            vol_days = int(self.params["volatility_days"])
+            histories: dict[str, pd.Series] = {}
+            for symbol, weight in base.items():
+                if weight <= 0:
+                    continue
+                try:
+                    history = data_store.price_history(symbol, dt, vol_days + 1)
+                except (FileNotFoundError, KeyError):
+                    continue
+                histories[symbol] = history["close"]
+            portfolio_vol = realized_portfolio_volatility(histories, base, vol_days)
+            exposure = volatility_target_exposure(portfolio_vol, target_vol)
+        else:
+            regime_state = market_regime(
+                data_store,
+                dt,
+                series=str(self.params["regime_series"]),
+                ma_days=int(self.params["regime_ma_days"]),
+            )
+            exposure = equity_exposure(regime_state, bear=float(self.params["bear_exposure"]))
         scaled = scale_weights(base, exposure)
 
         limits = self.research.get("risk_limits", {})

@@ -1,0 +1,25 @@
+{
+  "experiment_id": "20260830T142650_prereg_ee13332f",
+  "kind": "prereg",
+  "git_commit": "20ee5211326366dc89340df7f5964c2478b3add6",
+  "created_at": "2026-08-30T14:26:50.953757+00:00",
+  "params": {
+    "design_section": "8.3",
+    "phase": "P1",
+    "factor": "momentum_6m",
+    "baseline_universe_size": 11,
+    "expanded_universe_size": 25,
+    "prediction": "IR increases; magnitude upper bound is 0.32",
+    "interpretation": "The 0.32 value is an upper bound, not a point prediction",
+    "rejection_condition": "If IR falls, reject the universe-expansion hypothesis and revert the expansion",
+    "shortfall_condition": "If IR rises but remains below 0.30, P2 asks whether F1 and F2 fill the remainder"
+  },
+  "metrics": {
+    "sampling_noise_n11": 0.316,
+    "sampling_noise_n25": 0.204,
+    "sampling_noise_reduction": "approximately 35%",
+    "baseline_ir": 0.21,
+    "upper_bound_ir": 0.32,
+    "gate_threshold_ir": 0.3
+  }
+}
