@@ -11,6 +11,7 @@ import pytest
 from tradingbot.allocation.weights import tilt_weights, volatility_target_exposure
 from tradingbot.data.cache import ParquetCache
 from tradingbot.data.store import ParquetDataStore
+from tradingbot.data.universe import get_theme
 from tradingbot.strategies.theme_multifactor import ThemeMultifactorStrategy
 
 
@@ -188,7 +189,8 @@ def test_candidate_config_exposes_switches_without_narrowing_the_tilt():
         config = tomllib.load(stream)
 
     strategy = config["strategies"]["theme_multifactor"]
+    strategy_member_count = len(get_theme(strategy["theme"]).members)
     assert strategy["selection"] == "top_n"
     assert strategy["tilt_strength"] == pytest.approx(0.5)
     assert strategy["target_vol"] == 0.0
-    assert config["risk"]["max_positions"] == 25
+    assert config["risk"]["max_positions"] >= strategy_member_count

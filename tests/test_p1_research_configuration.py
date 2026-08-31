@@ -124,14 +124,24 @@ def test_candidate_and_reference_universe_layers_stay_separate():
     research_universe = load_research_config()["universe"]
     assert research_universe["candidate_theme"] == candidate.key
     assert research_universe["reference_theme"] == reference.key
+    configured_reference_theme = research_universe["reference_theme"]
+    reference_member_count = len(get_theme(configured_reference_theme).members)
 
     for filename in ("us_etf_rotation.toml", "us_etf_benchmark.toml"):
         with (ROOT / "config" / filename).open("rb") as stream:
             config = tomllib.load(stream)
-        assert config["strategies"]["theme_multifactor"]["theme"] == candidate.key
+        assert (
+            config["strategies"]["theme_multifactor"]["theme"]
+            == configured_reference_theme
+        )
+        # Daily collection is wider than the strategy universe; research layers
+        # need that history.
         assert set(config["pipeline"]["symbols"]) == candidate_symbols
 
     with (ROOT / "config" / "us_etf_benchmark.toml").open("rb") as stream:
         benchmark = tomllib.load(stream)
-    assert benchmark["strategies"]["theme_multifactor"]["top_n"] == len(candidate_symbols)
-    assert benchmark["risk"]["max_positions"] == len(candidate_symbols)
+    assert (
+        benchmark["strategies"]["theme_multifactor"]["top_n"]
+        == reference_member_count
+    )
+    assert benchmark["risk"]["max_positions"] == reference_member_count
