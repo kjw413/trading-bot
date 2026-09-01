@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from datetime import date
+from types import SimpleNamespace
 
 import pytest
 
@@ -222,6 +224,31 @@ class TestCli:
         args = parser.parse_args(["data", "pipeline", "--market", "KR"])
         assert args.handler is cmd_data_pipeline
         assert args.market == "KR"
+        assert args.macro_start is None
+
+    def test_parser_accepts_macro_start(self):
+        parser = build_parser()
+        args = parser.parse_args(
+            ["data", "pipeline", "--market", "US", "--macro-start", "2007-01-01"]
+        )
+        assert args.macro_start == date(2007, 1, 1)
+
+    def test_handler_passes_macro_start_to_pipeline(self, monkeypatch):
+        captured = {}
+
+        def fake_run_pipeline(config, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(market="US", results=[], ok=True)
+
+        monkeypatch.setattr("tradingbot.cli.load_config", lambda path: {})
+        monkeypatch.setattr("tradingbot.data.pipeline.run_pipeline", fake_run_pipeline)
+        parser = build_parser()
+        args = parser.parse_args(
+            ["data", "pipeline", "--market", "US", "--macro-start", "2007-01-01"]
+        )
+
+        assert cmd_data_pipeline(args) == 0
+        assert captured["macro_start"] == date(2007, 1, 1)
 
     def test_symbols_are_optional(self):
         parser = build_parser()

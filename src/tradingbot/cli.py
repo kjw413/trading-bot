@@ -58,6 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline_parser.add_argument(
         "--symbols", nargs="+", default=None, help="Override config pipeline.symbols"
     )
+    pipeline_parser.add_argument(
+        "--macro-start",
+        type=_date.fromisoformat,
+        default=None,
+        help="Backfill macro history from YYYY-MM-DD",
+    )
     pipeline_parser.add_argument("--processed-root", default=None)
     pipeline_parser.add_argument("--log-root", default=None)
     pipeline_parser.set_defaults(handler=cmd_data_pipeline)
@@ -637,6 +643,7 @@ def cmd_data_pipeline(args) -> int:
         symbols=args.symbols,
         processed_root=args.processed_root,
         log_root=args.log_root,
+        macro_start=args.macro_start,
     )
 
     print(f"데이터 수집 배치: {result.market}")

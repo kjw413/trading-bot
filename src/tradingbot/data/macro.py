@@ -103,6 +103,7 @@ def update_macro(
 
     Without an explicit `series`, collects the ones defined for the store's
     own market — a US panel must not be filled with Korean indices.
+    An explicit `start` also backfills any history before the first stored row.
     """
     if series is not None:
         names = list(series)
@@ -122,24 +123,58 @@ def update_macro(
     written = 0
     fetch_end = end or date.today()
     for name in names:
-        last = store.last_date(name)
-        fetch_start = last + timedelta(days=1) if last else (start or MACRO_DEFAULT_START)
-        if fetch_start > fetch_end:
-            # Already current. Asking anyway sends an inverted range upstream:
-            # Yahoo answers `period1 > period2` with a 400, and the run ends in
-            # a logged traceback that reads like an outage. Every other
-            # collector skips this; macro was the one that did not.
+        spans: list[tuple[date, date | None]] = []
+        if start is None:
+            last = store.last_date(name)
+            fetch_start = last + timedelta(days=1) if last else MACRO_DEFAULT_START
+            if fetch_start > fetch_end:
+                # Already current. Asking anyway sends an inverted range upstream:
+                # Yahoo answers `period1 > period2` with a 400, and the run ends in
+                # a logged traceback that reads like an outage. Every other
+                # collector skips this; macro was the one that did not.
+                continue
+            spans.append((fetch_start, end))
+        else:
+            stored = store.read(symbols=[name])
+            if stored.empty:
+                if start <= fetch_end:
+                    spans.append((start, end))
+            else:
+                earliest = stored["date"].min().date()
+                last = stored["date"].max().date()
+                if start < earliest:
+                    # Include the stored boundary: upstream end semantics vary,
+                    # and PanelStore.append owns duplicate-key resolution.
+                    backfill_end = min(earliest, fetch_end)
+                    if start <= backfill_end:
+                        spans.append((start, backfill_end))
+
+                forward_start = last + timedelta(days=1)
+                if forward_start <= fetch_end:
+                    spans.append((forward_start, end))
+
+        frames: list[pd.DataFrame] = []
+        for span_start, span_end in spans:
+            try:
+                frame = fetcher(name, span_start, span_end)
+            except MissingCredentialsError:
+                raise
+            except Exception:
+                LOGGER.exception(
+                    "Macro collection failed for %s from %s to %s; skipping this span",
+                    name,
+                    span_start,
+                    span_end,
+                )
+                continue
+            if frame.empty:
+                LOGGER.info("Macro series %s returned no new rows from %s", name, span_start)
+                continue
+            frames.append(frame)
+
+        if not frames:
             continue
-        try:
-            frame = fetcher(name, fetch_start, end)
-        except MissingCredentialsError:
-            raise
-        except Exception:
-            LOGGER.exception("Macro collection failed for %s; skipping this series", name)
-            continue
-        if frame.empty:
-            LOGGER.info("Macro series %s returned no new rows from %s", name, fetch_start)
-            continue
+        frame = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
         tagged = attach_metadata(
             frame,
             source=MACRO_SOURCE,

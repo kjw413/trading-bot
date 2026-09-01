@@ -109,6 +109,7 @@ def _default_collectors(
     market: str,
     fundamental_years: int,
     cache_root: Path,
+    macro_start: date | None = None,
 ) -> dict[str, Callable[..., int]]:
     def prices(**_: Any) -> int:
         """Refresh the OHLCV cache the factor layer reads."""
@@ -130,7 +131,7 @@ def _default_collectors(
         return rows
 
     def macro(**_: Any) -> int:
-        return update_macro(PanelStore(processed_root, "macro", market))
+        return update_macro(PanelStore(processed_root, "macro", market), start=macro_start)
 
     def flows(**_: Any) -> int:
         return update_flows(PanelStore(processed_root, "flows", market), symbols=symbols)
@@ -202,6 +203,7 @@ def run_pipeline(
     symbols: Sequence[str] | None = None,
     processed_root: str | Path | None = None,
     log_root: str | Path | None = None,
+    macro_start: date | None = None,
     collectors: dict[str, Callable[..., int]] | None = None,
 ) -> PipelineResult:
     """Run every collector once, isolating failures.
@@ -227,6 +229,7 @@ def run_pipeline(
         market.upper(),
         int(settings.get("fundamental_years", 3)),
         cache,
+        macro_start=macro_start,
     )
 
     started = datetime.now(timezone.utc)
