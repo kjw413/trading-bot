@@ -1,0 +1,51 @@
+{
+  "experiment_id": "20260901T121701_prereg_88a90c55",
+  "kind": "prereg",
+  "git_commit": "f9378359e12a7333d27b45e27e56e9183965f878",
+  "created_at": "2026-09-01T12:17:01.699891+00:00",
+  "params": {
+    "design_section": "8.3",
+    "phase": "P8",
+    "question": "Is factor predictive power conditional on an ex-ante observable market regime?",
+    "origin_and_its_problem": "P7 noticed that nearly every factor scored far higher in 2013-2018 than in 2007-2012, several crossing from negative to positive. That observation was not registered and was recorded there as an observation rather than a result. It is a hindsight split: any series cut in two differs, and which half a date belongs to is not knowable when the decision is made. This registration exists to convert it into a claim that can be wrong.",
+    "hypothesis": "Cross-sectional momentum has higher mean IC when the market is in a bull regime than in a bear regime, using a regime indicator computable from information available at each decision date.",
+    "why_this_formalization": "It is mechanistic rather than calendrical, it is observable at decision time rather than in hindsight, and it is actionable: the strategy already carries a regime switch with bear_exposure, so a positive result would speak directly to a control that already exists.",
+    "circularity_control": {
+      "in_sample_2007_2018": "Confirmatory only and explicitly not evidence. This is the data the hypothesis was generated from, and a pattern cannot be confirmed on the sample that suggested it.",
+      "validation_2019_2021": "The decision runs here. This window has not been examined.",
+      "out_of_sample_2022_onward": "Not touched. config/research.toml marks it off limits for tuning, and it is reserved for a later registered confirmation."
+    },
+    "grid": {
+      "layer": "us_asset_rotation_reference",
+      "horizon_days": 20,
+      "factors": [
+        "momentum_3m",
+        "momentum_6m"
+      ],
+      "regime": "market_regime(series='sp500', ma_days=200), the exact configuration the strategy already resolves to"
+    },
+    "primary_metric": "gap = mean_IC(bull dates) - mean_IC(bear dates)",
+    "why_mean_ic_not_ceiling": "Validation holds 36 month-ends before splitting by regime. The ceiling needs a variance estimate and a sampling-term subtraction, which is far too noisy on buckets that small. Mean IC is the stabler quantity and directional replication is what this test can actually deliver.",
+    "power_guard": "Decided in advance: if either regime bucket in validation holds fewer than 8 dates, the validation test is declared underpowered and reported as such rather than as a verdict in either direction.",
+    "decision_rule": {
+      "consistent": "Validation gap is positive and matches the in-sample sign. Reported as consistent with regime dependence and explicitly NOT as established, because 36 dates cannot fix an effect size. Triggers a separately registered out-of-sample test.",
+      "rejected": "Validation gap is negative, or its absolute value is below 0.02. The in-sample pattern is then treated as a hindsight artifact and the regime line of inquiry closes.",
+      "underpowered": "Either bucket below 8 dates. No verdict."
+    },
+    "closed_degrees_of_freedom": [
+      "The regime definition is fixed to the strategy's existing indicator. No alternative proxy — volatility, drawdown, term spread — may be substituted after seeing the result. Trying several and reporting the best is the exact failure this project keeps guarding against.",
+      "ma_days is fixed at the configured 200 and is not tuned.",
+      "The factor list is fixed at two and may not gain a third after results are seen.",
+      "UNKNOWN regime dates are excluded from both buckets and their count is reported. They are not folded into bear, because an unmeasurable regime is not a downturn.",
+      "No sign may be flipped after the fact."
+    ],
+    "data_dependency": "The sp500 macro panel currently begins 2009-12-31 because the collector could only extend forward, so in-sample regime before 2010 is UNKNOWN. The source holds history to 2004-12-31 and the collector is being fixed to backfill. If that backfill fails, the confirmatory in-sample portion is limited to 2010 onward and this registration says so in advance rather than quietly reporting a shorter window.",
+    "not_in_scope": "No threshold, config value, universe or strategy rule changes under this registration. bear_exposure is not tuned here."
+  },
+  "metrics": {
+    "unconditional_best_ceiling": 0.273,
+    "gate_threshold_ir": 0.3,
+    "rejection_band": 0.02,
+    "min_bucket_dates": 8
+  }
+}
