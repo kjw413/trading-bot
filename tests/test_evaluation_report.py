@@ -180,6 +180,71 @@ class TestEvaluateStrategy:
         )
         assert report["benchmark_separately_configured"] is False
 
+    def test_unconfigured_benchmark_marks_relative_criteria_unmeasurable(self):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=CONFIG,
+            research=RESEARCH,
+            promotion_profile="default",
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            runner=runner,
+        )
+        relative_names = {
+            "excess_return",
+            "excess_return_at_2.0x_costs",
+            "walk_forward_win_rate",
+        }
+        relative = {
+            criterion["name"]: criterion
+            for criterion in report["verdict"]["criteria"]
+            if criterion["name"] in relative_names
+        }
+        reason = (
+            "벤치마크가 별도로 설정되지 않아 전략과 동일한 설정을 사용하므로 "
+            "비교 성과를 측정할 수 없습니다"
+        )
+
+        assert set(relative) == relative_names
+        assert all(math.isnan(criterion["measured"]) for criterion in relative.values())
+        assert all(criterion["passed"] is None for criterion in relative.values())
+        assert {criterion["reason"] for criterion in relative.values()} == {reason}
+        assert set(report["verdict"]["unmeasured"]) == relative_names
+        assert report["verdict"]["promoted"] is False
+
+    def test_separately_configured_benchmark_keeps_relative_criteria_measured(
+        self, report
+    ):
+        relative_names = {
+            "excess_return",
+            "excess_return_at_2.0x_costs",
+            "walk_forward_win_rate",
+        }
+        relative = {
+            criterion["name"]: criterion
+            for criterion in report["verdict"]["criteria"]
+            if criterion["name"] in relative_names
+        }
+
+        assert len(relative) == len(relative_names)
+        assert relative["excess_return"]["measured"] == report["excess_return_pct"]
+        assert relative["excess_return_at_2.0x_costs"]["measured"] == (
+            report["cost_2x"]["excess_return_pct"]
+        )
+        assert relative["walk_forward_win_rate"]["measured"] == (
+            report["walk_forward"]["win_rate"]
+        )
+        assert all(
+            not math.isnan(criterion["measured"])
+            for criterion in relative.values()
+        )
+        assert all(criterion["passed"] is True for criterion in relative.values())
+        assert all(criterion["reason"] == "" for criterion in relative.values())
+        assert relative_names.isdisjoint(report["verdict"]["unmeasured"])
+
     def test_separately_configured_benchmark_is_not_flagged(self):
         report = evaluate_strategy(
             config=CONFIG,

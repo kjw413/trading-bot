@@ -259,6 +259,7 @@ def judge(
     wf_windows_evaluated: int,
     excess_return_2x: float,
     promotion: dict[str, Any],
+    benchmark_separately_configured: bool = True,
 ) -> Verdict:
     """Compare measurements against the promotion criteria.
 
@@ -272,8 +273,21 @@ def judge(
     evidence). Below `promotion["min_walk_forward_windows"]` evaluated
     windows, this criterion is reported unmeasured regardless of the rate.
     """
+    benchmark_reason = ""
+    if not benchmark_separately_configured:
+        benchmark_reason = (
+            "벤치마크가 별도로 설정되지 않아 전략과 동일한 설정을 사용하므로 "
+            "비교 성과를 측정할 수 없습니다"
+        )
+        excess_return = float("nan")
+        excess_return_2x = float("nan")
+        wf_win_rate = float("nan")
+
     min_windows = int(promotion.get("min_walk_forward_windows", 3))
-    if wf_windows_evaluated < min_windows:
+    if not benchmark_separately_configured:
+        wf_passed: bool | None = None
+        wf_reason = benchmark_reason
+    elif wf_windows_evaluated < min_windows:
         wf_passed: bool | None = None
         wf_reason = (
             f"평가된 구간 {wf_windows_evaluated}개 — 일관성을 판단하려면 최소 "
@@ -289,6 +303,7 @@ def judge(
             f">= {promotion['min_excess_return']}",
             excess_return,
             _at_least(excess_return, float(promotion["min_excess_return"])),
+            reason=benchmark_reason,
         ),
         CriterionResult(
             "sharpe",
@@ -320,6 +335,7 @@ def judge(
             f">= {promotion['min_excess_return']}",
             excess_return_2x,
             _at_least(excess_return_2x, float(promotion["min_excess_return"])),
+            reason=benchmark_reason,
         ),
     ]
     return Verdict(promoted=all(c.passed for c in criteria), criteria=criteria)
@@ -455,6 +471,7 @@ def evaluate_strategy(
         wf_windows_evaluated=counts.evaluated,
         excess_return_2x=excess_return_2x,
         promotion=promotion,
+        benchmark_separately_configured=benchmark_separately_configured,
     )
 
     return {
