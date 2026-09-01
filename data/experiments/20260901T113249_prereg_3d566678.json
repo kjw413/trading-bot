@@ -1,0 +1,51 @@
+{
+  "experiment_id": "20260901T113249_prereg_3d566678",
+  "kind": "prereg",
+  "git_commit": "73044a450ebf2924d3e8b96799936be3cd9a4bd3",
+  "created_at": "2026-09-01T11:32:49.089403+00:00",
+  "params": {
+    "design_section": "8.3",
+    "phase": "P7",
+    "question": "Does any never-measured factor reach a materially higher ceiling than the two momentum factors already tested?",
+    "background": "P4 ruled out universe size and P6 ruled out horizon. Both were investigated properly and both are dead. The factor dimension is nearly unexplored by comparison: every ceiling measured so far comes from momentum_3m or momentum_6m. Five registered factors that apply to US ETFs have never been through the gate, including the three P2 built and explicitly left unmeasured.",
+    "hypothesis": "The tested pair may be a poor sample of what the factor library offers. momentum_12m_ex1m carries a specific mechanism: skipping the most recent month is the standard specification precisely because short-term reversal contaminates raw momentum, and the instability seen at the 20-day horizon has that shape.",
+    "grid": {
+      "layer": "us_asset_rotation_reference — fixed by P5, not swept",
+      "horizon_days": 20,
+      "why_20": "P6 measured 60, 120 and 250 and all were worse. Twenty is also the only horizon where month-end windows do not overlap, so no subsample phase choice exists to get wrong.",
+      "in_sample": "config/research.toml in_sample, 2007-01-01 to 2018-12-31, all 144 month-ends, no subsampling",
+      "factors": [
+        "momentum_12m",
+        "momentum_12m_ex1m",
+        "momentum_6m_risk_adj",
+        "trend_consistency_6m",
+        "reversal_1m"
+      ],
+      "cells": 5
+    },
+    "reference_points_not_retested": {
+      "momentum_3m": 0.273,
+      "momentum_6m": 0.236
+    },
+    "primary_metric": "ceiling = mean(IC) / sd(true IC), computed by tradingbot.research.horizon.diagnose at Newey-West lag 0",
+    "closed_degrees_of_freedom": [
+      "Layer, horizon and in-sample window are fixed above and may not be varied after seeing results.",
+      "All 144 month-ends are used. No subsampling, so no phase choice exists — this is the freedom that P6's registration left open and that produced a false positive there.",
+      "Factor sign orientation is taken from the registry as-is. P2 established that every factor is oriented so higher is better. No sign may be flipped after seeing a result: an inverted sign presents real predictive power as a clean failure and the reverse, and choosing afterwards makes either one unfalsifiable.",
+      "A negative ceiling is reported as a negative ceiling."
+    ],
+    "stability_requirement": "A winner must clear the bar in both halves of the window. The split is the midpoint of the 144 ordered dates, 72 and 72, which is fixed by the date list and carries no choice. Both halves must exceed 0.273, the best ceiling measured to date. Factors are independent hypotheses so no trend across them can be required, and this replaces the monotonicity requirement P6 used for that purpose.",
+    "decision_rule": {
+      "factor_is_the_lever": "Best ceiling >= 0.35 AND both halves exceed 0.273. Register a follow-up to evaluate that factor properly out of sample.",
+      "not_the_lever": "Best ceiling <= 0.30. The momentum-style factor family is exhausted on this asset class and only the threshold and verdict format remain.",
+      "inconclusive": "Best ceiling between 0.30 and 0.35, or clears 0.35 in one half only. Recorded as not established."
+    },
+    "why_0_35": "Five cells are measured and the decision reads the maximum, which is biased upward when each estimate is noisy. The bar keeps margin over both the 0.30 gate and the 0.273 already observed, so a win must exceed the selection bias it could be composed of. Same bar as P6 for comparability.",
+    "not_in_scope": "No threshold, universe, horizon or strategy rule changes under this registration. It measures whether a lever exists."
+  },
+  "metrics": {
+    "gate_threshold_ir": 0.3,
+    "declared_bar": 0.35,
+    "best_ceiling_to_date": 0.273
+  }
+}
