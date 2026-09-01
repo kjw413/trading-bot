@@ -64,13 +64,17 @@ CONFIG = {
 BENCHMARK = {"marker": "benchmark", "fees": {"US": {"commission_rate": 0.001}}, "execution": {"slippage_bps": 5}}
 
 
-def make_result(total_return_pct: float, buys: float = 0.0) -> BacktestResult:
+def make_result(
+    total_return_pct: float, buys: float = 0.0, drawdown_pct: float = 0.0
+) -> BacktestResult:
     initial = 100000.0
     final = initial * (1 + total_return_pct / 100)
     dates = pd.date_range(start="2015-01-01", end="2024-12-31", freq="ME")
     equity = pd.Series(
         [initial + (final - initial) * i / max(len(dates) - 1, 1) for i in range(len(dates))]
     )
+    if len(equity) > 1:
+        equity.iloc[1] = initial * (1 - drawdown_pct / 100)
     curve = pd.DataFrame({"date": dates, "equity": equity})
     fills = []
     if buys:
@@ -115,6 +119,31 @@ def flaky_runner(config, *, market, symbols, strategy_name, start, end=None, dat
     return make_result(base * (0.5 if doubled else 1.0), buys=50000.0)
 
 
+def mixed_walk_forward_runner(
+    config, *, market, symbols, strategy_name, start, end=None, data_root=None
+):
+    """Three windows: return-only win, drawdown-only win, then a loss."""
+    performance = {
+        "2013-01-01": {
+            "strategy": (10.0, 30.0),
+            "benchmark": (5.0, 10.0),
+        },
+        "2014-01-01": {
+            "strategy": (2.0, 10.0),
+            "benchmark": (8.0, 30.0),
+        },
+        "2015-01-01": {
+            "strategy": (2.0, 30.0),
+            "benchmark": (8.0, 10.0),
+        },
+    }
+    if start in performance:
+        pct, drawdown_pct = performance[start][config["marker"]]
+        return make_result(pct, buys=50000.0, drawdown_pct=drawdown_pct)
+    base = 60.0 if config["marker"] == "strategy" else 30.0
+    return make_result(base, buys=50000.0)
+
+
 class TestEvaluateStrategy:
     @pytest.fixture
     def report(self):
@@ -146,6 +175,33 @@ class TestEvaluateStrategy:
     def test_produces_walk_forward_windows(self, report):
         assert report["walk_forward"]["windows"]
         assert 0.0 <= report["walk_forward"]["win_rate"] <= 1.0
+
+    def test_report_keeps_return_only_rate_beside_specified_rate(self):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            promotion_profile="default",
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2015-12-31",
+            runner=mixed_walk_forward_runner,
+        )
+        wf = report["walk_forward"]
+        criterion = next(
+            item
+            for item in report["verdict"]["criteria"]
+            if item["name"] == "walk_forward_win_rate"
+        )
+
+        assert wf["win_rate"] == pytest.approx(2 / 3)
+        assert wf["return_only_win_rate"] == pytest.approx(1 / 3)
+        assert criterion["measured"] == wf["win_rate"]
+        assert criterion["passed"] is True
+        assert "strategy_max_drawdown_pct" in wf["windows"][0]
+        assert "benchmark_max_drawdown_pct" in wf["windows"][0]
 
     def test_includes_a_verdict_over_all_six_criteria(self, report):
         assert len(report["verdict"]["criteria"]) == 6
@@ -277,6 +333,8 @@ class TestEvaluateStrategy:
         assert wf["failed"] == 1
         assert wf["evaluated"] + wf["failed"] == wf["total"]
         assert wf["total"] == len(wf["windows"])
+        assert wf["win_rate"] == pytest.approx(1.0)
+        assert wf["return_only_win_rate"] == pytest.approx(1.0)
 
 
 class TestPromotionProfiles:
@@ -439,6 +497,26 @@ class TestDataRootThreading:
 
 
 class TestRenderMarkdown:
+    def test_window_table_names_each_winning_advantage(self):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            promotion_profile="default",
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2015-12-31",
+            runner=mixed_walk_forward_runner,
+        )
+
+        markdown = render_markdown(report)
+        assert "수익률 전용 승률 0.33" in markdown
+        assert "승 (수익률)" in markdown
+        assert "승 (MDD)" in markdown
+        assert "| 전략 MDD | 벤치마크 MDD |" in markdown
+
     def test_leads_with_a_plain_language_verdict(self):
         report = evaluate_strategy(
             config=CONFIG,

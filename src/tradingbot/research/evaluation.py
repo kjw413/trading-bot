@@ -67,12 +67,15 @@ class WindowResult:
 
     `won` is None when the window could not be evaluated; `error` says why.
     A failed window is unmeasured, not a loss.
+    Drawdowns retain `calculate_metrics`' non-positive percentage convention.
     """
 
     test_start: date
     test_end: date
     strategy_return_pct: float
     benchmark_return_pct: float
+    strategy_max_drawdown_pct: float
+    benchmark_max_drawdown_pct: float
     won: bool | None
     error: str
 
@@ -122,6 +125,10 @@ def run_walk_forward(
             )
             strategy_return = strategy_result.return_pct
             benchmark_return = benchmark_result.return_pct
+            strategy_metrics, _, _ = calculate_metrics(strategy_result)
+            benchmark_metrics, _, _ = calculate_metrics(benchmark_result)
+            strategy_max_drawdown = float(strategy_metrics.max_drawdown_pct)
+            benchmark_max_drawdown = float(benchmark_metrics.max_drawdown_pct)
             nothing_traded = (
                 strategy_result.trade_count == 0 and benchmark_result.trade_count == 0
             )
@@ -133,6 +140,8 @@ def run_walk_forward(
                     test_end=window.test_end,
                     strategy_return_pct=float("nan"),
                     benchmark_return_pct=float("nan"),
+                    strategy_max_drawdown_pct=float("nan"),
+                    benchmark_max_drawdown_pct=float("nan"),
                     won=None,
                     error=str(exc),
                 )
@@ -152,19 +161,28 @@ def run_walk_forward(
                     test_end=window.test_end,
                     strategy_return_pct=float("nan"),
                     benchmark_return_pct=float("nan"),
+                    strategy_max_drawdown_pct=float("nan"),
+                    benchmark_max_drawdown_pct=float("nan"),
                     won=None,
                     error="거래 없음 — 이 구간에는 투자 가능한 종목이 없었습니다",
                 )
             )
             continue
 
+        # calculate_metrics expresses MDD as zero or a negative percentage.
+        # Compare magnitudes explicitly so the shallower drawdown wins.
         results.append(
             WindowResult(
                 test_start=window.test_start,
                 test_end=window.test_end,
                 strategy_return_pct=strategy_return,
                 benchmark_return_pct=benchmark_return,
-                won=strategy_return > benchmark_return,
+                strategy_max_drawdown_pct=strategy_max_drawdown,
+                benchmark_max_drawdown_pct=benchmark_max_drawdown,
+                won=(
+                    strategy_return > benchmark_return
+                    or abs(strategy_max_drawdown) < abs(benchmark_max_drawdown)
+                ),
                 error="",
             )
         )
@@ -187,8 +205,7 @@ class WindowCounts:
 
 
 def _count_windows(results: Sequence[WindowResult]) -> WindowCounts:
-    """The one place that reads `WindowResult.won`, so its three-way meaning
-    (True/False/None) is interpreted consistently everywhere it is counted."""
+    """Count `WindowResult.won` with its True/False/None meaning preserved."""
     evaluated = failed = wins = 0
     for result in results:
         if result.won is None:
@@ -209,6 +226,17 @@ def _win_rate_from_counts(counts: WindowCounts) -> float:
 def win_rate(results: Sequence[WindowResult]) -> float:
     """Share of evaluated windows the strategy won. NaN when none were evaluated."""
     return _win_rate_from_counts(_count_windows(results))
+
+
+def _return_only_win_rate(results: Sequence[WindowResult]) -> float:
+    """Legacy return-only rate, over the same evaluated windows as `win_rate`."""
+    evaluated = [result for result in results if result.won is not None]
+    if not evaluated:
+        return float("nan")
+    return sum(
+        result.strategy_return_pct > result.benchmark_return_pct
+        for result in evaluated
+    ) / len(evaluated)
 
 
 @dataclass(frozen=True)
@@ -452,10 +480,11 @@ def evaluate_strategy(
         runner=runner,
     )
 
-    # Single source of truth for every count derived from `WindowResult.won`
-    # — the rate, and the evaluated/failed/total figures shown next to it.
+    # Single source of truth for the specified-rule rate and its displayed
+    # evaluated/failed/total counts.
     counts = _count_windows(window_results)
     wf_win_rate = _win_rate_from_counts(counts)
+    wf_return_only_win_rate = _return_only_win_rate(window_results)
 
     # Both excess figures are annualized (CAGR difference in percentage
     # points). Mixing CAGR here and total return there would make the cost
@@ -504,6 +533,7 @@ def evaluate_strategy(
         },
         "walk_forward": {
             "win_rate": wf_win_rate,
+            "return_only_win_rate": wf_return_only_win_rate,
             "train_segments_used": False,
             "evaluated": counts.evaluated,
             "failed": counts.failed,
@@ -514,6 +544,8 @@ def evaluate_strategy(
                     "test_end": result.test_end.isoformat(),
                     "strategy_return_pct": result.strategy_return_pct,
                     "benchmark_return_pct": result.benchmark_return_pct,
+                    "strategy_max_drawdown_pct": result.strategy_max_drawdown_pct,
+                    "benchmark_max_drawdown_pct": result.benchmark_max_drawdown_pct,
                     "won": result.won,
                     "error": result.error,
                 }
@@ -766,27 +798,51 @@ def render_markdown(report: dict[str, Any]) -> str:
 
     wf = report["walk_forward"]
     win_rate_text = "측정 불가" if math.isnan(wf["win_rate"]) else f"{wf['win_rate']:.2f}"
+    return_only_win_rate_text = (
+        "측정 불가"
+        if math.isnan(wf["return_only_win_rate"])
+        else f"{wf['return_only_win_rate']:.2f}"
+    )
     lines += [
-        f"- 승률 {win_rate_text} — 전체 {wf['total']}구간 중 {wf['evaluated']}구간 평가, "
+        f"- 승률 {win_rate_text} — 명세 기준: 수익률 또는 MDD 우위; "
+        f"전체 {wf['total']}구간 중 {wf['evaluated']}구간 평가, "
         f"{wf['failed']}구간 측정 실패",
+        f"- 수익률 전용 승률 {return_only_win_rate_text} — 이전 기준 비교용; "
+        "승격 판정에는 사용하지 않음",
         "",
         "학습 구간은 사용하지 않습니다. 이 전략은 파라미터를 데이터로 맞추지 않는",
         "규칙 기반이라 학습할 것이 없고, 따라서 이 표가 재는 것은 '여러 시기에 걸친",
         "일관성'입니다. 나중에 파라미터를 튜닝하기 시작하면 학습 구간이 실제 의미를",
         "갖게 됩니다.",
         "",
-        "| 구간 | 전략 | 벤치마크 | 결과 |",
-        "|---|---|---|---|",
+        "| 구간 | 전략 수익률 | 벤치마크 수익률 | 전략 MDD | 벤치마크 MDD | 결과 |",
+        "|---|---|---|---|---|---|",
     ]
     for window in report["walk_forward"]["windows"]:
         if window["won"] is None:
             outcome = f"측정 실패 ({window['error']})"
-            numbers = "— | —"
+            numbers = "— | — | — | —"
         else:
-            outcome = "승" if window["won"] else "패"
+            return_advantage = (
+                window["strategy_return_pct"] > window["benchmark_return_pct"]
+            )
+            drawdown_advantage = abs(window["strategy_max_drawdown_pct"]) < abs(
+                window["benchmark_max_drawdown_pct"]
+            )
+            if window["won"]:
+                advantages = []
+                if return_advantage:
+                    advantages.append("수익률")
+                if drawdown_advantage:
+                    advantages.append("MDD")
+                outcome = f"승 ({' + '.join(advantages)})"
+            else:
+                outcome = "패"
             numbers = (
                 f"{window['strategy_return_pct']:.2f}% | "
-                f"{window['benchmark_return_pct']:.2f}%"
+                f"{window['benchmark_return_pct']:.2f}% | "
+                f"{window['strategy_max_drawdown_pct']:.2f}% | "
+                f"{window['benchmark_max_drawdown_pct']:.2f}%"
             )
         lines.append(
             f"| {window['test_start']} ~ {window['test_end']} | {numbers} | {outcome} |"

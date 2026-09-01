@@ -16,7 +16,9 @@ WINDOWS = [
     WalkForwardWindow(date(2020, 1, 1), date(2022, 12, 31), date(2023, 1, 1), date(2023, 12, 31)),
 ]
 
-def result_returning(pct: float, *, traded: bool = True) -> BacktestResult:
+def result_returning(
+    pct: float, *, drawdown_pct: float = 0.0, traded: bool = True
+) -> BacktestResult:
     """A BacktestResult whose return_pct is exactly `pct`.
 
     `traded=False` models a window in which the backtest filled nothing —
@@ -25,8 +27,14 @@ def result_returning(pct: float, *, traded: bool = True) -> BacktestResult:
     initial = 100.0
     final = initial * (1 + pct / 100)
     curve = pd.DataFrame(
-        {"date": [pd.Timestamp("2022-01-01"), pd.Timestamp("2022-12-31")],
-         "equity": [initial, final]}
+        {
+            "date": [
+                pd.Timestamp("2022-01-01"),
+                pd.Timestamp("2022-06-30"),
+                pd.Timestamp("2022-12-31"),
+            ],
+            "equity": [initial, initial * (1 - drawdown_pct / 100), final],
+        }
     )
     fills = []
     if traded:
@@ -61,7 +69,78 @@ def runner_for(returns: dict[tuple[str, str], float]):
     return run
 
 
+def runner_for_performance(
+    performance: dict[tuple[str, str], tuple[float, float]],
+):
+    """Fake runner keyed to (return %, drawdown magnitude %) per side/window."""
+
+    def run(config, *, market, symbols, strategy_name, start, end=None, data_root=None):
+        pct, drawdown_pct = performance[(config["marker"], start)]
+        return result_returning(pct, drawdown_pct=drawdown_pct)
+
+    return run
+
+
 class TestRunWalkForward:
+    def test_return_advantage_wins_the_window(self):
+        results = run_walk_forward(
+            config={"marker": "strategy"},
+            benchmark_config={"marker": "benchmark"},
+            market="US",
+            symbols=["SPY"],
+            strategy_name="s",
+            windows=WINDOWS[:1],
+            runner=runner_for_performance(
+                {
+                    ("strategy", "2022-01-01"): (10.0, 30.0),
+                    ("benchmark", "2022-01-01"): (5.0, 10.0),
+                }
+            ),
+        )
+
+        assert results[0].strategy_max_drawdown_pct == pytest.approx(-30.0)
+        assert results[0].benchmark_max_drawdown_pct == pytest.approx(-10.0)
+        assert results[0].won is True
+
+    def test_drawdown_advantage_alone_wins_the_window(self):
+        results = run_walk_forward(
+            config={"marker": "strategy"},
+            benchmark_config={"marker": "benchmark"},
+            market="US",
+            symbols=["SPY"],
+            strategy_name="s",
+            windows=WINDOWS[:1],
+            runner=runner_for_performance(
+                {
+                    ("strategy", "2022-01-01"): (2.0, 10.0),
+                    ("benchmark", "2022-01-01"): (8.0, 30.0),
+                }
+            ),
+        )
+
+        assert results[0].strategy_return_pct < results[0].benchmark_return_pct
+        assert results[0].strategy_max_drawdown_pct == pytest.approx(-10.0)
+        assert results[0].benchmark_max_drawdown_pct == pytest.approx(-30.0)
+        assert results[0].won is True
+
+    def test_losing_on_return_and_drawdown_loses_the_window(self):
+        results = run_walk_forward(
+            config={"marker": "strategy"},
+            benchmark_config={"marker": "benchmark"},
+            market="US",
+            symbols=["SPY"],
+            strategy_name="s",
+            windows=WINDOWS[:1],
+            runner=runner_for_performance(
+                {
+                    ("strategy", "2022-01-01"): (2.0, 30.0),
+                    ("benchmark", "2022-01-01"): (8.0, 10.0),
+                }
+            ),
+        )
+
+        assert results[0].won is False
+
     def test_one_result_per_window_with_both_returns(self):
         runner = runner_for(
             {
@@ -121,7 +200,7 @@ class TestRunWalkForward:
         )
         assert results[0].won is False
 
-    def test_a_failing_window_is_recorded_not_swallowed(self):
+    def test_unevaluable_window_remains_unmeasured(self):
         def flaky(config, *, market, symbols, strategy_name, start, end=None, data_root=None):
             if start == "2023-01-01":
                 raise RuntimeError("no data for 2023")
@@ -139,6 +218,8 @@ class TestRunWalkForward:
         assert len(results) == 2
         assert results[0].won is True
         assert results[1].won is None
+        assert math.isnan(results[1].strategy_max_drawdown_pct)
+        assert math.isnan(results[1].benchmark_max_drawdown_pct)
         assert "no data for 2023" in results[1].error
 
     def test_no_windows_returns_empty(self):
@@ -199,6 +280,8 @@ def window_result(won: bool | None, error: str = "") -> WindowResult:
         test_end=date(2022, 12, 31),
         strategy_return_pct=1.0,
         benchmark_return_pct=0.0,
+        strategy_max_drawdown_pct=0.0,
+        benchmark_max_drawdown_pct=0.0,
         won=won,
         error=error,
     )
