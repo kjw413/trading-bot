@@ -109,6 +109,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     factor_report_parser.set_defaults(handler=cmd_research_report)
 
+    ceiling_parser = research_subparsers.add_parser(
+        "ceiling", help="Information-ratio ceiling factor report"
+    )
+    ceiling_parser.add_argument(
+        "--theme", default=None, help="Resolve the universe from config/themes.toml"
+    )
+    ceiling_parser.add_argument(
+        "--factors", nargs="+", default=None, help="Factor names (default: all registered)"
+    )
+    ceiling_parser.add_argument("--horizon-days", type=int, default=20)
+    ceiling_parser.add_argument("--research-config", default=None, help="research.toml path")
+    ceiling_parser.add_argument("--data-root", default=None)
+    ceiling_parser.add_argument("--out", default="reports/research")
+    ceiling_parser.set_defaults(handler=cmd_research_ceiling)
+
     evaluate_parser = research_subparsers.add_parser(
         "evaluate", help="Measure a strategy against the promotion criteria"
     )
@@ -528,6 +543,77 @@ def cmd_research_report(args) -> int:
             name: data["ic"] | {"gate_passed": data["gate"]["passed"]}
             for name, data in report["factors"].items()
         },
+    )
+    print(f"실험 기록: {experiment_path}")
+    return 0
+
+
+def cmd_research_ceiling(args) -> int:
+    from tradingbot.data.cache import ParquetCache
+    from tradingbot.data.store import ParquetDataStore
+    from tradingbot.factors import get_factor, list_factors
+    from tradingbot.research.ceiling import build_ceiling_report, render_markdown
+    from tradingbot.research.dates import month_end_trading_days, research_period
+    from tradingbot.research.experiment import record_experiment
+    from tradingbot.research.gate import load_research_config
+
+    research = load_research_config(args.research_config)
+    start, end = research_period(research, "in_sample")
+    if end is None:  # The canonical in-sample window is always closed.
+        raise ValueError("in_sample period must have an end date")
+
+    from tradingbot.data.universe import get_theme, members as theme_members
+
+    theme_key = args.theme or research["universe"]["candidate_theme"]
+    theme = get_theme(theme_key)
+    market = theme.market
+    universe = theme_members(theme, end)
+    if not universe:
+        print(f"테마 {theme_key}에 {end} 기준 종목이 없습니다.")
+        return 1
+
+    store = ParquetDataStore(
+        ParquetCache(resolve_project_path(args.data_root or "data/cache")),
+        market,
+        processed_root=resolve_project_path("data/processed"),
+    )
+    factor_names = args.factors or list_factors()
+    factors = [get_factor(name) for name in factor_names]
+    dates = month_end_trading_days(market, start, end)
+
+    report = build_ceiling_report(
+        store=store,
+        market=market,
+        universe=universe,
+        factors=factors,
+        dates=dates,
+        horizon_days=args.horizon_days,
+        members_on=lambda dt: theme_members(theme, dt),
+    )
+    report["universe_layer"] = theme.key
+    markdown = render_markdown(report)
+    print(markdown)
+
+    out_dir = resolve_project_path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{_datetime.now():%Y%m%d_%H%M%S}_{theme.key}_ceiling_report.md"
+    out_path.write_text(markdown, encoding="utf-8")
+    print(f"리포트 저장: {out_path}")
+
+    experiment_path = record_experiment(
+        resolve_project_path("data/experiments"),
+        kind="ceiling_report",
+        params={
+            "market": market,
+            "universe_layer": theme.key,
+            "universe": universe,
+            "factors": factor_names,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "horizon_days": args.horizon_days,
+            "nw_lag": report["nw_lag"],
+        },
+        metrics=report["factors"],
     )
     print(f"실험 기록: {experiment_path}")
     return 0

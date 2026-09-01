@@ -28,3 +28,8 @@ scratch/
 .pytest_tmp*/
 .pytest-basetemp*/
 .pytest-tmp*/
+
+# Worker scratch: agents fall back to in-repo basetemp when the host
+# denies pytest its temp directory. Never part of a deliverable.
+.tmp_*/
+.pytest_bootstrap/
