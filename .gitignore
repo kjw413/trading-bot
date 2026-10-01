@@ -7,7 +7,8 @@ __pycache__/
 .worktrees/
 
 data/cache/
-data/experiments/
+data/experiments/*
+!data/experiments/*_prereg_*.json
 data/raw/
 data/processed/
 data/features/
@@ -21,3 +22,14 @@ state/
 
 # One-off probe scripts that touch live credentials (M1 plan Task 6 Step 1).
 scratch/
+
+# Sandboxed workers must keep pytest's basetemp inside the workspace, so their
+# run directories land here. They are run output, never source.
+.pytest_tmp*/
+.pytest-basetemp*/
+.pytest-tmp*/
+
+# Worker scratch: agents fall back to in-repo basetemp when the host
+# denies pytest its temp directory. Never part of a deliverable.
+.tmp_*/
+.pytest_bootstrap/

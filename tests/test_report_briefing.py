@@ -1,13 +1,28 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
 
 from tradingbot.account.base import AccountSnapshot, Holding
+from tradingbot.data.news import NewsItem, NewsResult, find_causal_terms
+from tradingbot.proposal import (
+    NoProposalReason,
+    PassedNoChange,
+    Proposal,
+    Refusal,
+)
+from tradingbot.proxy import ProxyStatus
 from tradingbot.report import glossary
 from tradingbot.report.briefing import render_briefing, split_for_telegram
+from tradingbot.reconciliation import ReconciliationEntry, ReconciliationResult
+from tradingbot.research.promotion_ledger import (
+    CriterionResult,
+    PromotionRecord,
+    PromotionTrack,
+    Verdict,
+)
 
 KST = timezone(timedelta(hours=9))
 
@@ -30,6 +45,140 @@ def snap(day, holdings=None, cash=300_000.0, usd=1350.0, hour=9):
 
 
 NOW = datetime(2026, 8, 15, 10, 0, tzinfo=KST)
+
+KNOWN_LEVERAGE_SENTENCE = (
+    "- SOXL은 하루 단위로 3배 움직임을 목표로 하는 상품입니다. "
+    "여러 날을 합치면 기준 가격 움직임의 정확히 3배가 아니며, "
+    "오래 들고 있을수록 차이가 커집니다."
+)
+UNKNOWN_LEVERAGE_SENTENCE = (
+    "- SPCX는 등록된 상품이지만 목표 배수를 확인하지 못했습니다. "
+    "1배 상품으로 가정하지 않습니다."
+)
+UNREGISTERED_LEVERAGE_SENTENCE = "- 005930은 상품 배수가 등록되지 않았습니다."
+
+
+def news_item(
+    *,
+    symbol="005930",
+    source="DART",
+    title="주요사항보고서 제출",
+    url="https://example.com/news/1",
+    via="",
+):
+    return NewsItem(
+        symbol=symbol,
+        source=source,
+        published_at=date(2026, 8, 14),
+        title=title,
+        url=url,
+        via=via,
+    )
+
+
+def news_result(*items, failures=None, dropped=None, skipped=None):
+    return NewsResult(
+        items=tuple(items),
+        failures=failures or {},
+        dropped=dropped or {},
+        skipped=skipped or {},
+    )
+
+
+def promotion_basis(*, passed: bool, symbol: str = "005930") -> PromotionRecord:
+    return PromotionRecord(
+        strategy="briefing_test",
+        market="KR",
+        universe=(symbol,),
+        track=PromotionTrack.TRACK_A,
+        profile_name="default",
+        verdict=Verdict.PASS if passed else Verdict.FAIL,
+        criteria=(
+            CriterionResult(
+                "excess_return" if passed else "max_drawdown",
+                0.10 if passed else 0.25,
+                0.12 if passed else 0.41,
+                passed,
+            ),
+        ),
+        cadence="weekly",
+        rejected_orders=0,
+        total_orders=10,
+        evaluated_at=NOW,
+        commit="current",
+        report_path="reports/evaluation.md",
+    )
+
+
+def refusal(reason: NoProposalReason, *, symbol: str = "005930") -> Refusal:
+    basis = (
+        promotion_basis(passed=False, symbol=symbol)
+        if reason is NoProposalReason.DID_NOT_PASS
+        else None
+    )
+    return Refusal(symbol, reason, "internal detail must not be rendered", basis)
+
+
+def proposal_block(text: str) -> list[str]:
+    block = next(
+        block for block in text.split("\n\n") if block.startswith("[이번 주 판단]")
+    )
+    return block.splitlines()[1:]
+
+
+def reconciliation_block(text: str) -> list[str]:
+    block = next(
+        block
+        for block in text.split("\n\n")
+        if block.startswith("[실현 수익과 예상 비교]")
+    )
+    return block.splitlines()[1:]
+
+
+def reconciliation_result() -> ReconciliationResult:
+    return ReconciliationResult(
+        entries=(
+            ReconciliationEntry(
+                symbol="SOXL",
+                proxy_symbol="SOXX",
+                leverage=3.0,
+                period_start=date(2026, 8, 1),
+                period_end=date(2026, 8, 15),
+                status=ProxyStatus.QUALIFIED,
+                realised_return=0.08,
+                proxy_return=0.02,
+                expected_return=0.06,
+                gap_percentage_points=2.0,
+                cumulative_gap_percentage_points=3.5,
+            ),
+            ReconciliationEntry(
+                symbol="SPCX",
+                proxy_symbol="SPY",
+                leverage=3.0,
+                period_start=date(2026, 8, 1),
+                period_end=date(2026, 8, 15),
+                status=ProxyStatus.UNMEASURABLE,
+                realised_return=0.04,
+                proxy_return=None,
+                expected_return=None,
+                gap_percentage_points=None,
+                cumulative_gap_percentage_points=None,
+            ),
+            ReconciliationEntry(
+                symbol="FNGU",
+                proxy_symbol="FNGS",
+                leverage=3.0,
+                period_start=date(2026, 8, 1),
+                period_end=date(2026, 8, 15),
+                status=ProxyStatus.DISCRETIONARY_HOLDING,
+                realised_return=0.04,
+                proxy_return=None,
+                expected_return=None,
+                gap_percentage_points=None,
+                cumulative_gap_percentage_points=None,
+            ),
+        )
+    )
 
 
 class TestPlainLanguage:
@@ -78,11 +227,26 @@ class TestContent:
     def test_a_leveraged_etf_gets_its_warning(self):
         soxl = h(symbol="SOXL", currency="USD", market="US", avg=20.0, last=30.0)
         text = render_briefing(snap(15, [soxl]), snap(1, [soxl]), now=NOW)
-        assert "3배" in text
+        assert KNOWN_LEVERAGE_SENTENCE in text
+        assert UNKNOWN_LEVERAGE_SENTENCE not in text
 
-    def test_no_leveraged_warning_when_none_is_held(self):
-        text = render_briefing(snap(15), snap(1), now=NOW)
+    def test_a_two_times_product_gets_its_warning(self):
+        ggll = h(symbol="GGLL", currency="USD", market="US", avg=20.0, last=30.0)
+        text = render_briefing(snap(15, [ggll]), snap(1, [ggll]), now=NOW)
+        assert "2배" in text
+
+    def test_an_unknown_multiple_gets_its_own_warning(self):
+        spcx = h(symbol="SPCX", currency="USD", market="US", avg=20.0, last=30.0)
+        text = render_briefing(snap(15, [spcx]), snap(1, [spcx]), now=NOW)
+        assert UNKNOWN_LEVERAGE_SENTENCE in text
+        assert KNOWN_LEVERAGE_SENTENCE not in text
         assert "3배" not in text
+
+    def test_an_unregistered_unlevered_holding_gets_its_own_sentence(self):
+        text = render_briefing(snap(15), snap(1), now=NOW)
+        assert KNOWN_LEVERAGE_SENTENCE not in text
+        assert UNKNOWN_LEVERAGE_SENTENCE not in text
+        assert UNREGISTERED_LEVERAGE_SENTENCE in text
 
     def test_a_long_gap_is_called_out(self):
         text = render_briefing(snap(30), snap(1), now=datetime(2026, 8, 30, 10, 0, tzinfo=KST))
@@ -111,6 +275,280 @@ class TestContent:
     def test_an_empty_account_renders_without_crashing(self):
         text = render_briefing(snap(15, [], cash=0.0), None, now=NOW)
         assert text.strip()
+
+
+class TestNewsSection:
+    def test_the_news_section_is_absent_when_no_news_is_given(self):
+        # Existing M1 callers omit the keyword, so their output must not gain a block.
+        omitted = render_briefing(snap(15), snap(1), now=NOW)
+        explicit_none = render_briefing(snap(15), snap(1), news=None, now=NOW)
+        assert explicit_none == omitted
+        assert "[새 소식]" not in omitted
+
+    def test_each_item_shows_its_date_title_and_source(self):
+        title = "매출액 또는 손익구조 30% 이상 변경"
+        item = news_item(title=title)
+        text = render_briefing(snap(15), snap(1), news=news_result(item), now=NOW)
+        assert item.published_at.isoformat() in text
+        assert f"  {title}" in text
+        assert item.source in text
+        assert item.url in text
+
+    def test_a_mapped_item_says_it_is_not_the_etfs_own_news(self):
+        item = news_item(
+            symbol="SOXL",
+            source="Yahoo",
+            title="NVIDIA announces quarterly results",
+            via="NVDA",
+        )
+        text = render_briefing(snap(15), snap(1), news=news_result(item), now=NOW)
+        assert "SOXL 자체 소식이 아닙니다." in text
+        assert "NVDA에서 가져온 소식입니다." in text
+
+    def test_no_news_and_a_failed_fetch_read_differently(self):
+        # An outage must not be presented as a quiet week with no publications.
+        empty = render_briefing(snap(15), snap(1), news=news_result(), now=NOW)
+        failed = render_briefing(
+            snap(15),
+            snap(1),
+            news=news_result(failures={"Yahoo": "연결 시간 초과"}),
+            now=NOW,
+        )
+        assert "이 기간에 새로 올라온 소식이 없습니다." in empty
+        assert "소식을 가져오지 못했습니다 (Yahoo: 연결 시간 초과). 계좌 숫자는 영향받지 않습니다." in failed
+        assert "이 기간에 새로 올라온 소식이 없습니다." not in failed
+
+    def test_what_the_cap_dropped_is_stated(self):
+        # A capped list must not look like the complete set of publications.
+        text = render_briefing(
+            snap(15),
+            snap(1),
+            news=news_result(news_item(), dropped={"005930": 4, "AAPL": 2}),
+            now=NOW,
+        )
+        assert "이 밖에 005930 4건, AAPL 2건이 더 있습니다." in text
+
+    def test_the_briefing_never_claims_a_cause(self):
+        rendered = render_briefing(
+            snap(15), snap(1), news=news_result(news_item()), now=NOW
+        )
+        assert find_causal_terms(rendered) == []
+
+    def test_the_news_section_passes_the_jargon_check(self):
+        rendered = render_briefing(
+            snap(15),
+            snap(1),
+            news=news_result(
+                news_item(),
+                failures={"Yahoo": "연결 시간 초과"},
+                dropped={"005930": 2},
+                skipped={"dart": "missing key"},
+            ),
+            now=NOW,
+        )
+        assert glossary.find_banned_terms(rendered) == []
+
+    def test_a_long_news_list_still_splits_at_section_boundaries(self):
+        # A near-limit news block should move whole instead of splitting a headline.
+        items = tuple(
+            news_item(
+                symbol=f"NEWS{number}",
+                title=f"{number} " + "가" * 270,
+                url=f"https://example.com/news/{number}",
+            )
+            for number in range(12)
+        )
+        text = render_briefing(snap(15), snap(1), news=news_result(*items), now=NOW)
+        parts = split_for_telegram(text)
+        assert len(parts) > 1
+        assert parts[-1].startswith("[새 소식]")
+        assert all(len(part) <= 4096 for part in parts)
+
+
+class TestReconciliationSection:
+    QUALIFIED_SENTENCE = (
+        "- SOXL: 실제 수익률은 +8.0%이고, SOXX 수익률을 3배로 본 예상은 "
+        "+6.0%입니다. 이번 차이는 +2.0%포인트이고, 추적 시작 뒤 누적 "
+        "차이는 +3.5%포인트입니다."
+    )
+    UNMEASURABLE_SENTENCE = (
+        "- SPCX: 실제 수익률은 +4.0%입니다. SPY가 비교 종목인지 잴 자료가 "
+        "부족해 예상 수익률과 차이는 계산하지 않았습니다."
+    )
+    REJECTED_SENTENCE = (
+        "- FNGU: 실제 수익률은 +4.0%입니다. FNGS를 비교 종목으로 재봤지만 이 "
+        "보유의 움직임을 충분히 따라가지 않아 예상 수익률과 차이는 계산하지 "
+        "않았습니다."
+    )
+
+    def test_the_section_is_absent_when_nothing_is_supplied(self):
+        omitted = render_briefing(snap(15), snap(1), now=NOW)
+        explicit_none = render_briefing(
+            snap(15), snap(1), reconciliation=None, now=NOW
+        )
+        assert explicit_none == omitted
+        assert "[실현 수익과 예상 비교]" not in omitted
+
+    def test_the_qualified_pair_states_realised_expected_and_both_gaps(self):
+        rendered = render_briefing(
+            snap(15),
+            snap(1),
+            reconciliation=reconciliation_result(),
+            now=NOW,
+        )
+        assert reconciliation_block(rendered)[0] == self.QUALIFIED_SENTENCE
+
+    def test_unmeasurable_and_rejected_pairs_read_differently_without_zero_gaps(self):
+        rendered = render_briefing(
+            snap(15),
+            snap(1),
+            reconciliation=reconciliation_result(),
+            now=NOW,
+        )
+        lines = reconciliation_block(rendered)
+        assert lines[1] == self.UNMEASURABLE_SENTENCE
+        assert lines[2] == self.REJECTED_SENTENCE
+        assert lines[1] != lines[2]
+        assert all("차이는 +0.0" not in line for line in lines[1:])
+
+    def test_the_section_passes_the_language_rules(self):
+        rendered = render_briefing(
+            snap(15),
+            snap(1),
+            reconciliation=reconciliation_result(),
+            now=NOW,
+        )
+        assert glossary.find_banned_terms(rendered) == []
+        assert find_causal_terms(rendered) == []
+
+
+class TestProposalSection:
+    REFUSAL_SENTENCES = {
+        NoProposalReason.NEVER_EVALUATED: (
+            "- 005930: 아직 아무도 이 보유 종목의 성과를 재보지 않았고, "
+            "다음 단계는 평가 실행입니다."
+        ),
+        NoProposalReason.DID_NOT_PASS: (
+            "- 005930: 성과를 재봤지만 가장 크게 줄어든 폭 기준에 미치지 "
+            "못했으며, 전략을 고친 뒤 다시 평가해야 합니다."
+        ),
+        NoProposalReason.UNMEASURABLE: (
+            "- 005930: 평가를 시도했지만 자료가 판단을 뒷받침하지 못했으며, "
+            "충분한 자료를 갖춘 뒤 다시 평가해야 합니다."
+        ),
+        NoProposalReason.STALE_RECORD: (
+            "- 005930: 통과한 기록은 있지만 그 뒤 코드가 바뀌었으며, 지금 "
+            "코드로 평가를 다시 실행해야 합니다."
+        ),
+        NoProposalReason.CADENCE_MISMATCH: (
+            "- 005930: 통과한 기록의 점검 주기가 이번 브리핑과 다르며, 이번 "
+            "브리핑과 같은 주기로 다시 평가해야 합니다."
+        ),
+        NoProposalReason.DISCRETIONARY_HOLDING: (
+            "- 005930: 이 보유 종목은 구조상 앞으로도 봇이 측정할 수 없는 "
+            "재량 보유이며, 기다리지 말고 사람이 계속 판단해야 합니다."
+        ),
+    }
+    HOLD_SENTENCE = (
+        "- 005930: 평가를 통과해 정상적으로 작동하고 있으며, 이번 주에는 "
+        "보유한 그대로 유지하세요."
+    )
+
+    def test_the_section_is_absent_when_no_proposal_is_given(self):
+        omitted = render_briefing(snap(15), snap(1), now=NOW)
+        explicit_none = render_briefing(
+            snap(15), snap(1), proposal=None, now=NOW
+        )
+        assert explicit_none == omitted
+        assert "[이번 주 판단]" not in omitted
+
+    def test_each_refusal_has_its_own_actionable_sentence(self):
+        rendered = {}
+        for reason, expected in self.REFUSAL_SENTENCES.items():
+            text = render_briefing(
+                snap(15),
+                snap(1),
+                proposal=Proposal((refusal(reason),)),
+                now=NOW,
+            )
+            rendered[reason] = proposal_block(text)[0]
+            assert rendered[reason] == expected
+
+        assert len(rendered) == len(NoProposalReason) == 6
+        assert len(set(rendered.values())) == 6
+
+    def test_a_successful_hold_is_distinct_from_every_refusal(self):
+        decision = PassedNoChange(
+            "005930", promotion_basis(passed=True), "internal detail"
+        )
+        text = render_briefing(
+            snap(15), snap(1), proposal=Proposal((decision,)), now=NOW
+        )
+        rendered = proposal_block(text)[0]
+        assert rendered == self.HOLD_SENTENCE
+        assert rendered not in self.REFUSAL_SENTENCES.values()
+        assert "보유한 그대로 유지하세요" in rendered
+
+    def test_a_discretionary_holding_reads_as_permanent(self):
+        text = render_briefing(
+            snap(15),
+            snap(1),
+            proposal=Proposal(
+                (refusal(NoProposalReason.DISCRETIONARY_HOLDING),)
+            ),
+            now=NOW,
+        )
+        rendered = proposal_block(text)[0]
+        assert "구조상 앞으로도" in rendered
+        assert "기다리지 말고" in rendered
+
+    def test_measurable_and_discretionary_holdings_both_appear(self):
+        soxl = h(
+            symbol="SOXL", currency="USD", market="US", avg=20.0, last=30.0
+        )
+        fngu = h(
+            symbol="FNGU", currency="USD", market="US", avg=100.0, last=120.0
+        )
+        proposal = Proposal(
+            (
+                PassedNoChange(
+                    "SOXL",
+                    promotion_basis(passed=True, symbol="SOXL"),
+                    "internal detail",
+                ),
+                refusal(
+                    NoProposalReason.DISCRETIONARY_HOLDING, symbol="FNGU"
+                ),
+            )
+        )
+        lines = proposal_block(
+            render_briefing(
+                snap(15, [soxl, fngu]),
+                snap(1, [soxl, fngu]),
+                proposal=proposal,
+                now=NOW,
+            )
+        )
+        assert lines == [
+            self.HOLD_SENTENCE.replace("005930", "SOXL"),
+            self.REFUSAL_SENTENCES[
+                NoProposalReason.DISCRETIONARY_HOLDING
+            ].replace("005930", "FNGU"),
+        ]
+
+    def test_the_section_passes_the_language_rules(self):
+        decisions = tuple(refusal(reason) for reason in NoProposalReason) + (
+            PassedNoChange(
+                "005930", promotion_basis(passed=True), "internal detail"
+            ),
+        )
+        rendered = render_briefing(
+            snap(15), snap(1), proposal=Proposal(decisions), now=NOW
+        )
+        assert glossary.find_banned_terms(rendered) == []
+        assert find_causal_terms(rendered) == []
+        block = "\n".join(proposal_block(rendered)).casefold()
+        assert all(word not in block for word in ("매수", "매도", "buy", "sell"))
 
 
 class TestSplitForTelegram:

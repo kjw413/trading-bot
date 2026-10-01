@@ -1,0 +1,66 @@
+{
+  "experiment_id": "20260901T124701_prereg_outcome_5b227238",
+  "kind": "prereg_outcome",
+  "git_commit": "46de475676cd1f10c8b152593ffed11d3b6c091b",
+  "created_at": "2026-09-01T12:47:01.013955+00:00",
+  "prereg_id": "20260901T121701_prereg_88a90c55",
+  "params": {
+    "verdict": "underpowered — no verdict, as registered",
+    "rule_applied": "The registered power guard requires at least 8 dates in each regime bucket in validation. The bear bucket holds 4. No verdict is issued in either direction.",
+    "validation_detail": "Validation 2019-2021 contains 4 bear month-ends across 2 episodes, one of which is a single isolated month (2019-01). Effectively one bear event, the COVID crash of 2020. The measured gap is large and positive (+0.368 for momentum_3m, +0.296 for momentum_6m) and rests on that single event. Sampling more finely would not manufacture a second episode, so this window cannot be made to answer the question.",
+    "in_sample_reversal": "The confirmatory in-sample result changed materially once the macro data gap was closed, and the change runs against the hypothesis. The registration named this dependency in advance.",
+    "in_sample_before_backfill": "sp500 macro began 2009-12-31, leaving 45 of 144 dates UNKNOWN and only 10 bear observations, none from the financial crisis. Gap read +0.158 and +0.163 with bear mean IC negative.",
+    "in_sample_after_backfill": "Full coverage from 2004 gives 110 bull and 34 bear dates across 8 distinct bear episodes, no UNKNOWN. Gap falls to +0.054 and +0.071, and bear mean IC is positive (+0.066, +0.038) rather than negative.",
+    "interpretation": "Momentum IC during bear regimes is not negative once the crisis period is included; it is merely lower. The apparent regime effect in the in-sample window was largely an artifact of a truncated macro series that excluded 2007-2009. The evidence that motivated this registration has substantially weakened on its own ground.",
+    "consequence_for_the_reserve": "Out-of-sample from 2022 holds 15 bear months across 5 episodes and would be adequately powered. It was NOT used. The in-sample support that would have justified spending a one-time reserve has largely evaporated, so spending it here would buy a powered test of a hypothesis whose motivating evidence no longer stands.",
+    "what_this_says_about_P7": "The P7 observation that factors scored better in the second half of the window is not explained by bull-versus-bear regime. Whatever produced it, this is not it.",
+    "method_note": "Measuring in-sample twice, before and after the backfill, is not a researcher degree of freedom here. The registration named the macro gap and committed in advance to reporting a shortened window if the backfill failed. Both readings are recorded so the reversal is visible rather than presented as a single clean number.",
+    "scope_limit": "One regime indicator, two factors, one horizon, one universe layer. Says nothing about other regime definitions, which the registration deliberately forbade substituting after the fact."
+  },
+  "metrics": {
+    "in_sample_after_backfill": {
+      "bull_n": 110,
+      "bear_n": 34,
+      "unknown_n": 0,
+      "bear_episodes": 8,
+      "momentum_3m": {
+        "bull_mean_ic": 0.1203,
+        "bear_mean_ic": 0.0663,
+        "gap": 0.054
+      },
+      "momentum_6m": {
+        "bull_mean_ic": 0.1086,
+        "bear_mean_ic": 0.0377,
+        "gap": 0.0709
+      }
+    },
+    "in_sample_before_backfill": {
+      "bull_n": 89,
+      "bear_n": 10,
+      "unknown_n": 45,
+      "momentum_3m_gap": 0.158,
+      "momentum_6m_gap": 0.1626
+    },
+    "validation": {
+      "bull_n": 32,
+      "bear_n": 4,
+      "unknown_n": 0,
+      "bear_episodes": 2,
+      "momentum_3m": {
+        "bull_mean_ic": 0.1131,
+        "bear_mean_ic": -0.2545,
+        "gap": 0.3676
+      },
+      "momentum_6m": {
+        "bull_mean_ic": 0.071,
+        "bear_mean_ic": -0.225,
+        "gap": 0.296
+      }
+    },
+    "out_of_sample_unused": {
+      "bear_n": 15,
+      "bear_episodes": 5
+    },
+    "min_bucket_dates": 8
+  }
+}

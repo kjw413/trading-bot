@@ -364,7 +364,9 @@ flowchart TD
 | 선정·비중·제약·리밸런싱 계획 | `src/tradingbot/allocation/` |
 | 테마 멀티팩터 전략 | `src/tradingbot/strategies/theme_multifactor.py` |
 | 승격 기준 측정 / 판정 | `src/tradingbot/research/evaluation.py` |
-| 실적 이벤트 캘린더 수집 (DART 잠정실적) | `src/tradingbot/data/events.py` |
+| 실적 이벤트 캘린더 — KR (DART 잠정실적) | `src/tradingbot/data/events.py` |
+| 실적 이벤트 캘린더 — US (SEC 8-K Item 2.02) | `src/tradingbot/data/edgar.py` |
+| 티커 → SEC CIK 매핑 | `src/tradingbot/data/cik.py` |
 | 다음 발표일 추정 (Point-in-Time) | `src/tradingbot/research/event_calendar.py` |
 | 발표 전 비중 축소 오버레이 | `src/tradingbot/allocation/event_overlay.py` |
 

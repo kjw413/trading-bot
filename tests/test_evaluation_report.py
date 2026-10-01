@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import date
+import tomllib
+from datetime import UTC, date, datetime
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -10,31 +12,69 @@ import pytest
 from tradingbot.cli import build_parser, cmd_research_evaluate
 from tradingbot.engine.engine import BacktestResult
 from tradingbot.models import Fill, OrderSide
-from tradingbot.research.evaluation import _verdict_sentence, evaluate_strategy, render_markdown
+from tradingbot.research.evaluation import (
+    _verdict_sentence,
+    evaluate_strategy,
+    promotion_record_from_report,
+    render_markdown,
+)
+from tradingbot.research.promotion_ledger import (
+    PromotionTrack,
+    Verdict as PromotionVerdict,
+    latest_promotion,
+    passing_strategies,
+    record_promotion,
+)
 
 RESEARCH = {
     "promotion": {
-        "min_excess_return": 0.0,
-        "min_sharpe": 0.5,
-        "max_mdd": 0.25,
-        "max_annual_turnover": 6.0,
-        "min_walk_forward_win_rate": 0.6,
-        "cost_multiplier_check": 2.0,
+        "default": {
+            "track": "track_a",
+            "benchmark_mode": "equal_weight_unleveraged_universe",
+            "min_excess_return": 0.0,
+            "min_sharpe": 0.5,
+            "max_mdd": 0.25,
+            "target_mdd": 0.20,
+            "max_annual_turnover": 6.0,
+            "min_walk_forward_win_rate": 0.6,
+            "min_walk_forward_windows": 3,
+            "cost_multiplier_check": 2.0,
+        },
+        "leveraged": {
+            "track": "track_b",
+            "benchmark_mode": "traded_instrument_buy_and_hold",
+            "min_excess_return": 0.0,
+            "min_sharpe": 0.5,
+            "max_mdd": 0.60,
+            "max_annual_turnover": 6.0,
+            "min_walk_forward_win_rate": 0.6,
+            "min_walk_forward_windows": 3,
+            "cost_multiplier_check": 2.0,
+        },
     },
     "walk_forward": {"train_years": 3, "test_years": 1, "step_years": 1},
 }
 
-CONFIG = {"marker": "strategy", "fees": {"US": {"commission_rate": 0.001}}, "execution": {"slippage_bps": 5}}
+CONFIG = {
+    "marker": "strategy",
+    "fees": {"US": {"commission_rate": 0.001}},
+    "execution": {"slippage_bps": 5},
+    "strategies": {"theme_multifactor": {"rebalance": "monthly"}},
+}
 BENCHMARK = {"marker": "benchmark", "fees": {"US": {"commission_rate": 0.001}}, "execution": {"slippage_bps": 5}}
 
 
-def make_result(total_return_pct: float, buys: float = 0.0) -> BacktestResult:
+def make_result(
+    total_return_pct: float, buys: float = 0.0, drawdown_pct: float = 0.0
+) -> BacktestResult:
     initial = 100000.0
     final = initial * (1 + total_return_pct / 100)
     dates = pd.date_range(start="2015-01-01", end="2024-12-31", freq="ME")
     equity = pd.Series(
         [initial + (final - initial) * i / max(len(dates) - 1, 1) for i in range(len(dates))]
     )
+    if len(equity) > 1:
+        equity.iloc[1] = initial * (1 - drawdown_pct / 100)
     curve = pd.DataFrame({"date": dates, "equity": equity})
     fills = []
     if buys:
@@ -79,6 +119,31 @@ def flaky_runner(config, *, market, symbols, strategy_name, start, end=None, dat
     return make_result(base * (0.5 if doubled else 1.0), buys=50000.0)
 
 
+def mixed_walk_forward_runner(
+    config, *, market, symbols, strategy_name, start, end=None, data_root=None
+):
+    """Three windows: return-only win, drawdown-only win, then a loss."""
+    performance = {
+        "2013-01-01": {
+            "strategy": (10.0, 30.0),
+            "benchmark": (5.0, 10.0),
+        },
+        "2014-01-01": {
+            "strategy": (2.0, 10.0),
+            "benchmark": (8.0, 30.0),
+        },
+        "2015-01-01": {
+            "strategy": (2.0, 30.0),
+            "benchmark": (8.0, 10.0),
+        },
+    }
+    if start in performance:
+        pct, drawdown_pct = performance[start][config["marker"]]
+        return make_result(pct, buys=50000.0, drawdown_pct=drawdown_pct)
+    base = 60.0 if config["marker"] == "strategy" else 30.0
+    return make_result(base, buys=50000.0)
+
+
 class TestEvaluateStrategy:
     @pytest.fixture
     def report(self):
@@ -86,6 +151,7 @@ class TestEvaluateStrategy:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -110,6 +176,33 @@ class TestEvaluateStrategy:
         assert report["walk_forward"]["windows"]
         assert 0.0 <= report["walk_forward"]["win_rate"] <= 1.0
 
+    def test_report_keeps_return_only_rate_beside_specified_rate(self):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            promotion_profile="default",
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2015-12-31",
+            runner=mixed_walk_forward_runner,
+        )
+        wf = report["walk_forward"]
+        criterion = next(
+            item
+            for item in report["verdict"]["criteria"]
+            if item["name"] == "walk_forward_win_rate"
+        )
+
+        assert wf["win_rate"] == pytest.approx(2 / 3)
+        assert wf["return_only_win_rate"] == pytest.approx(1 / 3)
+        assert criterion["measured"] == wf["win_rate"]
+        assert criterion["passed"] is True
+        assert "strategy_max_drawdown_pct" in wf["windows"][0]
+        assert "benchmark_max_drawdown_pct" in wf["windows"][0]
+
     def test_includes_a_verdict_over_all_six_criteria(self, report):
         assert len(report["verdict"]["criteria"]) == 6
         assert isinstance(report["verdict"]["promoted"], bool)
@@ -133,6 +226,7 @@ class TestEvaluateStrategy:
             config=CONFIG,
             benchmark_config=CONFIG,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -142,11 +236,77 @@ class TestEvaluateStrategy:
         )
         assert report["benchmark_separately_configured"] is False
 
+    def test_unconfigured_benchmark_marks_relative_criteria_unmeasurable(self):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=CONFIG,
+            research=RESEARCH,
+            promotion_profile="default",
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            runner=runner,
+        )
+        relative_names = {
+            "excess_return",
+            "excess_return_at_2.0x_costs",
+            "walk_forward_win_rate",
+        }
+        relative = {
+            criterion["name"]: criterion
+            for criterion in report["verdict"]["criteria"]
+            if criterion["name"] in relative_names
+        }
+        reason = (
+            "벤치마크가 별도로 설정되지 않아 전략과 동일한 설정을 사용하므로 "
+            "비교 성과를 측정할 수 없습니다"
+        )
+
+        assert set(relative) == relative_names
+        assert all(math.isnan(criterion["measured"]) for criterion in relative.values())
+        assert all(criterion["passed"] is None for criterion in relative.values())
+        assert {criterion["reason"] for criterion in relative.values()} == {reason}
+        assert set(report["verdict"]["unmeasured"]) == relative_names
+        assert report["verdict"]["promoted"] is False
+
+    def test_separately_configured_benchmark_keeps_relative_criteria_measured(
+        self, report
+    ):
+        relative_names = {
+            "excess_return",
+            "excess_return_at_2.0x_costs",
+            "walk_forward_win_rate",
+        }
+        relative = {
+            criterion["name"]: criterion
+            for criterion in report["verdict"]["criteria"]
+            if criterion["name"] in relative_names
+        }
+
+        assert len(relative) == len(relative_names)
+        assert relative["excess_return"]["measured"] == report["excess_return_pct"]
+        assert relative["excess_return_at_2.0x_costs"]["measured"] == (
+            report["cost_2x"]["excess_return_pct"]
+        )
+        assert relative["walk_forward_win_rate"]["measured"] == (
+            report["walk_forward"]["win_rate"]
+        )
+        assert all(
+            not math.isnan(criterion["measured"])
+            for criterion in relative.values()
+        )
+        assert all(criterion["passed"] is True for criterion in relative.values())
+        assert all(criterion["reason"] == "" for criterion in relative.values())
+        assert relative_names.isdisjoint(report["verdict"]["unmeasured"])
+
     def test_separately_configured_benchmark_is_not_flagged(self):
         report = evaluate_strategy(
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -161,6 +321,7 @@ class TestEvaluateStrategy:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -172,6 +333,113 @@ class TestEvaluateStrategy:
         assert wf["failed"] == 1
         assert wf["evaluated"] + wf["failed"] == wf["total"]
         assert wf["total"] == len(wf["windows"])
+        assert wf["win_rate"] == pytest.approx(1.0)
+        assert wf["return_only_win_rate"] == pytest.approx(1.0)
+
+
+class TestPromotionProfiles:
+    def test_an_unspecified_profile_fails_loudly(self):
+        with pytest.raises(ValueError, match="promotion profile must be specified"):
+            evaluate_strategy(
+                config=CONFIG,
+                benchmark_config=BENCHMARK,
+                research=RESEARCH,
+                promotion_profile=None,
+                market="US",
+                symbols=["SOXX"],
+                strategy_name="theme_multifactor",
+                start="2010-01-01",
+                end="2024-12-31",
+                runner=runner,
+            )
+
+    def test_an_unknown_profile_fails_loudly(self):
+        with pytest.raises(ValueError, match="unknown promotion profile: typo"):
+            evaluate_strategy(
+                config=CONFIG,
+                benchmark_config=BENCHMARK,
+                research=RESEARCH,
+                promotion_profile="typo",
+                market="US",
+                symbols=["SOXX"],
+                strategy_name="theme_multifactor",
+                start="2010-01-01",
+                end="2024-12-31",
+                runner=runner,
+            )
+
+    def test_the_default_profile_thresholds_are_unchanged(self):
+        config_path = Path(__file__).parents[1] / "config" / "research.toml"
+        with config_path.open("rb") as stream:
+            profile = tomllib.load(stream)["promotion"]["default"]
+
+        expected = {
+            "min_excess_return": 0.0,
+            "min_sharpe": 0.5,
+            "max_mdd": 0.25,
+            "target_mdd": 0.20,
+            "max_annual_turnover": 6.0,
+            "min_walk_forward_win_rate": 0.6,
+            "min_walk_forward_windows": 3,
+            "cost_multiplier_check": 2.0,
+        }
+        assert {name: profile[name] for name in expected} == expected
+
+    def test_the_leveraged_profile_declares_its_track_and_benchmark(self):
+        config_path = Path(__file__).parents[1] / "config" / "research.toml"
+        with config_path.open("rb") as stream:
+            profile = tomllib.load(stream)["promotion"]["leveraged"]
+
+        assert profile["track"] == "track_b"
+        assert profile["benchmark_mode"] == "traded_instrument_buy_and_hold"
+        assert profile["max_mdd"] == 0.60
+
+    def test_track_b_is_displayed_but_never_described_as_promotion(self):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            promotion_profile="leveraged",
+            market="US",
+            symbols=["SOXL", "TECL"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            runner=runner,
+        )
+        markdown = render_markdown(report)
+
+        assert "track_b / leveraged" in markdown
+        assert "Track B 결과는 의무 공시용" in markdown
+        assert "전략을 승격시키지 않습니다" in markdown
+
+    def test_a_track_a_pass_survives_report_and_ledger_end_to_end(self, tmp_path):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            promotion_profile="default",
+            market="US",
+            symbols=["SOXX", "XLK"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2024-12-31",
+            runner=runner,
+        )
+        record = promotion_record_from_report(
+            report,
+            evaluated_at=datetime(2026, 8, 30, 12, 0, tzinfo=UTC),
+            commit="abc123",
+            report_path="reports/evaluation/report.md",
+        )
+        record_promotion(record, tmp_path)
+
+        assert record.verdict is PromotionVerdict.PASS
+        assert record.track is PromotionTrack.TRACK_A
+        assert record.profile_name == "default"
+        assert passing_strategies(
+            tmp_path, current_commit="abc123"
+        ) == (record,)
 
 
 class TestDataRootThreading:
@@ -191,6 +459,7 @@ class TestDataRootThreading:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -215,6 +484,7 @@ class TestDataRootThreading:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -227,11 +497,32 @@ class TestDataRootThreading:
 
 
 class TestRenderMarkdown:
+    def test_window_table_names_each_winning_advantage(self):
+        report = evaluate_strategy(
+            config=CONFIG,
+            benchmark_config=BENCHMARK,
+            research=RESEARCH,
+            promotion_profile="default",
+            market="US",
+            symbols=["SPY"],
+            strategy_name="theme_multifactor",
+            start="2010-01-01",
+            end="2015-12-31",
+            runner=mixed_walk_forward_runner,
+        )
+
+        markdown = render_markdown(report)
+        assert "수익률 전용 승률 0.33" in markdown
+        assert "승 (수익률)" in markdown
+        assert "승 (MDD)" in markdown
+        assert "| 전략 MDD | 벤치마크 MDD |" in markdown
+
     def test_leads_with_a_plain_language_verdict(self):
         report = evaluate_strategy(
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -247,6 +538,7 @@ class TestRenderMarkdown:
         assert markdown.startswith("# ")
         assert "## 결론" in markdown
         assert _verdict_sentence(report) in markdown
+        assert "track_a / default" in markdown
         assert "| 기준 |" in markdown
 
     def test_shows_the_failed_window_count_under_the_section_heading(self):
@@ -254,6 +546,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -278,6 +571,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY", "QQQ"],
             strategy_name="theme_multifactor",
@@ -290,6 +584,7 @@ class TestRenderMarkdown:
         assert heading in markdown
         section = markdown.split(heading, 1)[1]
         assert "research evaluate" in section
+        assert "--promotion-profile default" in section
         assert "theme_multifactor" in section
         assert "US" in section
         assert "SPY" in section
@@ -306,6 +601,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -328,6 +624,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -347,6 +644,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -368,6 +666,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -387,6 +686,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -412,6 +712,7 @@ class TestRenderMarkdown:
             config=CONFIG,
             benchmark_config=BENCHMARK,
             research=RESEARCH,
+            promotion_profile="default",
             market="US",
             symbols=["SPY"],
             strategy_name="theme_multifactor",
@@ -438,6 +739,8 @@ class TestVerdictSentenceUnmeasured:
 
     def _report(self, criteria):
         return {
+            "promotion_profile": "default",
+            "promotion_track": "track_a",
             "verdict": {
                 "promoted": False,
                 "unmeasured": [c["name"] for c in criteria if c["passed"] is None],
@@ -508,12 +811,140 @@ class TestVerdictSentenceUnmeasured:
         assert "백테스트가 실패했다는 뜻이 아닙니다" not in _verdict_sentence(report)
 
 
+class TestPromotionRecordFromReport:
+    @staticmethod
+    def _report(criteria):
+        return {
+            "strategy_name": "theme_multifactor",
+            "market": "US",
+            "symbols": ["SPY", "QQQ"],
+            "promotion_profile": "default",
+            "promotion_track": "track_a",
+            "promotion_benchmark_mode": "equal_weight_unleveraged_universe",
+            "cadence": "monthly",
+            "strategy": {"trades": 8, "rejected_orders": 2},
+            "verdict": {"criteria": criteria},
+        }
+
+    @pytest.mark.parametrize(
+        ("criteria", "expected"),
+        [
+            (
+                [
+                    {
+                        "name": "sharpe",
+                        "threshold": ">= 0.5",
+                        "measured": 0.7,
+                        "passed": True,
+                    }
+                ],
+                PromotionVerdict.PASS,
+            ),
+            (
+                [
+                    {
+                        "name": "sharpe",
+                        "threshold": ">= 0.5",
+                        "measured": 0.2,
+                        "passed": False,
+                    }
+                ],
+                PromotionVerdict.FAIL,
+            ),
+            (
+                [
+                    {
+                        "name": "sharpe",
+                        "threshold": ">= 0.5",
+                        "measured": float("nan"),
+                        "passed": None,
+                    }
+                ],
+                PromotionVerdict.UNMEASURABLE,
+            ),
+        ],
+    )
+    def test_maps_each_evaluation_verdict(self, criteria, expected):
+        record = promotion_record_from_report(
+            self._report(criteria),
+            evaluated_at=datetime(2026, 8, 29, 12, 0, tzinfo=UTC),
+            commit="abc123",
+            report_path="reports/evaluation/report.md",
+        )
+
+        assert record.verdict is expected
+
+    def test_an_empty_criteria_list_is_unmeasurable(self):
+        record = promotion_record_from_report(
+            self._report([]),
+            evaluated_at=datetime(2026, 8, 29, 12, 0, tzinfo=UTC),
+            commit="abc123",
+            report_path="reports/evaluation/report.md",
+        )
+
+        assert record.verdict is PromotionVerdict.UNMEASURABLE
+
+    def test_a_failed_criterion_wins_over_an_unmeasurable_one(self):
+        criteria = [
+            {
+                "name": "sharpe",
+                "threshold": ">= 0.5",
+                "measured": 0.2,
+                "passed": False,
+            },
+            {
+                "name": "walk_forward_win_rate",
+                "threshold": ">= 0.6",
+                "measured": float("nan"),
+                "passed": None,
+            },
+        ]
+
+        record = promotion_record_from_report(
+            self._report(criteria),
+            evaluated_at=datetime(2026, 8, 29, 12, 0, tzinfo=UTC),
+            commit="abc123",
+            report_path="reports/evaluation/report.md",
+        )
+
+        assert record.verdict is PromotionVerdict.FAIL
+
+    def test_nan_cadence_and_order_counts_round_trip(self, tmp_path):
+        criteria = [
+            {
+                "name": "walk_forward_win_rate",
+                "threshold": ">= 0.6",
+                "measured": float("nan"),
+                "passed": None,
+            }
+        ]
+        record = promotion_record_from_report(
+            self._report(criteria),
+            evaluated_at=datetime(2026, 8, 29, 12, 0, tzinfo=UTC),
+            commit="abc123",
+            report_path="reports/evaluation/report.md",
+        )
+
+        path = record_promotion(record, tmp_path)
+        loaded = latest_promotion(record.strategy, record.market, tmp_path)
+
+        assert loaded is not None
+        assert loaded.criteria[0].measured is None
+        assert loaded.cadence == "monthly"
+        assert loaded.rejected_orders == 2
+        assert loaded.total_orders == 10
+        assert loaded.commit == "abc123"
+        assert '"measured": null' in path.read_text(encoding="utf-8")
+        assert "NaN" not in path.read_text(encoding="utf-8")
+
+
 class TestCli:
     def test_parser_wires_research_evaluate(self):
         parser = build_parser()
         args = parser.parse_args(
-            ["research", "evaluate", "--strategy", "theme_multifactor",
-             "--market", "US", "--symbols", "SPY", "--start", "2010-01-01"]
+            ["research", "evaluate", "--promotion-profile", "default",
+             "--strategy", "theme_multifactor",
+             "--market", "US", "--symbols", "SPY", "--period", "in_sample"]
         )
         assert args.handler is cmd_research_evaluate
         assert args.strategy == "theme_multifactor"
@@ -529,8 +960,9 @@ class TestCli:
     def test_data_root_defaults_to_none(self):
         parser = build_parser()
         args = parser.parse_args(
-            ["research", "evaluate", "--strategy", "theme_multifactor",
-             "--market", "US", "--symbols", "SPY", "--start", "2010-01-01"]
+            ["research", "evaluate", "--promotion-profile", "default",
+             "--strategy", "theme_multifactor",
+             "--market", "US", "--symbols", "SPY", "--period", "in_sample"]
         )
         assert args.data_root is None
 
@@ -539,11 +971,21 @@ class TestCli:
         # declares it too (cli.py) and must not silently drop it.
         parser = build_parser()
         args = parser.parse_args(
-            ["research", "evaluate", "--strategy", "theme_multifactor",
-             "--market", "US", "--symbols", "SPY", "--start", "2010-01-01",
+            ["research", "evaluate", "--promotion-profile", "default",
+             "--strategy", "theme_multifactor",
+             "--market", "US", "--symbols", "SPY", "--period", "in_sample",
              "--data-root", "/custom/root"]
         )
         assert args.data_root == "/custom/root"
+
+    def test_parser_rejects_an_unspecified_promotion_profile(self):
+        parser = build_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(
+                ["research", "evaluate", "--strategy", "theme_multifactor",
+                 "--market", "US", "--symbols", "SPY",
+                 "--period", "in_sample"]
+            )
 
 
 class TestCmdResearchEvaluateWiring:
@@ -560,7 +1002,12 @@ class TestCmdResearchEvaluateWiring:
     def invoke(self, tmp_path, monkeypatch):
         import tradingbot.research.evaluation as evaluation_module
 
-        state: dict[str, object] = {"data_roots": [], "metrics": None}
+        state: dict[str, object] = {
+            "data_roots": [],
+            "metrics": None,
+            "promotion_record": None,
+            "promotion_root": None,
+        }
         real_evaluate_strategy = evaluation_module.evaluate_strategy
 
         def spy_runner(config, *, market, symbols, strategy_name, start, end=None, data_root=None):
@@ -584,20 +1031,33 @@ class TestCmdResearchEvaluateWiring:
             state["metrics"] = metrics
             return tmp_path / "experiment.json"
 
+        def fake_record_promotion(record, root):
+            state["promotion_record"] = record
+            state["promotion_root"] = root
+            return tmp_path / "promotion" / "ledger.json"
+
         monkeypatch.setattr(evaluation_module, "evaluate_strategy", spy_evaluate_strategy)
         monkeypatch.setattr(
             "tradingbot.research.experiment.record_experiment", fake_record_experiment
         )
+        monkeypatch.setattr(
+            "tradingbot.research.experiment.current_git_commit",
+            lambda cwd=None: "test-commit",
+        )
+        monkeypatch.setattr(
+            "tradingbot.research.promotion_ledger.record_promotion",
+            fake_record_promotion,
+        )
 
-        def run(*, data_root=None, start="2023-01-01", end="2023-06-30"):
+        def run(*, data_root=None, period="validation"):
             parser = build_parser()
             argv = [
                 "research", "evaluate",
+                "--promotion-profile", "default",
                 "--strategy", "theme_multifactor",
                 "--market", "US",
                 "--symbols", "SPY",
-                "--start", start,
-                "--end", end,
+                "--period", period,
                 "--out", str(tmp_path / "out"),
             ]
             if data_root is not None:
@@ -627,3 +1087,15 @@ class TestCmdResearchEvaluateWiring:
         assert metrics["walk_forward_win_rate"] is None
         assert metrics["annual_turnover"] is None
         assert "NaN" not in json.dumps(metrics)
+
+    def test_writes_the_machine_readable_record_beside_evaluation_reports(
+        self, invoke, tmp_path
+    ):
+        state = invoke()
+        record = state["promotion_record"]
+
+        assert record is not None
+        assert record.cadence == "monthly"
+        assert record.commit == "test-commit"
+        assert Path(record.report_path).exists()
+        assert state["promotion_root"] == tmp_path

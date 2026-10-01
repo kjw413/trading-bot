@@ -34,7 +34,7 @@ class StrategyContext(Protocol):
         limit_price: float | None = None,
         stop_price: float | None = None,
         tif: TimeInForce = TimeInForce.DAY,
-    ) -> Order:
+    ) -> Order | None:
         ...
 
     def sell(

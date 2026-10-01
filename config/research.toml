@@ -3,19 +3,10 @@
 
 [universe]
 market = "US"
-symbols = [
-    "SPY",  # 미국 대형주
-    "QQQ",  # 미국 기술주
-    "IWM",  # 미국 소형주
-    "EFA",  # 선진국 주식
-    "EEM",  # 신흥국 주식
-    "TLT",  # 미국 장기국채
-    "IEF",  # 미국 중기국채
-    "LQD",  # 투자등급 회사채
-    "GLD",  # 금
-    "DBC",  # 원자재
-    "VNQ",  # 미국 리츠
-]
+# 멤버와 편입일은 config/themes.toml만 소유한다. 승격 후보와 기존 11종
+# 참조 기준선을 이름으로 분리해, 두 결과가 같은 유니버스로 기록되지 않게 한다.
+candidate_theme = "us_asset_rotation"
+reference_theme = "us_asset_rotation_reference"
 safe_asset = "IEF"
 
 [benchmark]
@@ -23,7 +14,7 @@ primary = "SPY"
 secondary_weights = { SPY = 0.6, IEF = 0.4 }  # 60/40, 월간 리밸런싱
 
 [periods]
-in_sample_start = "2010-01-01"
+in_sample_start = "2007-01-01"
 in_sample_end = "2018-12-31"
 validation_start = "2019-01-01"
 validation_end = "2021-12-31"
@@ -44,7 +35,9 @@ min_avg_value_20d = 10000000    # 20일 평균 거래대금 하한 (USD)
 weighting = "inverse_volatility"  # 또는 "equal"
 volatility_days = 60
 
-[promotion]
+[promotion.default]
+track = "track_a"
+benchmark_mode = "equal_weight_unleveraged_universe"
 min_excess_return = 0.0        # 연율화 벤치마크 초과수익 (비용 반영 후)
 min_sharpe = 0.5
 max_mdd = 0.25                 # 허용 상한 (목표 0.20)
@@ -55,6 +48,19 @@ min_walk_forward_win_rate = 0.6
 # 아니라 "측정 불가"로 보고한다 (예: 데이터가 짧아 구간이 1개뿐인 경우).
 min_walk_forward_windows = 3
 cost_multiplier_check = 2.0    # 비용 2배에서도 초과수익 > 0
+
+[promotion.leveraged]
+track = "track_b"
+# SOXL은 SOXL, TECL은 TECL 자체를 매수보유한 결과와 비교한다. SPY 같은
+# 광의지수 대비 레버리지 배수를 알파로 세지 않는다. 벤치마크 구성은 후속 패키지.
+benchmark_mode = "traded_instrument_buy_and_hold"
+min_excess_return = 0.0
+min_sharpe = 0.5
+max_mdd = 0.60
+max_annual_turnover = 6.0
+min_walk_forward_win_rate = 0.6
+min_walk_forward_windows = 3
+cost_multiplier_check = 2.0
 
 [risk_limits]
 max_position_weight = 0.40

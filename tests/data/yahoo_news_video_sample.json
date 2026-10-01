@@ -1,0 +1,617 @@
+[
+  {
+    "id": "655688c9-5075-4396-b5c5-c598a8e26b7e",
+    "content": {
+      "id": "655688c9-5075-4396-b5c5-c598a8e26b7e",
+      "contentType": "STORY",
+      "title": "Stock market today: Dow, S&P 500, Nasdaq post weekly losses as bond volatility remains in focus, bitcoin soars",
+      "description": "",
+      "summary": "Stocks posted weekly losses after a bond sell-off this week put pressure on tech and AI stocks.",
+      "pubDate": "2026-08-21T08:05:33Z",
+      "displayTime": "2026-08-21T20:10:29Z",
+      "isHosted": true,
+      "bypassModal": false,
+      "previewUrl": null,
+      "thumbnail": {
+        "originalUrl": "https://s.yimg.com/uu/api/res/1.2/c9lEP5GZScRkaIvwr0G5XA--~B/aD0zNDMzO3c9NTE1MDthcHBpZD15dGFjaHlvbg--/https://d29szjachogqwa.cloudfront.net/images/2026-08/1e195b03-b307-4b28-8c7f-4945fbba8300",
+        "originalWidth": 5150,
+        "originalHeight": 3433,
+        "caption": "",
+        "resolutions": [
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/c9lEP5GZScRkaIvwr0G5XA--~B/aD0zNDMzO3c9NTE1MDthcHBpZD15dGFjaHlvbg--/https://d29szjachogqwa.cloudfront.net/images/2026-08/1e195b03-b307-4b28-8c7f-4945fbba8300",
+            "width": 5150,
+            "height": 3433,
+            "tag": "original"
+          },
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/38WzIl5kmhKxMyomMPG5BQ--~B/Zmk9c3RyaW07aD0xMjg7dz0xNzA7YXBwaWQ9eXRhY2h5b24-/https://d29szjachogqwa.cloudfront.net/images/2026-08/1e195b03-b307-4b28-8c7f-4945fbba8300",
+            "width": 170,
+            "height": 128,
+            "tag": "170x128"
+          }
+        ]
+      },
+      "provider": {
+        "displayName": "Yahoo Finance",
+        "url": "http://finance.yahoo.com/",
+        "sourceId": "yahoofinance.com"
+      },
+      "canonicalUrl": {
+        "url": "https://finance.yahoo.com/markets/live/stock-market-today-friday-august-21-dow-sp-500-nasdaq-bitcoin-080533702.html",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "clickThroughUrl": {
+        "url": "https://finance.yahoo.com/markets/live/stock-market-today-friday-august-21-dow-sp-500-nasdaq-bitcoin-080533702.html",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "metadata": {
+        "editorsPick": true
+      },
+      "finance": {
+        "premiumFinance": {
+          "isPremiumNews": false,
+          "isPremiumFreeNews": false
+        }
+      },
+      "storyline": null
+    }
+  },
+  {
+    "id": "64ddcc42-9725-48e1-9570-88ace8dc4308",
+    "content": {
+      "id": "64ddcc42-9725-48e1-9570-88ace8dc4308",
+      "contentType": "VIDEO",
+      "title": "Nvidia earnings are on deck next week. These 3 themes will be mission-critical.",
+      "description": "<p>Nvidia (<a target=\"_blank\" rel=\"\" class=\"link\" href=\"https://finance.yahoo.com/quote/NVDA/\" data-i13n=\"cpos:1;pos:1\">NVDA</a>) is set to report second quarter earnings results on Wednesday, Aug. 26, after markets close.</p>\n<p>Yahoo Finance Technology Editor Dan Howley discusses his expectations for the earnings print, highlighting what investors will be keeping an eye on.</p>",
+      "summary": "Nvidia (NVDA) is set to report second quarter earnings results on Wednesday, Aug. 26, after markets close. Yahoo Finance Technology Editor Dan Howley discusses his expectations for the earnings print, highlighting what investors will be keeping an eye on.",
+      "pubDate": "2026-08-21T20:02:51Z",
+      "displayTime": "",
+      "isHosted": true,
+      "bypassModal": false,
+      "previewUrl": null,
+      "thumbnail": {
+        "originalUrl": "https://s.yimg.com/uu/api/res/1.2/lTCRwBs__ML.nrQQVMmL2Q--~B/aD0zNjAwO3c9NjQwMDthcHBpZD15dGFjaHlvbg--/https://d29szjachogqwa.cloudfront.net/images/user-uploaded/11735c30-91bf-11f1-b7f2-8ded4782cfdd_205474548f7a84f60ad4a9b40c8d50fa2c2fed669a36543980d1ac9528418c5b.jpg",
+        "originalWidth": 6400,
+        "originalHeight": 3600,
+        "caption": "",
+        "resolutions": [
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/lTCRwBs__ML.nrQQVMmL2Q--~B/aD0zNjAwO3c9NjQwMDthcHBpZD15dGFjaHlvbg--/https://d29szjachogqwa.cloudfront.net/images/user-uploaded/11735c30-91bf-11f1-b7f2-8ded4782cfdd_205474548f7a84f60ad4a9b40c8d50fa2c2fed669a36543980d1ac9528418c5b.jpg",
+            "width": 6400,
+            "height": 3600,
+            "tag": "original"
+          },
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/8V91qu61vn9gL5IcjrVkjg--~B/Zmk9c3RyaW07aD0xMjg7dz0xNzA7YXBwaWQ9eXRhY2h5b24-/https://d29szjachogqwa.cloudfront.net/images/user-uploaded/11735c30-91bf-11f1-b7f2-8ded4782cfdd_205474548f7a84f60ad4a9b40c8d50fa2c2fed669a36543980d1ac9528418c5b.jpg",
+            "width": 170,
+            "height": 128,
+            "tag": "170x128"
+          }
+        ]
+      },
+      "provider": {
+        "displayName": "Yahoo Finance Video",
+        "url": "https://finance.yahoo.com/",
+        "sourceId": "video.yahoofinance.com"
+      },
+      "canonicalUrl": {
+        "url": "https://finance.yahoo.com/video/nvidia-earnings-deck-next-week-200251512.html",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "clickThroughUrl": {
+        "url": "https://finance.yahoo.com/video/nvidia-earnings-deck-next-week-200251512.html",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "metadata": {
+        "editorsPick": true
+      },
+      "finance": {
+        "premiumFinance": {
+          "isPremiumNews": false,
+          "isPremiumFreeNews": false
+        }
+      },
+      "storyline": null
+    }
+  },
+  {
+    "id": "0e4d198b-0fbe-345f-9a59-99f6074c2273",
+    "content": {
+      "id": "0e4d198b-0fbe-345f-9a59-99f6074c2273",
+      "contentType": "STORY",
+      "title": "Dow Jones Futures: Market Rally Repairs Some Damage As Nvidia Looms; New Trump Tariffs On Canada",
+      "description": "",
+      "summary": "The market rally suffered damage last week, though bitcoin and gold shined. New Trump tariffs on Canada began Saturday. Nvidia, CrowdStrike and Fed's Warsh loom.",
+      "pubDate": "2026-08-22T15:25:48Z",
+      "displayTime": "2026-08-22T15:25:48Z",
+      "isHosted": false,
+      "bypassModal": false,
+      "previewUrl": "https://finance.yahoo.com/m/0e4d198b-0fbe-345f-9a59-99f6074c2273/dow-jones-futures-market.html",
+      "thumbnail": {
+        "originalUrl": "https://media.zenfs.com/en/ibd.com/87053150d8f8a61cbb65ef74d7aa6c34.jpg",
+        "originalWidth": 1000,
+        "originalHeight": 563,
+        "caption": "",
+        "resolutions": [
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/h55KQcnSo5hVrNx8KGiUHQ--~B/aD01NjM7dz0xMDAwO2FwcGlkPXl0YWNoeW9u/https://media.zenfs.com/en/ibd.com/87053150d8f8a61cbb65ef74d7aa6c34.jpg",
+            "width": 1000,
+            "height": 563,
+            "tag": "original"
+          },
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/Ldj52yJ27GOh1ncgtdDSMA--~B/Zmk9c3RyaW07aD0xMjg7dz0xNzA7YXBwaWQ9eXRhY2h5b24-/https://media.zenfs.com/en/ibd.com/87053150d8f8a61cbb65ef74d7aa6c34.jpg",
+            "width": 170,
+            "height": 128,
+            "tag": "170x128"
+          }
+        ]
+      },
+      "provider": {
+        "displayName": "Investor's Business Daily",
+        "url": "http://www.investors.com/",
+        "sourceId": "ibd.com"
+      },
+      "canonicalUrl": {
+        "url": "https://www.investors.com/market-trend/stock-market-today/dow-jones-futures-market-rally-nvidia-crowdstrike-warsh/?src=A00220&yptr=yahoo",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "clickThroughUrl": null,
+      "metadata": {
+        "editorsPick": false
+      },
+      "finance": {
+        "premiumFinance": {
+          "isPremiumNews": false,
+          "isPremiumFreeNews": false
+        }
+      },
+      "storyline": null
+    }
+  },
+  {
+    "id": "eaa81959-265a-36ba-a1f9-53fde8cd19b6",
+    "content": {
+      "id": "eaa81959-265a-36ba-a1f9-53fde8cd19b6",
+      "contentType": "STORY",
+      "title": "Forget Rate Hikes. These 3 Vanguard ETFs Could Be Better Positioned for What Comes Next.",
+      "description": "",
+      "summary": "It looks like we're headed into a \"higher for longer\" rate regime. This trio of Vanguard ETFs can help.",
+      "pubDate": "2026-08-22T15:05:00Z",
+      "displayTime": "2026-08-22T15:05:00Z",
+      "isHosted": true,
+      "bypassModal": false,
+      "previewUrl": null,
+      "thumbnail": {
+        "originalUrl": "https://media.zenfs.com/en/motleyfool.com/d26449601026d87294ff9922bd8c2592.jpg",
+        "originalWidth": 1400,
+        "originalHeight": 933,
+        "caption": "Blocks spelling out \"Fed\" with an up/down arrow.",
+        "resolutions": [
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/2gZqeFGN.8qx5zM8YYN3sA--~B/aD05MzM7dz0xNDAwO2FwcGlkPXl0YWNoeW9u/https://media.zenfs.com/en/motleyfool.com/d26449601026d87294ff9922bd8c2592.jpg",
+            "width": 1400,
+            "height": 933,
+            "tag": "original"
+          },
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/baykThOul8Rr.vNajPt1Ig--~B/Zmk9c3RyaW07aD0xMjg7dz0xNzA7YXBwaWQ9eXRhY2h5b24-/https://media.zenfs.com/en/motleyfool.com/d26449601026d87294ff9922bd8c2592.jpg",
+            "width": 170,
+            "height": 128,
+            "tag": "170x128"
+          }
+        ]
+      },
+      "provider": {
+        "displayName": "Motley Fool",
+        "url": "http://www.fool.com/",
+        "sourceId": "motleyfool.com"
+      },
+      "canonicalUrl": {
+        "url": "https://www.fool.com/investing/2026/08/22/forget-rate-hikes-3-vanguard-etfs-better-next/",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "clickThroughUrl": {
+        "url": "https://finance.yahoo.com/markets/stocks/articles/forget-rate-hikes-3-vanguard-150500254.html",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "metadata": {
+        "editorsPick": false
+      },
+      "finance": {
+        "premiumFinance": {
+          "isPremiumNews": false,
+          "isPremiumFreeNews": false
+        }
+      },
+      "storyline": null
+    }
+  },
+  {
+    "id": "22ad510c-aafd-3895-8cec-8507c79fb29b",
+    "content": {
+      "id": "22ad510c-aafd-3895-8cec-8507c79fb29b",
+      "contentType": "STORY",
+      "title": "Prediction: CoreWeave Stock Will Double on This Date",
+      "description": "",
+      "summary": "CoreWeave's stock swings 25% up and 15% down in the same month, which makes pinning a price target on it feel reckless. Here is why our analysts did it anyway, and the single metric that pushed them to a buy.",
+      "pubDate": "2026-08-22T15:00:03Z",
+      "displayTime": "2026-08-22T15:00:03Z",
+      "isHosted": true,
+      "bypassModal": false,
+      "previewUrl": null,
+      "thumbnail": {
+        "originalUrl": "https://media.zenfs.com/en/24_7_wall_st__718/96f156bc812ba88185b81920ad67008f.jpg",
+        "originalWidth": 1366,
+        "originalHeight": 768,
+        "caption": "",
+        "resolutions": [
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/mTZgs6EtNEGJBv4uzq0O.w--~B/aD03Njg7dz0xMzY2O2FwcGlkPXl0YWNoeW9u/https://media.zenfs.com/en/24_7_wall_st__718/96f156bc812ba88185b81920ad67008f.jpg",
+            "width": 1366,
+            "height": 768,
+            "tag": "original"
+          },
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/69BCbVp8BBo4c1zWCL.q3Q--~B/Zmk9c3RyaW07aD0xMjg7dz0xNzA7YXBwaWQ9eXRhY2h5b24-/https://media.zenfs.com/en/24_7_wall_st__718/96f156bc812ba88185b81920ad67008f.jpg",
+            "width": 170,
+            "height": 128,
+            "tag": "170x128"
+          }
+        ]
+      },
+      "provider": {
+        "displayName": "24/7 Wall St.",
+        "url": "https://247wallst.com/",
+        "sourceId": "24_7_wall_st__718"
+      },
+      "canonicalUrl": {
+        "url": "https://247wallst.com/investing/2026/08/22/prediction-coreweave-stock-will-double-on-this-date/",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "clickThroughUrl": {
+        "url": "https://finance.yahoo.com/markets/stocks/articles/prediction-coreweave-stock-double-date-150003395.html",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "metadata": {
+        "editorsPick": false
+      },
+      "finance": {
+        "premiumFinance": {
+          "isPremiumNews": false,
+          "isPremiumFreeNews": false
+        }
+      },
+      "storyline": null
+    }
+  },
+  {
+    "id": "5f9735fa-bb2c-3828-b1ce-7d2d4632a22b",
+    "content": {
+      "id": "5f9735fa-bb2c-3828-b1ce-7d2d4632a22b",
+      "contentType": "STORY",
+      "title": "2 Hydrogen Stocks to Buy in August if You Believe in the Turnaround",
+      "description": "",
+      "summary": "Plug Power and Bloom Energy will benefit from a sustained turnaround in the hydrogen industry.",
+      "pubDate": "2026-08-22T14:50:00Z",
+      "displayTime": "2026-08-22T14:50:00Z",
+      "isHosted": true,
+      "bypassModal": false,
+      "previewUrl": null,
+      "thumbnail": {
+        "originalUrl": "https://media.zenfs.com/en/motleyfool.com/784e535d319773dcd8efb06d94e370fb.png",
+        "originalWidth": 1200,
+        "originalHeight": 800,
+        "caption": "Bloom Energy and Plug Power logos on green backdrops.",
+        "resolutions": [
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/sfTgBpUoeMxcbWH1nTOCgA--~B/aD04MDA7dz0xMjAwO2FwcGlkPXl0YWNoeW9u/https://media.zenfs.com/en/motleyfool.com/784e535d319773dcd8efb06d94e370fb.png",
+            "width": 1200,
+            "height": 800,
+            "tag": "original"
+          },
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/kYcLPqTLv9vxrR4RQrw1kA--~B/Zmk9c3RyaW07aD0xMjg7dz0xNzA7YXBwaWQ9eXRhY2h5b24-/https://media.zenfs.com/en/motleyfool.com/784e535d319773dcd8efb06d94e370fb.png",
+            "width": 170,
+            "height": 128,
+            "tag": "170x128"
+          }
+        ]
+      },
+      "provider": {
+        "displayName": "Motley Fool",
+        "url": "http://www.fool.com/",
+        "sourceId": "motleyfool.com"
+      },
+      "canonicalUrl": {
+        "url": "https://www.fool.com/investing/2026/08/22/2-hydrogen-stocks-to-buy-in-august-if-you-believe/",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "clickThroughUrl": {
+        "url": "https://finance.yahoo.com/markets/stocks/articles/2-hydrogen-stocks-buy-august-145000459.html",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "metadata": {
+        "editorsPick": false
+      },
+      "finance": {
+        "premiumFinance": {
+          "isPremiumNews": false,
+          "isPremiumFreeNews": false
+        }
+      },
+      "storyline": null
+    }
+  },
+  {
+    "id": "2a58a420-a54b-35f1-88f1-90fc99736c90",
+    "content": {
+      "id": "2a58a420-a54b-35f1-88f1-90fc99736c90",
+      "contentType": "STORY",
+      "title": "Why Shell and the Other Oil Majors Aren't Price Gouging",
+      "description": "",
+      "summary": "When the price of gasoline rises, it boosts profits for companies like Shell, Exxon, and Chevron.",
+      "pubDate": "2026-08-22T14:35:01Z",
+      "displayTime": "2026-08-22T14:35:01Z",
+      "isHosted": true,
+      "bypassModal": false,
+      "previewUrl": null,
+      "thumbnail": {
+        "originalUrl": "https://media.zenfs.com/en/motleyfool.com/8b6ad6a9935cc895396e458c7f22b4ad.jpg",
+        "originalWidth": 1400,
+        "originalHeight": 933,
+        "caption": "A person pumping gasoline into a car at a gas station.",
+        "resolutions": [
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/KDHEVAVb.WHbHubYCbmz.A--~B/aD05MzM7dz0xNDAwO2FwcGlkPXl0YWNoeW9u/https://media.zenfs.com/en/motleyfool.com/8b6ad6a9935cc895396e458c7f22b4ad.jpg",
+            "width": 1400,
+            "height": 933,
+            "tag": "original"
+          },
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/.MrKrx6N0zrCgStdY02ARA--~B/Zmk9c3RyaW07aD0xMjg7dz0xNzA7YXBwaWQ9eXRhY2h5b24-/https://media.zenfs.com/en/motleyfool.com/8b6ad6a9935cc895396e458c7f22b4ad.jpg",
+            "width": 170,
+            "height": 128,
+            "tag": "170x128"
+          }
+        ]
+      },
+      "provider": {
+        "displayName": "Motley Fool",
+        "url": "http://www.fool.com/",
+        "sourceId": "motleyfool.com"
+      },
+      "canonicalUrl": {
+        "url": "https://www.fool.com/investing/2026/08/22/why-shell-and-the-other-oil-majors-aren-t-price-gouging/",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "clickThroughUrl": {
+        "url": "https://finance.yahoo.com/energy/articles/why-shell-other-oil-majors-143501008.html",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "metadata": {
+        "editorsPick": false
+      },
+      "finance": {
+        "premiumFinance": {
+          "isPremiumNews": false,
+          "isPremiumFreeNews": false
+        }
+      },
+      "storyline": null
+    }
+  },
+  {
+    "id": "0dca011b-7283-3d9a-809d-82165c9e467c",
+    "content": {
+      "id": "0dca011b-7283-3d9a-809d-82165c9e467c",
+      "contentType": "STORY",
+      "title": "Prediction: This Is Where Pfizer Stock Will Be in 2030",
+      "description": "",
+      "summary": "Pfizer is facing material patent expirations over the next two years, but that will be over by 2030.",
+      "pubDate": "2026-08-22T14:35:00Z",
+      "displayTime": "2026-08-22T14:35:00Z",
+      "isHosted": true,
+      "bypassModal": false,
+      "previewUrl": null,
+      "thumbnail": {
+        "originalUrl": "https://media.zenfs.com/en/motleyfool.com/94866cd420e885ba45a7c495cb1abe3c.jpg",
+        "originalWidth": 1200,
+        "originalHeight": 801,
+        "caption": "A medical professional filling a needle from a bottle of medicine.",
+        "resolutions": [
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/n3qC.RWaFp5rzxSYEFiGWw--~B/aD04MDE7dz0xMjAwO2FwcGlkPXl0YWNoeW9u/https://media.zenfs.com/en/motleyfool.com/94866cd420e885ba45a7c495cb1abe3c.jpg",
+            "width": 1200,
+            "height": 801,
+            "tag": "original"
+          },
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/7XnMeqW2x5LGefViOLzOVw--~B/Zmk9c3RyaW07aD0xMjg7dz0xNzA7YXBwaWQ9eXRhY2h5b24-/https://media.zenfs.com/en/motleyfool.com/94866cd420e885ba45a7c495cb1abe3c.jpg",
+            "width": 170,
+            "height": 128,
+            "tag": "170x128"
+          }
+        ]
+      },
+      "provider": {
+        "displayName": "Motley Fool",
+        "url": "http://www.fool.com/",
+        "sourceId": "motleyfool.com"
+      },
+      "canonicalUrl": {
+        "url": "https://www.fool.com/investing/2026/08/22/prediction-this-is-where-pfizer-stock-will-be-in-2/",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "clickThroughUrl": {
+        "url": "https://finance.yahoo.com/healthcare/articles/prediction-where-pfizer-stock-2030-143500524.html",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "metadata": {
+        "editorsPick": false
+      },
+      "finance": {
+        "premiumFinance": {
+          "isPremiumNews": false,
+          "isPremiumFreeNews": false
+        }
+      },
+      "storyline": null
+    }
+  },
+  {
+    "id": "efcf8794-e123-3932-939b-ad68a468fcf1",
+    "content": {
+      "id": "efcf8794-e123-3932-939b-ad68a468fcf1",
+      "contentType": "STORY",
+      "title": "Target Stock Has Been Crushed. Here’s Why I’m Not Giving Up on It.",
+      "description": "",
+      "summary": "Target shares spent years in freefall while rivals pulled ahead, and now a sudden reversal has investors divided on whether the turnaround is real or a one-quarter illusion built on numbers that may never repeat.",
+      "pubDate": "2026-08-22T14:30:11Z",
+      "displayTime": "2026-08-22T14:30:11Z",
+      "isHosted": true,
+      "bypassModal": false,
+      "previewUrl": null,
+      "thumbnail": {
+        "originalUrl": "https://media.zenfs.com/en/24_7_wall_st__718/ec3abc2b97e328781c2f2992b19dfcc9.jpg",
+        "originalWidth": 1366,
+        "originalHeight": 768,
+        "caption": "",
+        "resolutions": [
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/xsplorlCd68im7eySKLyWA--~B/aD03Njg7dz0xMzY2O2FwcGlkPXl0YWNoeW9u/https://media.zenfs.com/en/24_7_wall_st__718/ec3abc2b97e328781c2f2992b19dfcc9.jpg",
+            "width": 1366,
+            "height": 768,
+            "tag": "original"
+          },
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/5uhWl96nG8cDb9A7e4Mb.A--~B/Zmk9c3RyaW07aD0xMjg7dz0xNzA7YXBwaWQ9eXRhY2h5b24-/https://media.zenfs.com/en/24_7_wall_st__718/ec3abc2b97e328781c2f2992b19dfcc9.jpg",
+            "width": 170,
+            "height": 128,
+            "tag": "170x128"
+          }
+        ]
+      },
+      "provider": {
+        "displayName": "24/7 Wall St.",
+        "url": "https://247wallst.com/",
+        "sourceId": "24_7_wall_st__718"
+      },
+      "canonicalUrl": {
+        "url": "https://247wallst.com/investing/2026/08/22/target-stock-has-been-crushed-heres-why-im-not-giving-up-on-it/",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "clickThroughUrl": {
+        "url": "https://finance.yahoo.com/markets/stocks/articles/target-stock-crushed-why-m-143011881.html",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "metadata": {
+        "editorsPick": false
+      },
+      "finance": {
+        "premiumFinance": {
+          "isPremiumNews": false,
+          "isPremiumFreeNews": false
+        }
+      },
+      "storyline": null
+    }
+  },
+  {
+    "id": "ab3b1333-c78c-314b-b58d-6fbe3b6f1063",
+    "content": {
+      "id": "ab3b1333-c78c-314b-b58d-6fbe3b6f1063",
+      "contentType": "STORY",
+      "title": "Billionaire David Tepper Sold His Fund's Sandisk Stake in Favor of This Trillion-Dollar Artificial Intelligence (AI) Chip Stock",
+      "description": "",
+      "summary": "The fund manager recently booked gains in Sandisk stock and redeployed capital into Broadcom.",
+      "pubDate": "2026-08-22T14:20:00Z",
+      "displayTime": "2026-08-22T14:20:00Z",
+      "isHosted": true,
+      "bypassModal": false,
+      "previewUrl": null,
+      "thumbnail": {
+        "originalUrl": "https://media.zenfs.com/en/motleyfool.com/60f2ad3fbf319d5f83b477a4518a6358.png",
+        "originalWidth": 1200,
+        "originalHeight": 800,
+        "caption": "Broadcom and Sandisk logos.",
+        "resolutions": [
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/VAoeLACc1PXSxwZec45xYw--~B/aD04MDA7dz0xMjAwO2FwcGlkPXl0YWNoeW9u/https://media.zenfs.com/en/motleyfool.com/60f2ad3fbf319d5f83b477a4518a6358.png",
+            "width": 1200,
+            "height": 800,
+            "tag": "original"
+          },
+          {
+            "url": "https://s.yimg.com/uu/api/res/1.2/N567Q_QoDRlAicxDuaHC8A--~B/Zmk9c3RyaW07aD0xMjg7dz0xNzA7YXBwaWQ9eXRhY2h5b24-/https://media.zenfs.com/en/motleyfool.com/60f2ad3fbf319d5f83b477a4518a6358.png",
+            "width": 170,
+            "height": 128,
+            "tag": "170x128"
+          }
+        ]
+      },
+      "provider": {
+        "displayName": "Motley Fool",
+        "url": "http://www.fool.com/",
+        "sourceId": "motleyfool.com"
+      },
+      "canonicalUrl": {
+        "url": "https://www.fool.com/investing/2026/08/22/billionaire-david-tepper-sold-his-funds-sandisk/",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "clickThroughUrl": {
+        "url": "https://finance.yahoo.com/technology/ai/articles/billionaire-david-tepper-sold-funds-142000411.html",
+        "site": "finance",
+        "region": "US",
+        "lang": "en-US"
+      },
+      "metadata": {
+        "editorsPick": false
+      },
+      "finance": {
+        "premiumFinance": {
+          "isPremiumNews": false,
+          "isPremiumFreeNews": false
+        }
+      },
+      "storyline": null
+    }
+  }
+]

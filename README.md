@@ -42,19 +42,24 @@ v1 이후 [`trading_bot_agentic_ai_execution_plan_260714.md`](trading_bot_agenti
     참고 — 현재 기준 미달로 **모의투자 승격 보류** 상태입니다.
 - 미국 시장 지원(`config/us_etf_rotation.toml`): 수집기 시장 가드,
   시장별 거시 시리즈, 전략의 명시적 팩터 목록과 절대 모멘텀 필터.
-  11개 ETF 자산배분 로테이션을 2007년부터 백테스트할 수 있습니다 —
+  25개 ETF 승격 후보와 기존 11개 ETF 참조 기준선을 별도 테마로 기록합니다 —
   판정은 [docs/us_etf_rotation_review.md](docs/us_etf_rotation_review.md).
 - 승격 기준 측정 도구(`research/evaluation.py`, `research evaluate`):
   Walk-forward 승률·연 회전율·비용 2배 검정을 실제로 재서, 전략이 승격
   기준 6개 전부에 대해 합격/불합격 판정을 받을 수 있게 합니다. 측정하지
   못한 항목은 통과가 아니라 "측정 불가"로 남습니다.
-- 이벤트 리스크 오버레이(`data/events.py`, `research/event_calendar.py`,
+- 이벤트 리스크 오버레이(`research/event_calendar.py`,
   `allocation/event_overlay.py`): 실적 발표를 앞둔 종목의 노출을 미리
-  줄입니다. 발표일은 DART **잠정실적 공시**에서 수집합니다 — 정기보고서
-  접수일은 같은 숫자를 몇 주 늦게 담을 뿐이고, 주가는 잠정실적에 반응합니다.
-  다음 발표일은 과거 발표 간격으로만 추정합니다. 미래 일정을 지금 지식으로
-  채우면 백테스트가 거짓말을 하기 때문입니다. 기본값은 비활성이며,
-  `config/kr_theme_event_overlay.toml`에서만 켜집니다.
+  줄입니다. 다음 발표일은 **과거 발표 간격으로만** 추정합니다 — 미래 일정을
+  지금 지식으로 채우면 백테스트가 거짓말을 하기 때문입니다. 기본값은
+  비활성입니다.
+- 실적 이벤트 캘린더 — 두 시장, 같은 패널 스키마:
+  - **US** (`data/edgar.py`): SEC 8-K **Item 2.02**(Results of Operations)를
+    이벤트로 봅니다. 10-Q/10-K는 같은 숫자를 며칠~몇 주 뒤에 반복할 뿐입니다.
+    장 마감 후 접수된 8-K는 다음 거래일이 반응일이라, 접수 시각까지 반영해
+    `reaction_date`를 따로 기록합니다. `SEC_USER_AGENT` 필요(키는 불필요).
+  - **KR** (`data/events.py`): DART **잠정실적 공시**. 정기보고서 접수일은
+    주가가 이미 반응한 뒤입니다.
   설계: [docs/superpowers/specs/2026-08-12-event-alpha-design.md](docs/superpowers/specs/2026-08-12-event-alpha-design.md)
 
 두 갈래는 `data/fundamentals.py`의 DART 클라이언트를 공유합니다. 밸류에이션은
@@ -195,7 +200,7 @@ CLI 대신 데스크톱 GUI(Tkinter, 추가 의존성 없음)로 같은 기능�
 판정하고, 리포트 맨 위에 전문용어 없는 결론을 씁니다.
 
 ```powershell
-.\.venv\Scripts\python.exe -m tradingbot --config config\us_etf_rotation.toml research evaluate --strategy theme_multifactor --market US --symbols SPY QQQ IWM EFA EEM TLT IEF LQD GLD DBC VNQ --start 2007-01-01 --benchmark-config config\us_etf_benchmark.toml
+.\.venv\Scripts\python.exe -m tradingbot --config config\us_etf_rotation.toml research evaluate --strategy theme_multifactor --market US --theme us_asset_rotation --period out_of_sample --benchmark-config config\us_etf_benchmark.toml
 ```
 
 결과는 `reports/evaluation/`에 저장됩니다. 승격이면 종료코드 0, 아니면 1입니다.
@@ -243,7 +248,35 @@ Register-ScheduledTask -TaskName "TradingBot Paper KR" -Action $action -Trigger 
 .\.venv\Scripts\python.exe -m tradingbot briefing weekly
 .\.venv\Scripts\python.exe -m tradingbot briefing weekly --dry-run      # 렌더까지만, 전송 안 함
 .\.venv\Scripts\python.exe -m tradingbot briefing weekly --skip-update  # 가격 기록 갱신 생략
+.\.venv\Scripts\python.exe -m tradingbot briefing weekly --no-news      # 새 소식 수집·표시 생략
+.\.venv\Scripts\python.exe -m tradingbot briefing weekly --no-proposal  # 주간 판단 생성·표시 생략
+.\.venv\Scripts\python.exe -m tradingbot briefing weekly --no-reconciliation  # 실현·예상 비교 생략
 ```
+
+### 새 소식
+
+브리핑의 `[새 소식]`에는 계좌에 보유한 종목과 관련해 같은 보고 기간에 올라온 국내 공시와
+미국 뉴스의 날짜, 제목, 출처, 링크가 표시됩니다. 새 소식이 필요하지 않으면 `--no-news`를
+사용하면 되며, 이때는 뉴스 소스를 만들거나 호출하지 않고 섹션도 표시하지 않습니다.
+
+`DART_API_KEY`는 선택 사항입니다. 키가 없으면 실행이 실패하지 않고 국내 공시만 건너뛰며,
+브리핑에는 `DART_API_KEY`가 없어 확인하지 못했다는 이유가 표시됩니다.
+
+### 이번 주 판단
+
+브리핑의 `[이번 주 판단]`은 보유 종목마다 평가된 적이 없는지, 평가 기준에 미달했는지,
+측정할 수 없었는지, 통과 기록이 현재 코드나 주간 주기와 맞는지를 설명합니다. 아직 통과한
+전략은 없으므로, 지금은 무엇을 제안하는 대신 **왜 제안할 것이 없는지**를 보여줍니다.
+`--no-proposal`을 사용하면 승격 원장을 읽거나 판단 엔진을 호출하지 않고 섹션도 표시하지
+않습니다.
+
+### 실현 수익과 예상 비교
+
+브리핑의 `[실현 수익과 예상 비교]`는 각 보유 종목의 실제 수익률과, 측정을 통과한 비교
+종목 수익률에 레버리지 배수를 적용한 예상 수익률을 나란히 보여줍니다. 이번 기간의 차이와
+추적을 시작한 뒤의 누적 차이도 함께 남습니다. 누적 차이는 첫 주 한 번으로 판단하는 숫자가
+아니며, 여러 주에 걸쳐 쌓인 뒤에야 추적 가정이 계속 어긋나는지 보는 데 의미가 생깁니다.
+`--no-reconciliation`을 사용하면 가격과 비교 측정을 읽지 않고 이 기록과 섹션을 생략합니다.
 
 **언제 켜면 되는가.** 미국 금요일 장은 **한국 시간 토요일 새벽에 닫힙니다.** 한 주를 온전히 담으려면 **토요일 아침 이후**에 켜세요. 금요일 밤에 켜면 미국 쪽 마지막 하루가 빠집니다.
 

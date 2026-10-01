@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from tradingbot.data.store import ResearchDataStore
 from tradingbot.factors.base import Factor
@@ -9,6 +9,21 @@ from tradingbot.research.gate import GateThresholds, evaluate_gate
 from tradingbot.research.ic import ic_series, summarize_ic
 from tradingbot.research.quantiles import monotonicity, quantile_returns, top_quantile_turnover
 from tradingbot.research.walk_forward import WalkForwardWindow, walk_forward_ic, window_win_rate
+
+
+class MembershipAwareFactor(Factor):
+    """Mask factor scores for symbols outside a date-aware universe."""
+
+    def __init__(self, factor: Factor, members_on: Callable[[date], Sequence[str]]) -> None:
+        self.factor = factor
+        self.members_on = members_on
+        self.name = factor.name
+
+    def compute(self, dt, universe, data_store):
+        requested = {symbol.upper() for symbol in universe}
+        active = [symbol for symbol in self.members_on(dt) if symbol.upper() in requested]
+        scores = self.factor.compute(dt, active, data_store)
+        return scores.reindex([symbol.upper() for symbol in universe]).rename(self.name)
 
 
 def build_factor_report(
@@ -20,6 +35,7 @@ def build_factor_report(
     dates: Sequence[date],
     windows: Sequence[WalkForwardWindow],
     thresholds: GateThresholds,
+    members_on: Callable[[date], Sequence[str]] | None = None,
 ) -> dict[str, Any]:
     """IC / quantile / walk-forward / gate summary for each factor."""
     report: dict[str, Any] = {
@@ -30,7 +46,12 @@ def build_factor_report(
         "n_quantiles": thresholds.n_quantiles,
         "factors": {},
     }
-    for factor in factors:
+    measured_factors = (
+        [MembershipAwareFactor(factor, members_on) for factor in factors]
+        if members_on is not None
+        else factors
+    )
+    for factor in measured_factors:
         ic_summary = summarize_ic(
             ic_series(factor, store, universe, dates, thresholds.horizon_days)
         )
@@ -83,6 +104,10 @@ def render_markdown(report: dict[str, Any]) -> str:
         "# Factor Research Report",
         "",
         f"- Market: {report['market']}",
+    ]
+    if report.get("universe_layer"):
+        lines.append(f"- Universe layer: {report['universe_layer']}")
+    lines += [
         f"- Universe: {', '.join(report['universe'])}",
         f"- Evaluation dates: {report['n_dates']} (month-end)",
         f"- Horizon: {report['horizon_days']} trading days, quantiles: {report['n_quantiles']}",

@@ -442,14 +442,34 @@ yfinance 버전**을 적는다. Yahoo가 형태를 바꾸면 그 날짜가 유�
 그리고 아래를 이 문서에 적어 넣는다.
 
 ```text
-확인 결과 기록 — Task 2에서 채울 것
-- 항목 배열 경로:        (data.tickerStream.stream 확인?)
-- 항목당 제목 필드:
-- 항목당 발행 시각 필드 / 형식:
-- 항목당 URL 필드:
-- 광고 항목 표시 방법:   (article["ad"] 확인?)
-- 출처(발행 매체) 필드:  (있음/없음)
-- yfinance 버전 / 채집일:
+확인 결과 기록 — 2026-08-23 채집 완료
+- 항목 배열 경로:        없음. yfinance 0.2.66의 get_news(count=N)가 이미
+                         벗겨서 평평한 list 를 준다. tickerStream 은 보이지 않는다.
+                         각 원소는 {"id": ..., "content": {...}} 이고 쓸 것은 전부 content 아래.
+- 항목당 제목 필드:      content.title
+- 항목당 발행 시각 필드: content.pubDate  (ISO-8601 Z, 예 "2026-08-21T19:51:10Z")
+                         20건 전부 채워져 있다. 이것을 쓴다.
+                         content.displayTime 은 쓰지 않는다. 이유가 둘이다.
+                         (1) VIDEO 항목에서는 빈 문자열 "" 이다 (20건 중 3건, 전부 VIDEO).
+                             null 이 아니라 빈 문자열이므로 `is None` 검사로는 걸러지지 않는다.
+                         (2) 갱신되는 기사에서는 pubDate 와 다른 시각을 담는다. NVDA 첫 항목이
+                             pubDate 2026-08-21T08:05:33Z, displayTime 2026-08-21T20:10:29Z 로
+                             12시간 차이였다. displayTime 은 최초 발행이 아니라 최종 갱신을
+                             재는 필드로 보인다. 주간 브리핑은 "그 주에 무엇이 올라왔는가"를
+                             묻으므로 최초 발행 시각이 맞다.
+- 항목당 URL 필드:       content.canonicalUrl.url  (dict 안의 url 키. 문자열이 아니다)
+                         content.clickThroughUrl.url 도 같은 값을 담고 있었다.
+- 광고 항목 표시 방법:   확인되지 않음. AAPL·NVDA 20건 어디에도 'ad' 키가 없었다.
+                         샘플에 광고가 한 건도 섞이지 않았다는 뜻이므로, 광고 판별은
+                         실제 광고를 관측하기 전까지 구현하지 않는다 (§8 "응답 필드명을
+                         기억으로 쓰지 않는다"). 대신 관측된 구분은 content.contentType
+                         으로 "STORY" 17건, "VIDEO" 3건이 있었다. 둘 다 그 종목에 붙어
+                         발행된 것이므로 §3.1 에 따라 걸러내지 않고 제목 그대로 보여준다.
+- 출처(발행 매체) 필드:  content.provider.displayName  (있음. 예 "Yahoo Finance",
+                         "Yahoo Finance Video")
+- yfinance 버전 / 채집일: yfinance 0.2.66 / 2026-08-23 채집
+                         fixture: tests/data/yahoo_news_sample.json (AAPL, 10건)
+                                  tests/data/yahoo_news_video_sample.json (NVDA, 10건)
 ```
 
 ---

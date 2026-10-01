@@ -25,18 +25,27 @@ import pandas as pd
 
 from tradingbot.account.base import AccountSnapshot
 from tradingbot.account.returns import IntervalReturn, holding_return, interval_return
+from tradingbot.data.news import NewsResult
+from tradingbot.instruments import INSTRUMENTS, LeverageState
+from tradingbot.proposal import NoProposalReason, PassedNoChange, Proposal, Refusal
+from tradingbot.proxy import ProxyStatus
+from tradingbot.reconciliation import ReconciliationEntry, ReconciliationResult
 from tradingbot.report import glossary
 
-SECTIONS: tuple[str, ...] = ("summary", "totals", "holdings", "trend", "notes")
+SECTIONS: tuple[str, ...] = (
+    "summary",
+    "totals",
+    "holdings",
+    "trend",
+    "news",
+    "proposal",
+    "reconciliation",
+    "notes",
+)
 
 # How far the broker's own timestamp may lag our clock before the reader is
 # told the numbers may not be current.
 STALE_AFTER = timedelta(hours=6)
-
-# Daily-reset leveraged ETFs. Held over more than a day, the multiple does
-# not hold — which is exactly the misunderstanding plain wording has to
-# prevent, and it starts the moment one of these is in the account.
-_LEVERAGED = {"SOXL", "SOXS", "TECL", "TECS", "TQQQ", "SQQQ", "FNGU", "LABU", "SPXL"}
 
 _MARKET_NAMES = {"KR": "한국", "US": "미국"}
 _CURRENCY_NAMES = {"KRW": "원", "USD": "달러"}
@@ -50,6 +59,9 @@ class _Context:
     price_history: dict[str, Any] | None
     now: datetime
     long_gap_days: int
+    news: NewsResult | None
+    proposal: Proposal | None
+    reconciliation: ReconciliationResult | None
 
 
 def _money(value: float, currency: str) -> str:
@@ -206,6 +218,186 @@ def _render_trend(ctx: _Context) -> list[str]:
     return ["[이 기간 주가 움직임]", *lines]
 
 
+def _render_news(ctx: _Context) -> list[str]:
+    if ctx.news is None:
+        return []
+
+    news = ctx.news
+    lines = ["[새 소식]"]
+
+    for item in news.items:
+        lines.append(
+            f"- {item.published_at.isoformat()} · {item.symbol} · {item.source}"
+        )
+        if item.via:
+            lines.append(
+                f"  {item.symbol} 자체 소식이 아닙니다. "
+                f"{item.via}에서 가져온 소식입니다."
+            )
+        lines.extend((f"  {item.title}", f"  {item.url}"))
+
+    for source, reason in news.failures.items():
+        lines.append(
+            f"- 소식을 가져오지 못했습니다 ({source}: {reason}). "
+            "계좌 숫자는 영향받지 않습니다."
+        )
+
+    for source, reason in news.skipped.items():
+        if source.casefold() == "dart":
+            lines.append("- 국내 공시는 DART_API_KEY가 없어 확인하지 못했습니다.")
+        else:
+            lines.append(f"- {source} 소식은 확인하지 못했습니다 ({reason}).")
+
+    if news.dropped:
+        counts = ", ".join(
+            f"{symbol} {count}건" for symbol, count in news.dropped.items()
+        )
+        lines.append(f"- 이 밖에 {counts}이 더 있습니다.")
+
+    if len(lines) == 1:
+        lines.append("- 이 기간에 새로 올라온 소식이 없습니다.")
+
+    return lines
+
+
+_CRITERION_NAMES = {
+    "excess_return": "비교 대상보다 더 번 정도",
+    "sharpe": "위험을 함께 본 성과",
+    "max_drawdown": "가장 크게 줄어든 폭",
+    "annual_turnover": "한 해 동안 보유 종목을 바꾼 정도",
+    "walk_forward_win_rate": "기간을 나눠 다시 확인했을 때 나았던 비율",
+}
+
+
+def _plain_criterion_name(name: str) -> str:
+    known = _CRITERION_NAMES.get(name)
+    if known is not None:
+        return known
+    prefix = "excess_return_at_"
+    suffix = "x_costs"
+    if name.startswith(prefix) and name.endswith(suffix):
+        multiple = name.removeprefix(prefix).removesuffix(suffix)
+        return f"비용을 {multiple}배로 잡았을 때 비교 대상보다 더 번 정도"
+    return "평가 기록에 이름이 남지 않은 기준"
+
+
+def _failed_criterion_names(refusal: Refusal) -> str:
+    if refusal.basis is None:
+        return "평가 기록에 이름이 남지 않은 기준"
+    names = [
+        f"{_plain_criterion_name(criterion.name)} 기준"
+        for criterion in refusal.basis.criteria
+        if criterion.passed is False
+    ]
+    if not names:
+        return "평가 기록에 이름이 남지 않은 기준"
+    return ", ".join(names)
+
+
+def _render_proposal_decision(decision: Refusal | PassedNoChange) -> str:
+    symbol = decision.symbol
+    if isinstance(decision, PassedNoChange):
+        return (
+            f"- {symbol}: 평가를 통과해 정상적으로 작동하고 있으며, 이번 주에는 "
+            "보유한 그대로 유지하세요."
+        )
+
+    if decision.reason is NoProposalReason.NEVER_EVALUATED:
+        return (
+            f"- {symbol}: 아직 아무도 이 보유 종목의 성과를 재보지 않았고, "
+            "다음 단계는 평가 실행입니다."
+        )
+    if decision.reason is NoProposalReason.DID_NOT_PASS:
+        criteria = _failed_criterion_names(decision)
+        return (
+            f"- {symbol}: 성과를 재봤지만 {criteria}에 미치지 못했으며, "
+            "전략을 고친 뒤 다시 평가해야 합니다."
+        )
+    if decision.reason is NoProposalReason.UNMEASURABLE:
+        return (
+            f"- {symbol}: 평가를 시도했지만 자료가 판단을 뒷받침하지 못했으며, "
+            "충분한 자료를 갖춘 뒤 다시 평가해야 합니다."
+        )
+    if decision.reason is NoProposalReason.STALE_RECORD:
+        return (
+            f"- {symbol}: 통과한 기록은 있지만 그 뒤 코드가 바뀌었으며, 지금 "
+            "코드로 평가를 다시 실행해야 합니다."
+        )
+    if decision.reason is NoProposalReason.CADENCE_MISMATCH:
+        return (
+            f"- {symbol}: 통과한 기록의 점검 주기가 이번 브리핑과 다르며, 이번 "
+            "브리핑과 같은 주기로 다시 평가해야 합니다."
+        )
+    if decision.reason is NoProposalReason.DISCRETIONARY_HOLDING:
+        return (
+            f"- {symbol}: 이 보유 종목은 구조상 앞으로도 봇이 측정할 수 없는 "
+            "재량 보유이며, 기다리지 말고 사람이 계속 판단해야 합니다."
+        )
+    raise ValueError(f"unknown proposal reason: {decision.reason!r}")
+
+
+def _render_proposal(ctx: _Context) -> list[str]:
+    if ctx.proposal is None or not ctx.proposal.decisions:
+        return []
+    return [
+        "[이번 주 판단]",
+        *(
+            _render_proposal_decision(decision)
+            for decision in ctx.proposal.decisions
+        ),
+    ]
+
+
+def _percentage_points(value: float) -> str:
+    return f"{glossary.format_value('period_return', value / 100.0)}포인트"
+
+
+def _render_reconciliation_entry(entry: ReconciliationEntry) -> str:
+    realised = glossary.format_value("period_return", entry.realised_return)
+    if entry.status is ProxyStatus.UNMEASURABLE:
+        return (
+            f"- {entry.symbol}: 실제 수익률은 {realised}입니다. "
+            f"{entry.proxy_symbol}가 비교 종목인지 잴 자료가 부족해 예상 "
+            "수익률과 차이는 계산하지 않았습니다."
+        )
+    if entry.status is ProxyStatus.DISCRETIONARY_HOLDING:
+        return (
+            f"- {entry.symbol}: 실제 수익률은 {realised}입니다. "
+            f"{entry.proxy_symbol}를 비교 종목으로 재봤지만 이 보유의 움직임을 "
+            "충분히 따라가지 않아 예상 수익률과 차이는 계산하지 않았습니다."
+        )
+    if entry.status is not ProxyStatus.QUALIFIED:
+        raise ValueError(f"unknown reconciliation status: {entry.status!r}")
+    if (
+        entry.expected_return is None
+        or entry.gap_percentage_points is None
+        or entry.cumulative_gap_percentage_points is None
+    ):
+        raise ValueError("qualified reconciliation is missing comparison values")
+
+    expected = glossary.format_value("period_return", entry.expected_return)
+    gap = _percentage_points(entry.gap_percentage_points)
+    cumulative = _percentage_points(entry.cumulative_gap_percentage_points)
+    return (
+        f"- {entry.symbol}: 실제 수익률은 {realised}이고, "
+        f"{entry.proxy_symbol} 수익률을 {entry.leverage:g}배로 본 예상은 "
+        f"{expected}입니다. 이번 차이는 {gap}이고, 추적 시작 뒤 누적 "
+        f"차이는 {cumulative}입니다."
+    )
+
+
+def _render_reconciliation(ctx: _Context) -> list[str]:
+    if ctx.reconciliation is None or not ctx.reconciliation.entries:
+        return []
+    return [
+        "[실현 수익과 예상 비교]",
+        *(
+            _render_reconciliation_entry(entry)
+            for entry in ctx.reconciliation.entries
+        ),
+    ]
+
+
 def _render_notes(ctx: _Context) -> list[str]:
     notes: list[str] = []
 
@@ -215,11 +407,35 @@ def _render_notes(ctx: _Context) -> list[str]:
             "주가가 그대로여도 숫자가 움직일 수 있습니다."
         )
 
-    if {held.symbol.upper() for held in ctx.curr.holdings} & _LEVERAGED:
+    known_leverage_products: set[tuple[str, float]] = set()
+    unknown_leverage_symbols: set[str] = set()
+    unregistered_symbols: set[str] = set()
+    for held in ctx.curr.holdings:
+        symbol = held.symbol.strip().upper()
+        instrument = INSTRUMENTS.get(symbol)
+        if instrument is None:
+            unregistered_symbols.add(symbol)
+            continue
+        if instrument.leverage is LeverageState.UNKNOWN:
+            unknown_leverage_symbols.add(symbol)
+        elif abs(instrument.leverage) > 1.0:
+            known_leverage_products.add((symbol, instrument.leverage))
+
+    for symbol, multiple in sorted(known_leverage_products):
         notes.append(
-            "- 3배 ETF는 하루 단위로 3배라서, 여러 날을 합치면 기초지수의 정확히 "
-            "3배가 아닙니다. 오래 들고 있을수록 차이가 커집니다."
+            f"- {symbol}은 하루 단위로 {multiple:g}배 움직임을 목표로 하는 상품입니다. "
+            f"여러 날을 합치면 기준 가격 움직임의 정확히 {multiple:g}배가 아니며, "
+            "오래 들고 있을수록 차이가 커집니다."
         )
+
+    for symbol in sorted(unknown_leverage_symbols):
+        notes.append(
+            f"- {symbol}는 등록된 상품이지만 목표 배수를 확인하지 못했습니다. "
+            "1배 상품으로 가정하지 않습니다."
+        )
+
+    for symbol in sorted(unregistered_symbols):
+        notes.append(f"- {symbol}은 상품 배수가 등록되지 않았습니다.")
 
     if ctx.curr.fx_source != "broker":
         notes.append(
@@ -250,6 +466,9 @@ _RENDERERS: dict[str, Callable[[_Context], list[str]]] = {
     "totals": _render_totals,
     "holdings": _render_holdings,
     "trend": _render_trend,
+    "news": _render_news,
+    "proposal": _render_proposal,
+    "reconciliation": _render_reconciliation,
     "notes": _render_notes,
 }
 
@@ -259,6 +478,9 @@ def render_briefing(
     prev: AccountSnapshot | None = None,
     *,
     price_history: dict[str, Any] | None = None,
+    news: NewsResult | None = None,
+    proposal: Proposal | None = None,
+    reconciliation: ReconciliationResult | None = None,
     now: datetime | None = None,
     long_gap_days: int = 14,
 ) -> str:
@@ -275,6 +497,9 @@ def render_briefing(
         price_history=price_history,
         now=now if now is not None else datetime.now(curr.as_of.tzinfo),
         long_gap_days=long_gap_days,
+        news=news,
+        proposal=proposal,
+        reconciliation=reconciliation,
     )
     blocks = []
     for name in SECTIONS:

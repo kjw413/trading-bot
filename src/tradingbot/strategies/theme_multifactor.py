@@ -2,8 +2,9 @@
 
 Decision flow (spec §9):
     theme members at dt -> factor scores (weights config drives WHICH factors)
-    -> standardize -> combine -> top N -> equal or inverse-vol weights
-    -> regime exposure scaling -> concentration/cash constraints -> targets
+    -> standardize -> combine -> top N or full-universe rank tilt
+    -> equal or inverse-vol base weights -> regime or volatility exposure
+    -> concentration/cash constraints -> targets
 
 The factor-weights config is the single source of truth for which factors
 run: every key is resolved through the registry up front, so a typo'd name
@@ -17,6 +18,7 @@ trade on nothing.
 from __future__ import annotations
 
 from datetime import date
+import math
 from typing import Sequence
 
 import pandas as pd
@@ -28,12 +30,16 @@ from tradingbot.allocation.rebalance import is_rebalance_date, plan_rebalance
 from tradingbot.allocation.weights import (
     equal_weights,
     inverse_volatility_weights,
+    realized_portfolio_volatility,
     realized_volatility,
     scale_weights,
+    tilt_weights,
+    volatility_target_exposure,
 )
 from tradingbot.config import resolve_project_path
 from tradingbot.data.events import schedule_dates
-from tradingbot.data.universe import get_theme, members as theme_members
+from tradingbot.data.universe import ThemeUniverse, get_theme
+from tradingbot.data.universe_liquidity import LiquidityUniverse
 from tradingbot.engine.calendar import get_calendar
 from tradingbot.factors.registry import get_factor
 from tradingbot.factors.transform import combine, standardize
@@ -47,6 +53,7 @@ from tradingbot.utils.log import get_logger
 LOGGER = get_logger(__name__)
 
 WEIGHTINGS = ("equal", "inverse_volatility")
+SELECTIONS = ("top_n", "tilt")
 
 
 class ThemeMultifactorStrategy(Strategy):
@@ -56,8 +63,15 @@ class ThemeMultifactorStrategy(Strategy):
         "market": "KR",
         "rebalance": "monthly",
         "top_n": 3,
+        # top_n is the reference behavior. tilt keeps every scoreable name
+        # and expresses the signal as a continuous exponential lean.
+        "selection": "top_n",
+        "tilt_strength": 0.5,
         "weighting": "inverse_volatility",
         "volatility_days": 60,
+        # Zero preserves the existing binary regime exposure. A positive
+        # annualized target replaces it with the no-leverage volatility rule.
+        "target_vol": 0.0,
         "band": 0.005,
         # Trading days of price staleness tolerated before a rebalance is
         # skipped. 3 absorbs a long weekend plus one failed collection run
@@ -81,6 +95,17 @@ class ThemeMultifactorStrategy(Strategy):
         # 경로를 새로 만들지 않기 위해서다.
         "event_overlay_window_days": -1,
         "event_overlay_scale": 0.5,
+        # "theme"이면 config/themes.toml의 손으로 적은 목록을, "liquidity"면
+        # 거래대금 상위 N을 시점마다 계산해 쓴다. 전략 코드는 어느 쪽인지
+        # 모른다 — 둘 다 Universe 인터페이스를 만족한다.
+        "universe": "theme",
+        # 아래는 universe="liquidity"일 때만 쓰인다. top_n(보유 종목 수)과
+        # 다르다: universe_size는 후보를 몇 개까지 좁힐지이고, top_n은 그중
+        # 몇 개를 살지다.
+        "universe_size": 300,
+        "universe_lookback_days": 20,
+        "universe_min_listing_days": 400,
+        "universe_min_dollar_volume": 0.0,
         "bear_exposure": 0.5,
         "regime_series": "kospi",
         "regime_ma_days": 200,
@@ -97,6 +122,17 @@ class ThemeMultifactorStrategy(Strategy):
                 f"Unknown weighting: {self.params['weighting']}. "
                 f"Available: {', '.join(WEIGHTINGS)}"
             )
+        if self.params["selection"] not in SELECTIONS:
+            raise ValueError(
+                f"Unknown selection: {self.params['selection']}. "
+                f"Available: {', '.join(SELECTIONS)}"
+            )
+        tilt_strength = float(self.params["tilt_strength"])
+        if not math.isfinite(tilt_strength) or tilt_strength < 0:
+            raise ValueError("tilt_strength must be a finite non-negative number")
+        target_vol = float(self.params["target_vol"])
+        if not math.isfinite(target_vol) or target_vol < 0:
+            raise ValueError("target_vol must be a finite non-negative number")
         self._research: dict | None = None
         self._factor_weights: dict[str, float] | None = None
         self._data_store = None
@@ -106,6 +142,7 @@ class ThemeMultifactorStrategy(Strategy):
         self._ledger: SignalLedger | None = None
         # symbol -> the last observed announcement it was already trimmed for.
         self._event_trims: dict[str, str] = {}
+        self._universe = None
 
     @property
     def research(self) -> dict:
@@ -165,8 +202,12 @@ class ThemeMultifactorStrategy(Strategy):
             )
             return {}
 
+        unfiltered = combined
         combined = self._apply_absolute_momentum(dt, combined, data_store)
-        selected = select_top(combined, int(self.params["top_n"]))
+        if self.params["selection"] == "top_n":
+            selected = select_top(combined, int(self.params["top_n"]))
+        else:
+            selected = [str(symbol) for symbol in combined.dropna().index]
         if not selected:
             return {}
 
@@ -184,13 +225,37 @@ class ThemeMultifactorStrategy(Strategy):
                 volatilities[symbol] = realized_volatility(history["close"], vol_days)
             base = inverse_volatility_weights(volatilities)
 
-        regime_state = market_regime(
-            data_store,
-            dt,
-            series=str(self.params["regime_series"]),
-            ma_days=int(self.params["regime_ma_days"]),
-        )
-        exposure = equity_exposure(regime_state, bear=float(self.params["bear_exposure"]))
+        if self.params["selection"] == "tilt":
+            # Keep explicit zeroes for names excluded by absolute momentum so
+            # the filter is represented as zero weight plus renormalization.
+            base = {str(symbol): base.get(str(symbol), 0.0) for symbol in unfiltered.index}
+            z_scores = standardize(combined).clip(lower=-3.0, upper=3.0)
+            base = tilt_weights(base, z_scores, float(self.params["tilt_strength"]))
+            if not base:
+                return {}
+
+        target_vol = float(self.params["target_vol"])
+        if target_vol > 0:
+            vol_days = int(self.params["volatility_days"])
+            histories: dict[str, pd.Series] = {}
+            for symbol, weight in base.items():
+                if weight <= 0:
+                    continue
+                try:
+                    history = data_store.price_history(symbol, dt, vol_days + 1)
+                except (FileNotFoundError, KeyError):
+                    continue
+                histories[symbol] = history["close"]
+            portfolio_vol = realized_portfolio_volatility(histories, base, vol_days)
+            exposure = volatility_target_exposure(portfolio_vol, target_vol)
+        else:
+            regime_state = market_regime(
+                data_store,
+                dt,
+                series=str(self.params["regime_series"]),
+                ma_days=int(self.params["regime_ma_days"]),
+            )
+            exposure = equity_exposure(regime_state, bear=float(self.params["bear_exposure"]))
         scaled = scale_weights(base, exposure)
 
         limits = self.research.get("risk_limits", {})
@@ -283,9 +348,8 @@ class ThemeMultifactorStrategy(Strategy):
             return
 
         scale = float(self.params["event_overlay_scale"])
-        theme = get_theme(str(self.params["theme"]), self.params["themes_path"])
         held = [
-            symbol for symbol in theme_members(theme, dt) if ctx.position(symbol).qty > 0
+            symbol for symbol in self.universe().members(dt) if ctx.position(symbol).qty > 0
         ]
         if not held:
             return
@@ -425,6 +489,48 @@ class ThemeMultifactorStrategy(Strategy):
             return True
         return False
 
+    def universe(self):
+        """The universe this strategy trades, built once and reused.
+
+        Both kinds satisfy the same interface, so nothing below this method
+        knows or asks which one it got. That is the whole point: a liquidity
+        screen and a hand-written theme differ in how membership is decided,
+        not in what a strategy does with it.
+        """
+        if self._universe is None:
+            kind = str(self.params["universe"]).lower()
+            if kind == "theme":
+                self._universe = ThemeUniverse(
+                    get_theme(str(self.params["theme"]), self.params["themes_path"])
+                )
+            elif kind == "liquidity":
+                from tradingbot.data.listings import UsCommonStockListing
+
+                market = str(self.params["market"])
+                if market.upper() != "US":
+                    raise ValueError(
+                        f"universe='liquidity' is US-only; the candidate pool is the "
+                        f"NASDAQ directory and there is no {market} equivalent yet."
+                    )
+                candidates = UsCommonStockListing(
+                    resolve_project_path(self.params["data_root"])
+                ).load()
+                self._universe = LiquidityUniverse(
+                    market=market,
+                    candidates=candidates,
+                    data_store=self._store(),
+                    top_n=int(self.params["universe_size"]),
+                    lookback_days=int(self.params["universe_lookback_days"]),
+                    min_listing_days=int(self.params["universe_min_listing_days"]),
+                    min_dollar_volume=float(self.params["universe_min_dollar_volume"]),
+                    rebalance=str(self.params["rebalance"]),
+                )
+            else:
+                raise ValueError(
+                    f"Unknown universe kind: {kind}. Available: theme, liquidity"
+                )
+        return self._universe
+
     def _store(self):
         """Lazily built local-only data store (prices + PIT panels)."""
         if self._data_store is None:
@@ -458,8 +564,7 @@ class ThemeMultifactorStrategy(Strategy):
         if not is_rebalance_date(dt, str(self.params["rebalance"]), calendar):
             return
 
-        theme = get_theme(str(self.params["theme"]), self.params["themes_path"])
-        universe = theme_members(theme, dt)
+        universe = self.universe().members(dt)
         targets = self.generate_targets(dt, universe, self._store())
         if not targets:
             self.persist_state()

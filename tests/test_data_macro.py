@@ -25,6 +25,19 @@ def fake_fetcher(series: str, start: date, end: date | None = None) -> pd.DataFr
     return pd.DataFrame({"date": index, "symbol": series, "close": [100.0, 101.0]})
 
 
+def bounded_fetcher(series: str, start: date, end: date | None = None) -> pd.DataFrame:
+    """Synthetic rows confined to the requested span."""
+    assert end is not None
+    index = pd.bdate_range(start=start, end=end)
+    return pd.DataFrame(
+        {
+            "date": index,
+            "symbol": series,
+            "close": [float(value.toordinal()) for value in index],
+        }
+    )
+
+
 class TestMacroSeries:
     def test_core_series_are_registered(self):
         for expected in ["kospi", "kosdaq", "usdkrw", "vix"]:
@@ -115,7 +128,7 @@ class TestUpdateMacro:
             return fake_fetcher(series, start, end)
 
         update_macro(store, series=["kospi"], start=date(2024, 1, 1), fetcher=recording_fetcher)
-        update_macro(store, series=["kospi"], start=date(2024, 1, 1), fetcher=recording_fetcher)
+        update_macro(store, series=["kospi"], fetcher=recording_fetcher)
         # Second run resumes from the day after the last stored observation.
         assert captured[1] == date(2024, 1, 4)
 
@@ -140,7 +153,6 @@ class TestUpdateMacro:
         update_macro(
             store,
             series=["kospi"],
-            start=date(2024, 1, 1),
             end=date(2024, 1, 3),
             fetcher=recording_fetcher,
         )
@@ -162,8 +174,108 @@ class TestUpdateMacro:
             )
 
         update_macro(store, series=["kospi"], start=date(2024, 1, 1), fetcher=recording_fetcher)
-        update_macro(store, series=["kospi"], start=date(2024, 1, 1), fetcher=recording_fetcher)
+        update_macro(store, series=["kospi"], fetcher=recording_fetcher)
         assert len(captured) == 1
+
+    def test_explicit_start_backfills_a_late_starting_series(self, store):
+        update_macro(
+            store,
+            series=["kospi"],
+            start=date(2024, 1, 10),
+            end=date(2024, 1, 11),
+            fetcher=bounded_fetcher,
+        )
+        captured: list[tuple[date, date | None]] = []
+
+        def recording_fetcher(series, start, end=None):
+            captured.append((start, end))
+            return bounded_fetcher(series, start, end)
+
+        written = update_macro(
+            store,
+            series=["kospi"],
+            start=date(2024, 1, 2),
+            end=date(2024, 1, 11),
+            fetcher=recording_fetcher,
+        )
+
+        assert captured == [(date(2024, 1, 2), date(2024, 1, 10))]
+        assert written == 6
+        assert store.read()["date"].min() == pd.Timestamp("2024-01-02")
+
+    def test_explicit_start_already_covered_fetches_nothing(self, store):
+        update_macro(
+            store,
+            series=["kospi"],
+            start=date(2024, 1, 2),
+            end=date(2024, 1, 11),
+            fetcher=bounded_fetcher,
+        )
+        captured: list[tuple[date, date | None]] = []
+
+        update_macro(
+            store,
+            series=["kospi"],
+            start=date(2024, 1, 3),
+            end=date(2024, 1, 11),
+            fetcher=lambda series, start, end=None: captured.append((start, end)),
+        )
+
+        assert captured == []
+
+    def test_omitted_start_keeps_forward_only_window(self, store):
+        update_macro(
+            store,
+            series=["kospi"],
+            start=date(2024, 1, 10),
+            end=date(2024, 1, 11),
+            fetcher=bounded_fetcher,
+        )
+        captured: list[tuple[date, date | None]] = []
+
+        def recording_fetcher(series, start, end=None):
+            captured.append((start, end))
+            return bounded_fetcher(series, start, end)
+
+        update_macro(
+            store,
+            series=["kospi"],
+            end=date(2024, 1, 15),
+            fetcher=recording_fetcher,
+        )
+
+        assert captured == [(date(2024, 1, 12), date(2024, 1, 15))]
+
+    def test_explicit_start_fetches_backfill_and_forward_spans_together(self, store):
+        update_macro(
+            store,
+            series=["kospi"],
+            start=date(2024, 1, 10),
+            end=date(2024, 1, 11),
+            fetcher=bounded_fetcher,
+        )
+        captured: list[tuple[date, date | None]] = []
+
+        def recording_fetcher(series, start, end=None):
+            captured.append((start, end))
+            return bounded_fetcher(series, start, end)
+
+        written = update_macro(
+            store,
+            series=["kospi"],
+            start=date(2024, 1, 2),
+            end=date(2024, 1, 15),
+            fetcher=recording_fetcher,
+        )
+
+        assert captured == [
+            (date(2024, 1, 2), date(2024, 1, 10)),
+            (date(2024, 1, 12), date(2024, 1, 15)),
+        ]
+        assert written == 8
+        panel = store.read()
+        assert panel["date"].min() == pd.Timestamp("2024-01-02")
+        assert panel["date"].max() == pd.Timestamp("2024-01-15")
 
 
 class TestFetchMacroSeries:

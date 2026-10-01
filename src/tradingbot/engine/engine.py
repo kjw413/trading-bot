@@ -116,10 +116,12 @@ class EngineContext:
         limit_price: float | None = None,
         stop_price: float | None = None,
         tif: TimeInForce = TimeInForce.DAY,
-    ) -> Order:
+    ) -> Order | None:
         symbol = symbol.upper()
         estimated_price = self._estimate_price(symbol, order_type, limit_price, stop_price)
         order_qty = self._resolve_qty(estimated_price, qty, weight)
+        if order_qty == 0:
+            return None
         return self._submit(
             symbol=symbol,
             side=OrderSide.BUY,
@@ -158,8 +160,15 @@ class EngineContext:
             return int(qty)
         if weight is None:
             raise ValueError("qty or weight is required")
-        budget = max(0.0, self.equity() * float(weight))
-        return int(budget // estimated_price)
+        equity = self.equity()
+        min_cash_buffer_pct = (
+            self.risk_manager.limits.min_cash_buffer_pct if self.risk_manager is not None else 0.0
+        )
+        budget = min(
+            equity * float(weight),
+            self.cash() - equity * min_cash_buffer_pct,
+        )
+        return int(max(0.0, budget) // estimated_price)
 
     def _estimate_price(
         self,

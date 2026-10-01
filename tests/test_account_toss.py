@@ -241,6 +241,45 @@ class TestReader:
         with pytest.raises(TossError):
             instance.snapshot()
 
+    def test_a_400_on_the_usd_leg_means_a_krw_only_account_has_no_dollars(self, tmp_path):
+        # A normal all-KRW account may reject the optional USD buying-power query.
+        no_usd = FakeResponse(400, {"error": {"code": "invalid-currency", "message": "no USD position"}})
+        responses = [token_response(), ok(ACCOUNTS), ok(KRW_ONLY), ok(BUYING_POWER["KRW"]), no_usd]
+        instance, _ = reader(tmp_path, responses)
+
+        snapshot = instance.snapshot()
+
+        assert snapshot.cash == {"KRW": 5_000_000.0}
+        assert all(holding.currency == "KRW" for holding in snapshot.holdings)
+
+    def test_a_404_on_the_usd_leg_means_a_krw_only_account_has_no_dollars(self, tmp_path):
+        # A normal all-KRW account may expose no USD buying-power resource.
+        no_usd = FakeResponse(404, {"error": {"code": "not-found", "message": "no USD position"}})
+        responses = [token_response(), ok(ACCOUNTS), ok(KRW_ONLY), ok(BUYING_POWER["KRW"]), no_usd]
+        instance, _ = reader(tmp_path, responses)
+
+        snapshot = instance.snapshot()
+
+        assert snapshot.cash == {"KRW": 5_000_000.0}
+        assert all(holding.currency == "KRW" for holding in snapshot.holdings)
+
+    def test_an_ip_block_on_the_usd_leg_still_raises_the_existing_error(self, tmp_path):
+        blocked = FakeResponse(403, {"error": "access_denied"})
+        responses = [token_response(), ok(ACCOUNTS), ok(KRW_ONLY), ok(BUYING_POWER["KRW"]), blocked]
+        instance, _ = reader(tmp_path, responses)
+
+        with pytest.raises(TossIPNotAllowedError, match="203.0.113.7") as exc:
+            instance.snapshot()
+        assert "허용 IP 목록에 없습니다" in str(exc.value)
+
+    def test_a_400_on_the_krw_leg_still_fails_the_whole_read(self, tmp_path):
+        broken = FakeResponse(400, {"error": {"code": "invalid-request", "message": "bad KRW request"}})
+        responses = [token_response(), ok(ACCOUNTS), ok(KRW_ONLY), broken]
+        instance, _ = reader(tmp_path, responses)
+
+        with pytest.raises(TossError, match="invalid-request"):
+            instance.snapshot()
+
     def test_a_krw_only_account_does_not_request_exchange_rate(self, tmp_path):
         instance, transport = reader(tmp_path, [token_response(), ok(ACCOUNTS), ok(KRW_ONLY), ok(BUYING_POWER["KRW"]), ok({"result": {"currency": "USD", "cashBuyingPower": "0"}})])
         instance.snapshot()
