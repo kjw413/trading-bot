@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from tradingbot.data.flows import FLOW_COLUMNS, normalize_flows, update_flows
-from tradingbot.data.panel import PanelStore
+from tradingbot.data.panel import PanelStore, attach_metadata
 
 
 @pytest.fixture
@@ -37,6 +37,28 @@ class TestNormalizeFlows:
         assert list(result.columns) == ["date", "symbol"] + FLOW_COLUMNS
         assert result.loc[0, "foreign_net"] == 1000.0
         assert result.loc[0, "symbol"] == "005930"
+
+    def test_maps_gross_individual_trading_and_total_value(self):
+        index = pd.DatetimeIndex(["2024-01-02"], name="날짜")
+        net = pd.DataFrame(
+            {"외국인합계": [100], "기관합계": [200], "개인": [-300]}, index=index
+        )
+        buys = pd.DataFrame({"개인": [400], "전체": [1000]}, index=index)
+        sells = pd.DataFrame({"개인": [700], "전체": [1002]}, index=index)
+
+        result = normalize_flows(net, "005930", buys=buys, sells=sells)
+
+        assert result.loc[0, "individual_buy"] == 400.0
+        assert result.loc[0, "individual_sell"] == 700.0
+        assert result.loc[0, "traded_value"] == 1001.0
+
+    def test_missing_gross_columns_raise_instead_of_inventing_participation(self):
+        index = pd.DatetimeIndex(["2024-01-02"])
+        net = pd.DataFrame(
+            {"외국인합계": [100], "기관합계": [200], "개인": [-300]}, index=index
+        )
+        with pytest.raises(ValueError, match="individual_buy"):
+            normalize_flows(net, "005930", buys=pd.DataFrame({"개인": [400]}, index=index))
 
     def test_missing_expected_column_raises(self):
         raw = pd.DataFrame({"외국인합계": [1]}, index=pd.DatetimeIndex(["2024-01-02"]))
@@ -69,6 +91,37 @@ class TestUpdateFlows:
         update_flows(store, symbols=["005930"], start=date(2024, 1, 1), fetcher=fake_fetcher)
         update_flows(store, symbols=["005930"], start=date(2024, 1, 1), fetcher=fake_fetcher)
         assert len(store.read()) == 2
+
+    def test_old_net_only_panel_is_backfilled_from_requested_start(self, store):
+        old = fake_fetcher("005930", date(2024, 1, 1), date(2024, 1, 3))
+        store.append(
+            attach_metadata(
+                old,
+                source="pykrx",
+                available_at="2024-01-03",
+                data_version="1",
+            )
+        )
+        calls = []
+
+        def recording_fetcher(symbol, start, end):
+            calls.append((symbol, start, end))
+            return fake_fetcher(symbol, start, end).assign(
+                individual_buy=100.0,
+                individual_sell=200.0,
+                traded_value=500.0,
+            )
+
+        update_flows(
+            store,
+            symbols=["005930"],
+            start=date(2024, 1, 1),
+            end=date(2024, 1, 3),
+            fetcher=recording_fetcher,
+        )
+
+        assert calls[0][1] == date(2024, 1, 1)
+        assert store.read()["individual_buy"].notna().all()
 
     def test_one_failing_symbol_does_not_stop_the_rest(self, store):
         def flaky(symbol, start, end):
