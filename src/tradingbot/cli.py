@@ -105,6 +105,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     factor_report_parser.set_defaults(handler=cmd_research_report)
 
+    participation_parser = research_subparsers.add_parser(
+        "flow-participation", help="A/B test institutional buying by retail participation"
+    )
+    participation_parser.add_argument("--symbols", nargs="+", required=True)
+    participation_parser.add_argument("--data-root", default="data/cache")
+    participation_parser.add_argument("--processed-root", default="data/processed")
+    participation_parser.add_argument("--out", default="reports/research/flow_participation")
+    participation_parser.add_argument("--cost-bps", type=float, default=30.0)
+    participation_parser.set_defaults(handler=cmd_research_flow_participation)
+
     evaluate_parser = research_subparsers.add_parser(
         "evaluate", help="Measure a strategy against the promotion criteria"
     )
@@ -460,6 +470,47 @@ def cmd_research_report(args) -> int:
         },
     )
     print(f"실험 기록: {experiment_path}")
+    return 0
+
+
+def cmd_research_flow_participation(args) -> int:
+    import pandas as pd
+
+    from tradingbot.data.cache import ParquetCache
+    from tradingbot.data.panel import PanelStore
+    from tradingbot.research.flow_participation import analyze_participation_hypothesis
+
+    symbols = [str(symbol).upper() for symbol in args.symbols]
+    flows = PanelStore(resolve_project_path(args.processed_root), "flows", "KR").read(
+        symbols=symbols
+    )
+    cache = ParquetCache(resolve_project_path(args.data_root))
+    price_frames = []
+    for symbol in symbols:
+        history = cache.read("KR", symbol).reset_index()
+        history = history.rename(columns={history.columns[0]: "date"})
+        history["symbol"] = symbol
+        price_frames.append(history)
+    prices = pd.concat(price_frames, ignore_index=True) if price_frames else pd.DataFrame()
+    study = analyze_participation_hypothesis(
+        flows,
+        prices,
+        round_trip_cost_bps=args.cost_bps,
+    )
+
+    out_dir = resolve_project_path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = f"{_datetime.now():%Y%m%d_%H%M%S}"
+    observations_path = out_dir / f"{stamp}_observations.csv"
+    summary_path = out_dir / f"{stamp}_summary.csv"
+    study.observations.to_csv(observations_path, index=False, encoding="utf-8-sig")
+    study.summary.to_csv(summary_path, index=False, encoding="utf-8-sig")
+    if study.summary.empty:
+        print("분석 가능한 사례가 없습니다. 수급 이력과 가격 이력을 확인하세요.")
+    else:
+        print(study.summary.to_string(index=False))
+    print(f"사례 저장: {observations_path}")
+    print(f"요약 저장: {summary_path}")
     return 0
 
 
