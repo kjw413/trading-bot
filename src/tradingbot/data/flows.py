@@ -11,12 +11,21 @@ from tradingbot.utils.log import get_logger
 
 LOGGER = get_logger(__name__)
 
-FLOWS_DATA_VERSION = "1"
+FLOWS_DATA_VERSION = "2"
 FLOWS_SOURCE = "pykrx"
 FLOWS_DEFAULT_START = date(2015, 1, 1)
 
-# Net buy value in KRW, per investor group.
-FLOW_COLUMNS = ["foreign_net", "institution_net", "individual_net"]
+# Investor trading values in KRW.  The gross individual legs are deliberately
+# retained: individual_net can be zero even when retail accounts dominate both
+# sides of trading, so it cannot measure retail participation.
+FLOW_COLUMNS = [
+    "foreign_net",
+    "institution_net",
+    "individual_net",
+    "individual_buy",
+    "individual_sell",
+    "traded_value",
+]
 
 # KRX column -> our column. Verified against pykrx output in Task 3 Step 1.
 _COLUMN_MAP = {
@@ -26,8 +35,19 @@ _COLUMN_MAP = {
 }
 
 
-def normalize_flows(raw: pd.DataFrame, symbol: str) -> pd.DataFrame:
-    """Reshape a pykrx investor-flow frame into the panel schema."""
+def normalize_flows(
+    raw: pd.DataFrame,
+    symbol: str,
+    *,
+    buys: pd.DataFrame | None = None,
+    sells: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Reshape pykrx investor trading-value frames into the panel schema.
+
+    ``raw`` is the net-buy response. ``buys`` and ``sells`` are optional to
+    keep old cached/test callers readable; missing gross data is represented
+    by NaN rather than incorrectly treating net buying as participation.
+    """
     if raw.empty:
         return pd.DataFrame(columns=["date", "symbol"] + FLOW_COLUMNS)
 
@@ -43,6 +63,31 @@ def normalize_flows(raw: pd.DataFrame, symbol: str) -> pd.DataFrame:
     )
     for source_column, target_column in _COLUMN_MAP.items():
         frame[target_column] = raw[source_column].astype(float).to_numpy()
+    frame["individual_buy"] = float("nan")
+    frame["individual_sell"] = float("nan")
+    frame["traded_value"] = float("nan")
+
+    gross_frames = ((buys, "individual_buy"), (sells, "individual_sell"))
+    for gross, target in gross_frames:
+        if gross is None:
+            continue
+        missing_gross = [column for column in ("개인", "전체") if column not in gross.columns]
+        if missing_gross:
+            raise ValueError(
+                f"Flow {target} response is missing column(s) {missing_gross}; "
+                f"got {list(gross.columns)}"
+            )
+        values = gross[["개인", "전체"]].copy()
+        values.index = pd.to_datetime(values.index).tz_localize(None).normalize()
+        keyed = values[~values.index.duplicated(keep="last")]
+        frame[target] = frame["date"].map(keyed["개인"]).astype(float)
+        total = frame["date"].map(keyed["전체"]).astype(float)
+        if frame["traded_value"].isna().all():
+            frame["traded_value"] = total
+        else:
+            # Buy and sell totals should agree. Averaging is robust to the
+            # occasional one-won rounding difference in source responses.
+            frame["traded_value"] = (frame["traded_value"] + total) / 2.0
     return frame[["date", "symbol"] + FLOW_COLUMNS].reset_index(drop=True)
 
 
@@ -52,10 +97,11 @@ def fetch_flows(symbol: str, start: date, end: date) -> pd.DataFrame:
 
     from pykrx import stock
 
-    raw = stock.get_market_trading_value_by_date(
-        start.strftime("%Y%m%d"), end.strftime("%Y%m%d"), str(symbol)
-    )
-    return normalize_flows(raw, symbol)
+    args = (start.strftime("%Y%m%d"), end.strftime("%Y%m%d"), str(symbol))
+    raw = stock.get_market_trading_value_by_date(*args)
+    buys = stock.get_market_trading_value_by_date(*args, on="매수")
+    sells = stock.get_market_trading_value_by_date(*args, on="매도")
+    return normalize_flows(raw, symbol, buys=buys, sells=sells)
 
 
 def update_flows(
@@ -71,8 +117,19 @@ def update_flows(
     written = 0
     fetch_end = end or date.today()
     for symbol in symbols:
-        last = store.last_date(symbol)
-        fetch_start = last + timedelta(days=1) if last else (start or FLOWS_DEFAULT_START)
+        existing = store.read(symbols=[symbol])
+        last = None if existing.empty else existing["date"].max().date()
+        gross_columns = ["individual_buy", "individual_sell", "traded_value"]
+        needs_gross_backfill = not existing.empty and (
+            any(column not in existing.columns for column in gross_columns)
+            or existing[gross_columns].isna().all(axis=None)
+        )
+        if needs_gross_backfill:
+            fetch_start = start or FLOWS_DEFAULT_START
+        elif last:
+            fetch_start = last + timedelta(days=1)
+        else:
+            fetch_start = start or FLOWS_DEFAULT_START
         if fetch_start > fetch_end:
             continue
         try:
