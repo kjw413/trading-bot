@@ -115,6 +115,9 @@ def update_flows(
     """Incrementally collect investor flows. One symbol's failure is logged
     and skipped so a single bad ticker cannot abort the batch."""
     written = 0
+    attempted = 0
+    failed = 0
+    last_error: Exception | None = None
     fetch_end = end or date.today()
     for symbol in symbols:
         existing = store.read(symbols=[symbol])
@@ -132,11 +135,14 @@ def update_flows(
             fetch_start = start or FLOWS_DEFAULT_START
         if fetch_start > fetch_end:
             continue
+        attempted += 1
         try:
             frame = fetcher(symbol, fetch_start, fetch_end)
         except MissingCredentialsError:
             raise
-        except Exception:
+        except Exception as exc:
+            failed += 1
+            last_error = exc
             LOGGER.exception("Flow collection failed for %s; skipping this symbol", symbol)
             continue
         if frame.empty:
@@ -148,4 +154,8 @@ def update_flows(
             data_version=FLOWS_DATA_VERSION,
         )
         written += store.append(tagged)
+    if attempted and failed == attempted:
+        raise RuntimeError(
+            f"Flow collection failed: {attempted} symbols were attempted and all failed"
+        ) from last_error
     return written

@@ -135,6 +135,52 @@ class TestUpdateFlows:
         assert written == 2
         assert set(store.read()["symbol"]) == {"005930"}
 
+    def test_all_attempted_symbols_failing_raises_with_last_cause(self, store):
+        def unavailable(symbol, start, end):
+            raise OSError(f"maintenance: {symbol}")
+
+        with pytest.raises(
+            RuntimeError, match="2 symbols were attempted and all failed"
+        ) as exc_info:
+            update_flows(
+                store,
+                symbols=["005930", "000660"],
+                start=date(2024, 1, 1),
+                fetcher=unavailable,
+            )
+
+        assert isinstance(exc_info.value.__cause__, OSError)
+        assert str(exc_info.value.__cause__) == "maintenance: 000660"
+
+    def test_already_current_symbols_are_not_attempted(self, store):
+        def complete_fetcher(symbol, start, end):
+            return fake_fetcher(symbol, start, end).assign(
+                individual_buy=100.0,
+                individual_sell=200.0,
+                traded_value=500.0,
+            )
+
+        update_flows(
+            store,
+            symbols=["005930"],
+            start=date(2024, 1, 1),
+            end=date(2024, 1, 3),
+            fetcher=complete_fetcher,
+        )
+
+        def must_not_fetch(symbol, start, end):
+            raise AssertionError("already-current symbol was fetched")
+
+        assert (
+            update_flows(
+                store,
+                symbols=["005930"],
+                end=date(2024, 1, 3),
+                fetcher=must_not_fetch,
+            )
+            == 0
+        )
+
     def test_empty_symbol_list_writes_nothing(self, store):
         assert update_flows(store, symbols=[], start=date(2024, 1, 1), fetcher=fake_fetcher) == 0
 
