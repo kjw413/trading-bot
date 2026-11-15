@@ -1,0 +1,49 @@
+# 변동성 목표 전략(vol_target) — SOXX 한 종목 전용 설정.
+# 수식과 근거: src/tradingbot/strategies/vol_target.py
+# 설계 구간 측정과 최종 시험: src/tradingbot/research/exposure_test.py
+#
+#   python -m tradingbot --config config/vol_target_soxx.toml research vol-target --symbol SOXX
+#   python -m tradingbot --config config/vol_target_soxx.toml backtest --market US \
+#       --symbols SOXX --strategy vol_target --start 2007-01-01
+
+[data]
+cache_dir = "data/cache"
+
+[backtest]
+# 주 단위로만 살 수 있어서 자본이 작으면 목표 비중을 맞추지 못한다.
+initial_cash_kr = 10000000
+initial_cash_us = 100000
+
+[paper]
+state_dir = "state"
+poll_interval_seconds = 300
+
+[fees.US]
+commission_rate = 0.0
+sec_fee_rate = 0.0000278
+finra_taf_per_share = 0.000166
+finra_taf_cap = 8.30
+
+[execution]
+slippage_bps = 5
+
+[risk]
+# 한 종목 전략이라 종목당 상한은 사실상 전체 상한이다.
+max_position_pct = 1.0
+max_positions = 1
+# 손절과 일일 손실 한도는 꺼 둔다. 이 전략은 변동성이 커지면 스스로 비중을 줄이는
+# 것이 위험 관리의 전부다. 평단 -5% 전량 매도 규칙을 겹쳐 두면 측정되는 것은 이
+# 전략이 아니라 그 손절 규칙이 되고, 측정 도구도 그 둘을 재현하지 않는다.
+max_daily_loss_pct = 1.0
+stop_loss_pct = 0.0
+min_cash_buffer_pct = 0.02
+
+[strategies.vol_target]
+# 결과를 보기 전에 등록한 값이다 (data/experiments의 P11 사전등록).
+# 20일은 한 달치 실현 변동성이라는 통상적 기준, 20%는 SOXX를 대형주 지수 수준의
+# 변동성으로 낮춰 든다는 뜻이다. 성과를 보고 고른 값이 아니다.
+vol_days = 20
+target_vol = 0.20
+min_weight = 0.0
+max_weight = 0.98
+band = 0.10

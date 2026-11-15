@@ -6,6 +6,7 @@ from tradingbot.strategies.pid_reversion import PidReversionStrategy
 from tradingbot.strategies.rsi_reversion import RsiReversionStrategy
 from tradingbot.strategies.theme_multifactor import ThemeMultifactorStrategy
 from tradingbot.strategies.vol_breakout import VolatilityBreakoutStrategy
+from tradingbot.strategies.vol_target import VolTargetStrategy
 
 
 _STRATEGIES: dict[str, type[Strategy]] = {
@@ -13,6 +14,7 @@ _STRATEGIES: dict[str, type[Strategy]] = {
     PidReversionStrategy.name: PidReversionStrategy,
     RsiReversionStrategy.name: RsiReversionStrategy,
     VolatilityBreakoutStrategy.name: VolatilityBreakoutStrategy,
+    VolTargetStrategy.name: VolTargetStrategy,
     ThemeMultifactorStrategy.name: ThemeMultifactorStrategy,
 }
 

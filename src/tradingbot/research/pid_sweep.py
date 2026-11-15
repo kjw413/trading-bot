@@ -311,14 +311,24 @@ def _signal_key(params: PidParams) -> tuple:
     )
 
 
-def window_metrics(result: SweepResult, start: date, end: date) -> pd.DataFrame:
-    """Per-configuration metrics over [start, end], one row per grid position.
+def path_metrics(
+    dates: pd.DatetimeIndex,
+    asset_return: np.ndarray,
+    equity: np.ndarray,
+    weight: np.ndarray,
+    bought: np.ndarray,
+    fills: np.ndarray,
+    initial_cash: float,
+    start: date,
+    end: date,
+) -> pd.DataFrame:
+    """Metrics over [start, end] for each simulated path (one row per path).
 
-    Returns are measured from the close before the window, so a window's
-    first day counts; the very first simulated day is measured from the
-    starting cash.
+    `equity`, `weight`, `bought` and `fills` are path x day. Returns are
+    measured from the close before the window, so a window's first day
+    counts; the very first simulated day is measured from the starting cash.
     """
-    mask = (result.dates >= pd.Timestamp(start)) & (result.dates <= pd.Timestamp(end))
+    mask = (dates >= pd.Timestamp(start)) & (dates <= pd.Timestamp(end))
     idx = np.flatnonzero(mask)
     if len(idx) < 2:
         raise ValueError(f"Window {start}..{end} holds fewer than two trading days")
@@ -326,17 +336,17 @@ def window_metrics(result: SweepResult, start: date, end: date) -> pd.DataFrame:
     span = slice(first, last + 1)
 
     if first == 0:
-        prior = np.full(len(result.positions), result.initial_cash)
+        prior = np.full(equity.shape[0], initial_cash)
     else:
-        prior = result.equity[:, first - 1]
-    path = np.concatenate([prior[:, None], result.equity[:, span]], axis=1)
+        prior = equity[:, first - 1]
+    path = np.concatenate([prior[:, None], equity[:, span]], axis=1)
     returns = path[:, 1:] / path[:, :-1] - 1
-    asset = result.asset_return[span]
-    weight = result.weight[:, span]
+    asset = asset_return[span]
+    held = weight[:, span]
 
     n = returns.shape[1]
-    years = (result.dates[last] - result.dates[first]).days / 365.25
-    avg_weight = weight.mean(axis=1)
+    years = (dates[last] - dates[first]).days / 365.25
+    avg_weight = held.mean(axis=1)
     active = returns - avg_weight[:, None] * asset[None, :]
     active_mean = active.mean(axis=1)
     active_std = active.std(axis=1, ddof=1)
@@ -348,7 +358,7 @@ def window_metrics(result: SweepResult, start: date, end: date) -> pd.DataFrame:
     cagr = (1 + total) ** (1 / years) - 1 if years > 0 else np.full_like(total, np.nan)
     drawdown = (path / np.maximum.accumulate(path, axis=1) - 1).min(axis=1)
     turnover = (
-        result.bought[:, span].sum(axis=1) / result.equity[:, span].mean(axis=1) / years
+        bought[:, span].sum(axis=1) / equity[:, span].mean(axis=1) / years
         if years > 0
         else np.full_like(total, np.nan)
     )
@@ -363,20 +373,32 @@ def window_metrics(result: SweepResult, start: date, end: date) -> pd.DataFrame:
             "sharpe": sharpe,
             "max_drawdown": drawdown,
             "turnover": turnover,
-            "fills": result.fills[:, span].sum(axis=1),
+            "fills": fills[:, span].sum(axis=1),
         }
     )
-    for column, axis in enumerate(AXES):
-        frame.insert(
-            column, axis, [result.grid[axis][position[column]] for position in result.positions]
-        )
     frame.attrs["days"] = n
     frame.attrs["years"] = years
     return frame
 
 
-def buy_and_hold_metrics(result: SweepResult, start: date, end: date) -> dict[str, float]:
-    """The instrument held outright over the window, costs ignored in its favour."""
+def window_metrics(result: SweepResult, start: date, end: date) -> pd.DataFrame:
+    """Per-configuration metrics over [start, end], one row per grid position."""
+    frame = path_metrics(
+        result.dates, result.asset_return, result.equity, result.weight,
+        result.bought, result.fills, result.initial_cash, start, end,
+    )
+    for column, axis in enumerate(AXES):
+        frame.insert(
+            column, axis, [result.grid[axis][position[column]] for position in result.positions]
+        )
+    return frame
+
+
+def buy_and_hold_metrics(result: Any, start: date, end: date) -> dict[str, float]:
+    """The instrument held outright over the window, costs ignored in its favour.
+
+    `result` is anything carrying `dates` and `asset_return`.
+    """
     mask = (result.dates >= pd.Timestamp(start)) & (result.dates <= pd.Timestamp(end))
     idx = np.flatnonzero(mask)
     asset = result.asset_return[idx[0] : idx[-1] + 1]
@@ -587,7 +609,7 @@ def decide(
     return "consistent", "Sign held in validation, the procedure paid in walk-forward, and the mirror did worse."
 
 
-def static_mix_metrics(result: SweepResult, start: date, end: date, weight: float) -> dict[str, float]:
+def static_mix_metrics(result: Any, start: date, end: date, weight: float) -> dict[str, float]:
     """A fixed `weight` in the instrument, rebalanced daily at no cost.
 
     The benchmark alpha is measured against, spelled out as a path so its

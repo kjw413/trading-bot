@@ -170,6 +170,29 @@ def build_parser() -> argparse.ArgumentParser:
     placebo_parser.add_argument("--processes", type=int, default=1)
     placebo_parser.set_defaults(handler=cmd_research_pid_placebo)
 
+    vol_parser = research_subparsers.add_parser(
+        "vol-target",
+        help="Measure the volatility-target rule on design data; optionally run the one final test",
+    )
+    vol_parser.add_argument("--symbol", default="SOXX")
+    vol_parser.add_argument("--market", choices=["US"], default="US")
+    vol_parser.add_argument("--research-config", default=None, help="research.toml path")
+    vol_parser.add_argument("--data-root", default=None)
+    vol_parser.add_argument("--out", default="reports/research/vol_target")
+    vol_parser.add_argument("--placebo-n", type=int, default=200)
+    vol_parser.add_argument(
+        "--min-total-return",
+        type=float,
+        default=0.10,
+        help="Pass bar for the final test: cumulative return over the test window",
+    )
+    vol_parser.add_argument(
+        "--final-test",
+        action="store_true",
+        help="Open the out-of-sample window and score the registered configuration. Meant to run once.",
+    )
+    vol_parser.set_defaults(handler=cmd_research_vol_target)
+
     evaluate_parser = research_subparsers.add_parser(
         "evaluate", help="Measure a strategy against the promotion criteria"
     )
@@ -690,6 +713,92 @@ def cmd_research_pid_sweep(args) -> int:
     report["metrics"].to_csv(out_dir / f"{stamp}_{args.symbol.upper()}_grid.csv", index=False)
     report["walk_forward"].to_csv(out_dir / f"{stamp}_{args.symbol.upper()}_walk_forward.csv", index=False)
     print(f"리포트: {out_dir / f'{stamp}_{args.symbol.upper()}.md'}")
+    return 0
+
+
+def cmd_research_vol_target(args) -> int:
+    from dataclasses import replace
+
+    import pandas as pd
+
+    from tradingbot.data.cache import ParquetCache
+    from tradingbot.research.dates import research_period
+    from tradingbot.research.exposure_test import (
+        design_report,
+        final_test,
+        render_design_markdown,
+        render_final_markdown,
+    )
+    from tradingbot.research.gate import load_research_config
+    from tradingbot.research.pid_sweep import ExecutionModel
+    from tradingbot.strategies.vol_target import VolTargetParams, vol_target_weights
+
+    config = load_config(args.config)
+    research = load_research_config(args.research_config)
+    in_sample = research_period(research, "in_sample")
+    validation = research_period(research, "validation")
+    test_start, _ = research_period(research, "out_of_sample")
+    if in_sample[1] is None or validation[1] is None:
+        raise ValueError("in_sample and validation periods must have end dates")
+
+    cache = ParquetCache(resolve_project_path(args.data_root or config["data"]["cache_dir"]))
+    prices = cache.read(args.market, args.symbol)
+    execution = ExecutionModel.from_config(config, args.market)
+    params = VolTargetParams.from_mapping(config.get("strategies", {}).get("vol_target", {}))
+
+    def targets(rule: VolTargetParams):
+        return lambda closes: vol_target_weights(closes, rule)["target"]
+
+    # Neighbours of the registered configuration, shown for context only.
+    variants = {
+        f"{days}일 / {int(level * 100)}%": targets(replace(params, vol_days=days, target_vol=level))
+        for days in (20, 60)
+        for level in (0.15, 0.20, 0.25, 0.30)
+    }
+    label = f"변동성 목표 전략 ({params.vol_days}일 / {int(params.target_vol * 100)}%)"
+    symbol = args.symbol.upper()
+
+    cut = prices.loc[: pd.Timestamp(validation[1])]
+    report = design_report(
+        cut,
+        symbol=symbol,
+        label=label,
+        make_targets=targets(params),
+        variants=variants,
+        band=params.band,
+        sim_start=in_sample[0],
+        windows={
+            "학습 구간": in_sample,
+            "검증 구간": validation,
+            "설계 구간 전체": (in_sample[0], validation[1]),
+        },
+        execution=execution,
+        placebo_n=args.placebo_n,
+    )
+    markdown = render_design_markdown(report)
+
+    if args.final_test:
+        result = final_test(
+            prices,
+            make_targets=targets(params),
+            variants=variants,
+            band=params.band,
+            sim_start=in_sample[0],
+            test_start=test_start,
+            execution=execution,
+            min_total_return=args.min_total_return,
+            fixed_weight=report["design_avg_weight"],
+        )
+        markdown += "\n" + render_final_markdown(result, symbol=symbol, label=label)
+
+    print(markdown)
+    out_dir = resolve_project_path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = f"{_datetime.now():%Y%m%d_%H%M%S}"
+    suffix = "final" if args.final_test else "design"
+    path = out_dir / f"{stamp}_{symbol}_{suffix}.md"
+    path.write_text(markdown, encoding="utf-8")
+    print(f"리포트: {path}")
     return 0
 
 
