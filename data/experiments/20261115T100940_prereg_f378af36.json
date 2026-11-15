@@ -1,0 +1,114 @@
+{
+  "experiment_id": "20261115T100940_prereg_f378af36",
+  "kind": "prereg",
+  "git_commit": "fe9bdfebc1444e3de65a94c4a560519b5a5aeed9",
+  "created_at": "2026-11-15T10:09:40.691746+00:00",
+  "params": {
+    "phase": "P10",
+    "question": "Does PID-style position sizing around a fitted trend add value on SOXX beyond holding the same average amount, and does choosing its parameters on past data pay on later data?",
+    "origin": "Requested by the owner as a sell-high / buy-low rule: an upward-trending quality index should be sold more heavily when it overshoots its trend and held or added to when it lags, weighing the current deviation (P), the accumulated deviation (I) and its speed (D). The owner asked for the parameters to be varied until a profitable set is found.",
+    "why_register_a_search": "A search over several hundred controllers on one price history always produces a profitable best, and on an instrument that rose this much almost every long-biased rule made money. 'A profitable set exists' is therefore not a finding. What can be wrong is the claim that a set chosen by a fixed rule on past data keeps its edge on data it did not see.",
+    "model": {
+      "error": "z_t = (ln close_t - forecast_t) / sigma_t, clipped to +/- z_cap; forecast_t is an OLS line of log close on time over the trend_days closes before t, extended one step; sigma_t is that fit's residual standard deviation",
+      "P": "z_t",
+      "I": "mean of z over the last integral_days closes",
+      "D": "z_t - z_(t - derivative_days)",
+      "output": "u_t = kp*P + ki*I + kd*D",
+      "target_weight": "clip(base_weight - u_t, min_weight, max_weight)",
+      "trading": "decided at the close, filled at the next open; no trade while |target - current weight| <= band; cash earns nothing",
+      "code": "src/tradingbot/strategies/pid_reversion.py"
+    },
+    "hypothesis": "The configuration selected in sample has positive timing alpha in validation, the same selection repeated walk-forward has positive mean alpha in the years after each selection, and the mirrored controller does worse in validation.",
+    "primary_metric": "Timing alpha = mean over days of (strategy daily return - average weight over the window * instrument close-to-close return), times 252. The comparison is a fixed position of the strategy's own average size, rebalanced daily at no cost.",
+    "why_this_metric": "Any rule that holds less than 100% of a volatile fund has a smaller drawdown than buy-and-hold without having timed anything. Measuring against its own average exposure removes that and leaves only what changing the size contributed. Cost-free rebalancing of the comparison and zero interest on the strategy's cash both lean against the strategy.",
+    "grid": {
+      "trend_days": [
+        250,
+        500
+      ],
+      "integral_days": [
+        120,
+        250
+      ],
+      "kp": [
+        0.0,
+        0.1,
+        0.2,
+        0.4
+      ],
+      "ki": [
+        0.0,
+        0.1,
+        0.2,
+        0.4
+      ],
+      "kd": [
+        0.0,
+        0.1,
+        0.2,
+        0.4
+      ],
+      "base_weight": [
+        0.5,
+        0.75,
+        1.0
+      ]
+    },
+    "grid_size": 768,
+    "fixed_not_searched": {
+      "derivative_days": 10,
+      "band": 0.1,
+      "z_cap": 4.0,
+      "min_weight": 0.0,
+      "max_weight": 0.98,
+      "gains": "non-negative only: the direction (sell strength, buy weakness) is the idea under test, not a free parameter"
+    },
+    "windows": {
+      "in_sample": "2007-01-01 to 2018-12-31 (config/research.toml)",
+      "validation": "2019-01-01 to 2021-12-31",
+      "out_of_sample": "2022-01-01 onward; not loaded by the search",
+      "walk_forward": "train 3 years, test 1 year, step 1 year, inside in-sample + validation: twelve test years, 2010 to 2021",
+      "warm_up": "price history from 2001-07-13 warms the trend window; no trade is simulated before 2007-01-01"
+    },
+    "selection_rule": {
+      "eligibility": "at least 10 fills in the selection window and one-way annual turnover at most 6.0 (the promotion limit)",
+      "score": "min(own alpha, median alpha over the configuration and every grid position one step away along one axis)",
+      "pick": "highest score among eligible; ties to the smaller kp+ki+kd, then to grid order",
+      "why": "A real effect survives a one-step change in a gain; a lucky draw is a spike. The minimum stops a dull cell beside a spike from inheriting it."
+    },
+    "decision_rule": {
+      "consistent": "All four hold: in-sample alpha of the pick > 0; validation alpha of the pick > 0; walk-forward day-weighted mean test alpha > 0; validation alpha of the mirrored controller (every gain negated) is below the pick's. Reported as consistent, NOT as established: three validation years and twelve walk-forward years fix a sign at best, not an effect size. Triggers one out-of-sample evaluation of the single selected configuration.",
+      "rejected": "Any of the four fails. The strategy is not adopted and the out-of-sample window stays unopened.",
+      "unmeasured": "No configuration is eligible in sample, or a required quantity cannot be computed. No verdict."
+    },
+    "out_of_sample_rule": "Opened once, for the selected configuration only, and only on a 'consistent' verdict. It confirms or refutes; nothing is re-selected after seeing it.",
+    "reported_but_not_deciding": [
+      "Share of eligible configurations with positive in-sample alpha, and the grid median: says whether the pick sits in a field of positives or is the tail of a zero-centred spread.",
+      "Alpha by which terms are active (P, I, D and their combinations): says whether I and D contribute or P alone does the work.",
+      "For each walk-forward test year, the median alpha of the whole grid beside the pick's: separates a good pick from a year in which anything on the grid worked.",
+      "CAGR, drawdown and Sharpe of the strategy, the fixed mix and buy-and-hold, because the owner's question is ultimately about money and drawdown, not alpha."
+    ],
+    "closed_degrees_of_freedom": [
+      "The grid, the fixed values, the eligibility rule and the score are frozen as above. None may change after a number exists.",
+      "Negative gains are not selectable. The mirror is a diagnostic scored beside the pick, not a fallback strategy if it happens to do better.",
+      "The error definition (OLS line over prior closes, residual-scaled) is the only one measured. EMA setpoints, volatility-scaled errors and other formalisations may not be substituted after the fact.",
+      "One instrument. SOXX was named by the owner before any measurement; no other ticker is tried and reported in its place.",
+      "Selection uses alpha only. Sharpe, drawdown or total return may not be swapped in as the selection target once results are visible.",
+      "The validation window is scored once for the one configuration picked in sample. No second pick is made on validation."
+    ],
+    "execution": "config/pid_soxx.toml: 100,000 USD, 5 bps slippage, SEC fee and FINRA TAF on sells, whole shares, 2% cash buffer. Stop-loss and daily-loss limit off, stated in that file with the reason. The search simulator reproduces the backtest engine to the cent on three configurations (tests/test_pid_sweep.py).",
+    "data": "data/cache/US/SOXX.parquet from FinanceDataReader (Yahoo), dividend-adjusted, 6,373 rows 2001-07-13 to 2026-11-13, fetched 2026-11-14. Only its date range, row count and integrity were inspected before this registration; no return was computed.",
+    "known_limits_stated_in_advance": [
+      "Twelve in-sample years contain one deep crash (2008). A rule that adds on weakness is largely being tested on how it handled that single event.",
+      "2019-2021 was a strong, nearly unbroken rise. A rule that sells strength is structurally short of the fixed mix in such a window, so a rejection here is partly a statement about the window. That is accepted: the rule is supposed to work on a trending fund, and a trending window is where it must not lose.",
+      "Dividend-adjusted prices as of the fetch date; a later fetch can differ slightly."
+    ],
+    "not_in_scope": "No change to research.toml, to promotion thresholds, or to any other strategy. A passing verdict here is a candidate for the promotion evaluation, not a promotion."
+  },
+  "metrics": {
+    "grid_size": 768,
+    "min_fills": 10,
+    "max_turnover": 6.0,
+    "walk_forward_test_years": 12
+  }
+}
