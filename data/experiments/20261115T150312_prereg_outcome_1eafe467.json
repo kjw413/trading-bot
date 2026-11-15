@@ -1,0 +1,154 @@
+{
+  "experiment_id": "20261115T150312_prereg_outcome_1eafe467",
+  "kind": "prereg_outcome",
+  "git_commit": "f2611d6e06343a7417700f4fbdcf2bb60f378105",
+  "created_at": "2026-11-15T15:03:12.462263+00:00",
+  "prereg_id": "20261115T121518_prereg_313c0218",
+  "params": {
+    "verdict": "pass — by the bar the owner set",
+    "rule_applied": "Total return over 2025-01-01..2026-11-13 of at least +10%. The registered configuration (20 days, 20%, band 0.10, cap 0.98) returned +60.3%. The window was read once, by one command.",
+    "what_the_pass_does_and_does_not_show": "The registration said in advance that a long-only rule clears an absolute bar whenever the fund rose enough, and that the same bar would be put to holding the fund and to a fixed position. Both clear it by more: holding returned +109.7% and the fixed 77% position +83.1%. So the pass shows that being long SOXX through this window was enough. It does not show that the sizing earned the return; the sizing gave return away.",
+    "what_the_sizing_did_in_the_test_window": "It traded return for drawdown. The rule kept 55% of the fund's return (+60.3% of +109.7%) and took 55% of its worst drawdown (-21.9% against -39.5%). Sharpe was 1.20 against 1.10 for the fund and for any fixed fraction of it. Against the fixed position chosen before the window opened (77%, the rule's design-window average) it returned 23 points less and drew down 9.5 points less; it held 57% on average here, not 77%, because the window was more volatile than the design years.",
+    "in_the_two_falls": {
+      "2025_spring": "SOXX fell 34.2% from 2025-01-22 to 2025-04-08. The rule fell 21.9% over the same days and was holding 42% at the low.",
+      "2026_second_half": "SOXX peaked on 2026-06-22 and was 39.5% lower at its low on 2026-11-05. The rule was holding 36% on the day of the peak, because volatility had already risen on the way up, and lost 15.5% to that low. As of 2026-11-13 the fund is 31.6% below its peak and the rule 13.0% below its own.",
+      "now": "20-day realised volatility 79% annualised; target weight 25%, held 32% (inside the 10-point band)."
+    },
+    "design_window_said_this_first": "On 2007-2024 the rule's timing alpha was -1.9% a year, inside what skill-free histories produce (sign-flip p = 0.751, shuffle p = 0.920), and its Sharpe gap to the fund was +0.01 (sign-flip p = 0.682). Total return +567% against +726% for a fixed 77% and +1,181% for the fund; worst drawdown -48.0% against -56.5% and -66.8%. No evidence over eighteen years that scaling by volatility improved return per unit of risk on this fund; clear evidence that it cut the depth of the falls. The test window repeated that pattern rather than adding to it.",
+    "the_two_halves_of_the_design_window_disagree": "2007-2018: Sharpe 0.44 against 0.46, behind the fixed position. 2019-2024: Sharpe 0.97 against 0.87, ahead. The test window's 1.20 against 1.10 sits with the second half. Three readings, two for and one against, none individually distinguishable from nothing.",
+    "neighbouring_settings": "All eight (20 or 60 days; 15, 20, 25, 30%) clear the bar, from +43.1% to +78.3%, with drawdowns from -16.0% to -31.1% in step with the risk level. The verdict does not hinge on the setting, and the setting is a risk dial rather than a source of edge. None of them is promoted to the strategy.",
+    "engine_check": "The registered configuration run through the real backtest engine on SOXX 2007-01-01..2026-11-13 ends at 1,068,653.41 USD, as does the simulator; 278 fills in both, no rejected orders, largest daily difference 0.0000 USD.",
+    "limits": [
+      "One instrument, one window of 1.9 years, in which the fund doubled. This is one observation of a rule doing what it is built to do in a market that happened to end up.",
+      "The bar could not have failed a long SOXX position of almost any size in this window. A window in which the fund ended lower would have tested the rule; this one tested whether it stayed invested enough.",
+      "Cash earned nothing in the simulation; at the short rates of the window the rule's 43% average cash share would have added roughly two points a year. This understates the rule.",
+      "The comparison with the fixed position is at unequal exposure (57% held against 77%). Sharpe is the exposure-neutral reading."
+    ],
+    "status": "Candidate for paper trading under the existing promotion path. Not promoted by this record.",
+    "test_window_is_now_spent": "2025-01-01..2026-11-13 has been read for this rule, the fund, a fixed position and eight neighbouring settings. Any later rule scored on these dates is being scored on a window whose shape is known, and should say so."
+  },
+  "metrics": {
+    "test_2025_01_01_to_2026_11_13": {
+      "strategy": {
+        "total_return": 0.603,
+        "cagr": 0.288,
+        "max_drawdown": -0.219,
+        "sharpe": 1.2,
+        "avg_weight": 0.57,
+        "fills": 33,
+        "turnover": 1.12
+      },
+      "fixed_77pct": {
+        "total_return": 0.831,
+        "cagr": 0.384,
+        "max_drawdown": -0.314,
+        "sharpe": 1.1
+      },
+      "buy_and_hold": {
+        "total_return": 1.097,
+        "cagr": 0.488,
+        "max_drawdown": -0.395,
+        "sharpe": 1.1
+      },
+      "min_total_return": 0.1,
+      "by_year": {
+        "2025": {
+          "strategy": 0.234,
+          "buy_and_hold": 0.407,
+          "avg_weight": 0.64,
+          "strategy_drawdown": -0.219,
+          "hold_drawdown": -0.342
+        },
+        "2026": {
+          "strategy": 0.299,
+          "buy_and_hold": 0.49,
+          "avg_weight": 0.49,
+          "strategy_drawdown": -0.167,
+          "hold_drawdown": -0.395
+        }
+      },
+      "variants_total_return": {
+        "20d_15": 0.44,
+        "20d_20": 0.603,
+        "20d_25": 0.719,
+        "20d_30": 0.783,
+        "60d_15": 0.431,
+        "60d_20": 0.578,
+        "60d_25": 0.646,
+        "60d_30": 0.779
+      },
+      "variants_max_drawdown": {
+        "20d_15": -0.16,
+        "20d_20": -0.219,
+        "20d_25": -0.263,
+        "20d_30": -0.296,
+        "60d_15": -0.165,
+        "60d_20": -0.22,
+        "60d_25": -0.264,
+        "60d_30": -0.311
+      }
+    },
+    "design_2007_2024": {
+      "strategy": {
+        "total_return": 5.667,
+        "cagr": 0.111,
+        "max_drawdown": -0.48,
+        "sharpe": 0.63,
+        "avg_weight": 0.77
+      },
+      "fixed_77pct": {
+        "total_return": 7.257,
+        "cagr": 0.124,
+        "max_drawdown": -0.565,
+        "sharpe": 0.62
+      },
+      "buy_and_hold": {
+        "total_return": 11.81,
+        "cagr": 0.152,
+        "max_drawdown": -0.668,
+        "sharpe": 0.62
+      },
+      "in_sample_2007_2018": {
+        "strategy_sharpe": 0.44,
+        "hold_sharpe": 0.46,
+        "strategy_drawdown": -0.48,
+        "fixed_drawdown": -0.589
+      },
+      "validation_2019_2024": {
+        "strategy_sharpe": 0.97,
+        "hold_sharpe": 0.87,
+        "strategy_drawdown": -0.255,
+        "fixed_drawdown": -0.327
+      },
+      "placebo": {
+        "timing_alpha": {
+          "real": -0.019,
+          "sign_flip": {
+            "mean": -0.007,
+            "p95": 0.025,
+            "p": 0.751
+          },
+          "shuffle": {
+            "mean": -0.001,
+            "p95": 0.015,
+            "p": 0.92
+          }
+        },
+        "sharpe_gap": {
+          "real": 0.01,
+          "sign_flip": {
+            "mean": 0.04,
+            "p95": 0.17,
+            "p": 0.682
+          },
+          "shuffle": {
+            "mean": -0.02,
+            "p95": 0.06,
+            "p": 0.343
+          }
+        }
+      }
+    },
+    "engine_final_equity": 1068653.41
+  }
+}
