@@ -1,0 +1,63 @@
+{
+  "experiment_id": "20261115T150426_prereg_outcome_c44c94a8",
+  "kind": "prereg_outcome",
+  "git_commit": "b828de03464d4c7712442b088d7a4c0639676187",
+  "created_at": "2026-11-15T15:04:26.257798+00:00",
+  "prereg_id": "20261115T100940_prereg_f378af36",
+  "params": {
+    "addendum_to": "20261115T102928_prereg_outcome_6f7d254e",
+    "what_this_is": "The rejected PID configuration on 2025-01-01..2026-11-13, read for reference at the owner's request. Read only after P11's test on the same window was recorded (commit b828de0), so it informed nothing there.",
+    "verdict": "unchanged — rejected, and this window agrees with the rejection.",
+    "configuration": "trend 250, integral 120, derivative 10, kp 0.1, ki 0.1, kd 0.0, base 0.5, band 0.10",
+    "reading": "The rule returned +37.3% against +52.0% for the fixed half position it is built around, with a deeper drawdown (-25.9% against -21.1%) and a Sharpe of 0.77 against 1.10. It was worse than doing nothing with half the money on return, on drawdown and on risk-adjusted return at once. It would have cleared the owner's +10% bar, as any long position did.",
+    "how_it_behaved_in_the_falls": "It did what it is designed to do, and that is the problem. In spring 2025 it went from 67% to 96% of the account as the fund fell 34%, and lost 25.9%. In 2026 it had sold down to 13% by the June peak, which is the idea working, and then bought back to 75% on the way down, losing 20.8% of a 39.5% fall. It is holding 79% now, into 79% annualised volatility; the volatility rule is holding 32%.",
+    "against_the_volatility_rule_on_the_same_window": "Volatility rule +60.3%, drawdown -21.9%, Sharpe 1.20. PID +37.3%, -25.9%, 0.77. The two differ in one thing: which way they lean when the fund is falling hard.",
+    "whole_history": "2007-01-01..2026-11-13: PID +660%, drawdown -47.2%, Sharpe 0.61; fixed half +569%, -41.0%, 0.68; the fund +2,586%."
+  },
+  "metrics": {
+    "2025_01_01_to_2026_11_13": {
+      "strategy": {
+        "total_return": 0.373,
+        "max_drawdown": -0.259,
+        "sharpe": 0.77,
+        "avg_weight": 0.45,
+        "fills": 45
+      },
+      "fixed_50pct": {
+        "total_return": 0.52,
+        "max_drawdown": -0.211,
+        "sharpe": 1.1
+      },
+      "buy_and_hold": {
+        "total_return": 1.097,
+        "max_drawdown": -0.395,
+        "sharpe": 1.1
+      },
+      "by_year": {
+        "2025": {
+          "strategy": 0.177,
+          "buy_and_hold": 0.407,
+          "avg_weight": 0.47
+        },
+        "2026": {
+          "strategy": 0.166,
+          "buy_and_hold": 0.49,
+          "avg_weight": 0.43
+        }
+      },
+      "spring_2025_fall": {
+        "buy_and_hold": -0.342,
+        "strategy": -0.259,
+        "weight_start": 0.67,
+        "weight_end": 0.96
+      },
+      "second_half_2026_fall": {
+        "buy_and_hold": -0.395,
+        "strategy": -0.208,
+        "weight_start": 0.13,
+        "weight_end": 0.75
+      },
+      "weight_now": 0.79
+    }
+  }
+}
