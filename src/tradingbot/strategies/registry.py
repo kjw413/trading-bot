@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from tradingbot.strategies.base import Strategy
 from tradingbot.strategies.ma_cross import MovingAverageCrossStrategy
+from tradingbot.strategies.pid_reversion import PidReversionStrategy
 from tradingbot.strategies.rsi_reversion import RsiReversionStrategy
 from tradingbot.strategies.theme_multifactor import ThemeMultifactorStrategy
 from tradingbot.strategies.vol_breakout import VolatilityBreakoutStrategy
@@ -9,6 +10,7 @@ from tradingbot.strategies.vol_breakout import VolatilityBreakoutStrategy
 
 _STRATEGIES: dict[str, type[Strategy]] = {
     MovingAverageCrossStrategy.name: MovingAverageCrossStrategy,
+    PidReversionStrategy.name: PidReversionStrategy,
     RsiReversionStrategy.name: RsiReversionStrategy,
     VolatilityBreakoutStrategy.name: VolatilityBreakoutStrategy,
     ThemeMultifactorStrategy.name: ThemeMultifactorStrategy,

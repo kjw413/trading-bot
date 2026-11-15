@@ -1,0 +1,57 @@
+# PID 비중 조절 전략(pid_reversion) — SOXX 한 종목 전용 설정.
+# 수식과 근거: src/tradingbot/strategies/pid_reversion.py
+# 파라미터 탐색과 판정: src/tradingbot/research/pid_sweep.py
+#
+#   python -m tradingbot --config config/pid_soxx.toml research pid-sweep --symbol SOXX
+#   python -m tradingbot --config config/pid_soxx.toml backtest --market US \
+#       --symbols SOXX --strategy pid_reversion --start 2007-01-01
+
+[data]
+cache_dir = "data/cache"
+
+[backtest]
+# 주 단위로만 살 수 있어서 자본이 작으면 목표 비중을 맞추지 못한다. 10만 달러면
+# SOXX 한 주가 자산의 0.5% 미만이라 반올림이 결과를 흔들지 않는다.
+initial_cash_kr = 10000000
+initial_cash_us = 100000
+
+[paper]
+state_dir = "state"
+poll_interval_seconds = 300
+
+[fees.US]
+commission_rate = 0.0
+sec_fee_rate = 0.0000278
+finra_taf_per_share = 0.000166
+finra_taf_cap = 8.30
+
+[execution]
+slippage_bps = 5
+
+[risk]
+# 한 종목 전략이라 종목당 상한은 사실상 전체 상한이다.
+max_position_pct = 1.0
+max_positions = 1
+# 아래 둘은 꺼 둔다. 기본 설정의 손절(평단 -5%에 전량 매도)과 일일 손실 한도(-3%인
+# 날 신규 매수 차단)는 "떨어질수록 더 산다"는 이 전략의 동작을 정면으로 막는다.
+# 켜 두면 전략이 아니라 손절 규칙을 백테스트하게 된다. 탐색 시뮬레이터도 이 둘을
+# 재현하지 않으므로, 켠 설정은 탐색 단계에서 거부된다.
+max_daily_loss_pct = 1.0
+stop_loss_pct = 0.0
+min_cash_buffer_pct = 0.02
+
+[strategies.pid_reversion]
+# 탐색 대상이 아닌 고정값 (사전등록에 고정).
+derivative_days = 10
+band = 0.10
+z_cap = 4.0
+min_weight = 0.0
+max_weight = 0.98
+# 아래 여섯은 탐색 대상이다. 여기 적힌 값은 측정으로 채택된 값이 아니라 탐색 전
+# 기본값이며, 판정 결과는 data/experiments의 prereg_outcome 기록을 따른다.
+trend_days = 250
+integral_days = 120
+kp = 0.2
+ki = 0.2
+kd = 0.2
+base_weight = 0.75
