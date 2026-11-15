@@ -60,8 +60,8 @@ def test_research_periods_have_one_authoritative_source():
         "in_sample_start": "2007-01-01",
         "in_sample_end": "2018-12-31",
         "validation_start": "2019-01-01",
-        "validation_end": "2021-12-31",
-        "out_of_sample_start": "2022-01-01",
+        "validation_end": "2024-12-31",
+        "out_of_sample_start": "2025-01-01",
     }
 
     spec = (ROOT / "docs" / "quant_research_spec.md").read_text(encoding="utf-8")
