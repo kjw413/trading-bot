@@ -1,0 +1,63 @@
+{
+  "experiment_id": "20261115T101339_prereg_3df87144",
+  "kind": "prereg",
+  "git_commit": "9275bcf6df136d3a64dfbad2595dd91618b24c73",
+  "created_at": "2026-11-15T10:13:39.218739+00:00",
+  "params": {
+    "phase": "P10",
+    "amends": "20261115T100940_prereg_f378af36",
+    "status_of_the_original": "The registered procedure was run once on 2001-2021 data and its rule returned 'consistent'. That verdict is NOT acted on and the out-of-sample window was NOT opened. The numbers are recorded below so the amendment cannot be read as a way to get a different answer quietly.",
+    "what_the_original_run_showed": {
+      "selected": "trend 250, integral 120, kp 0.1, ki 0.1, kd 0.0, base 0.5",
+      "in_sample_alpha": 0.01,
+      "in_sample_alpha_t": 0.59,
+      "validation_alpha": 0.045,
+      "validation_alpha_t": 1.07,
+      "validation_mirror_alpha": -0.056,
+      "walk_forward_mean_test_alpha": 0.048,
+      "walk_forward_positive_years": "11 of 12",
+      "in_sample_grid": "530 of 768 eligible; 18% of eligible with positive alpha; median -0.7%; best +1.4% (t 1.26)"
+    },
+    "the_defect": "Timing alpha was registered as mean((w_t - wbar) * r_t) * 252 with wbar the strategy's average weight over the window being scored. wbar is not known until the window is over, and for a rule that sells strength it is negatively correlated with the window's own return: in a window where the fund rose, the rule's average weight was low, so the comparison portfolio is handed a small position exactly when a large one would have paid. Under no predictability at all, E[alpha] = -Cov(wbar, window return) > 0 for a contrarian rule and < 0 for its mirror. This is the finite-sample bias of a predictive regression on a persistent regressor whose innovations are negatively correlated with returns (Stambaugh 1999), arrived at through the benchmark. It grows as the window shrinks, so the twelve one-year walk-forward windows carry the most of it and the twelve-year in-sample window the least.",
+    "evidence_already_in_the_report": [
+      "The whole grid's median alpha is positive in 10 of the 12 single test years (up to +10.9% in 2020) while its median over the full twelve in-sample years is -0.7%. A quantity that is positive for nearly every configuration every year, yet negative for most of them over the same years taken together, is measuring the window length.",
+      "2013: the walk-forward pick returned +3.7% against +41.6% for the fund and was scored +1.4% alpha, because its average weight that year was about 5% and the comparison was a 5% position.",
+      "The mirror is scored with the same bias in the opposite direction, so 'the mirror did worse' was not independent evidence about direction."
+    ],
+    "why_not_just_swap_the_metric": "Selecting a new metric after seeing these numbers is a degree of freedom, and the obvious replacements (in-window regression alpha, in-window average weight in any form) carry the same look-ahead. The registered statistics are kept exactly as they are. What changes is what they are compared with: instead of zero, their own distribution on price histories in which no rule can have timing skill. A bias that exists under the null is in that distribution too and cancels.",
+    "placebo_nulls": {
+      "sign_flip (deciding)": "Each day's (overnight, intraday) log-return pair is demeaned, multiplied by one random sign per day, and re-meaned. The size of every day's move stays on its own date, so volatility clustering and the 2008 and 2020 volatility episodes are preserved; the serial dependence of direction, which is the only thing a timing rule can use, is destroyed.",
+      "shuffle (reported)": "The same pairs in random order. Destroys volatility clustering as well; reported to show the result does not hinge on which null is used.",
+      "construction": "200 histories per null, numpy default_rng seeds 0..199 (sign_flip) and 1000..1199 (shuffle). Built only from 2001-07-13..2021-12-31 returns, on the real dates, first close 1000 and initial cash 1e9 so whole-share and cent rounding cannot differ from the real run in any way that matters. Each history goes through the identical end-to-end procedure: same grid, same eligibility, same selection score, same walk-forward windows."
+    },
+    "statistics_compared": {
+      "S_wf": "walk-forward day-weighted mean test alpha (real: +4.8%)",
+      "S_val": "validation alpha of the in-sample pick (real: +4.5%)",
+      "p_value": "(1 + count of placebo histories with statistic >= real) / (N + 1); a placebo history with no eligible pick counts as not exceeding"
+    },
+    "decision_rule": {
+      "consistent": "Under the sign-flip null: p(S_wf) < 0.05 AND the real S_val is above the placebo median of S_val. Only then is the out-of-sample window opened, once, for the configuration already selected.",
+      "rejected": "Otherwise. The original 'consistent' is recorded as an artefact of the benchmark, the strategy is not adopted, and the out-of-sample window stays unopened.",
+      "why_these_thresholds": "The walk-forward statistic covers twelve test years including the three validation years, so it is the powered one and carries the conventional 5% one-sided test. Validation alone is three years; asking it for significance would be asking for a number it cannot produce, so it is only required not to be worse than what no skill typically yields."
+    },
+    "power_stated_in_advance": "With twelve test years the placebo spread of S_wf will be on the order of a few percent a year. An edge of about one percent a year, if it exists, cannot be told from none by this test. A rejection therefore means 'no edge large enough to see in twenty years of this fund', not 'no edge'.",
+    "reported_but_not_deciding": [
+      "Share of placebo histories on which the ORIGINAL four-key rule returns 'consistent': the false-positive rate of the rule as first registered.",
+      "Placebo mean of S_wf and S_val: the size of the bias in each.",
+      "Sharpe of the pick minus Sharpe of the fund, in sample and in validation. A fixed position of any size has the fund's Sharpe when cash earns nothing, so this compares against a benchmark fixed in advance and involves no in-window average. Already visible for the pick (0.44 vs 0.46, 1.33 vs 1.39) and stated here so it is not presented later as a discovery."
+    ],
+    "closed_degrees_of_freedom": [
+      "Grid, fixed values, eligibility, selection score, windows and the selected configuration are unchanged from the original registration.",
+      "N, both seed ranges and the construction of both nulls are fixed above.",
+      "The deciding null is sign-flip. If the two nulls disagree, sign-flip decides and the disagreement is reported.",
+      "No second selection is made on the real data."
+    ],
+    "disclosure": "This amendment is written after seeing the original run, including validation. It can only make the bar higher: it adds a requirement and removes none that was passed on unbiased grounds."
+  },
+  "metrics": {
+    "n_placebo_per_null": 200,
+    "alpha_level": 0.05,
+    "real_S_wf": 0.048,
+    "real_S_val": 0.045
+  }
+}
