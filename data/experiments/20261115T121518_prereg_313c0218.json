@@ -1,0 +1,60 @@
+{
+  "experiment_id": "20261115T121518_prereg_313c0218",
+  "kind": "prereg",
+  "git_commit": "054aa418c9de2bbdf3ac374ab3ee931805535b07",
+  "created_at": "2026-11-15T12:15:18.141279+00:00",
+  "params": {
+    "phase": "P11",
+    "question": "Does a volatility-target position in SOXX meet the owner's survival bar on the 2025-onward window, which nothing in this repository has read?",
+    "owner_decisions_2026_11_15": {
+      "split": "Design through 2024-12-31; test from 2025-01-01 (config/research.toml).",
+      "survival_bar": "Total cumulative return of at least +10% over the test window. Stated by the owner; taken as given.",
+      "pid_reference": "The rejected PID rule's recent performance is to be shown for reference. Its 2022-2024 part is recorded in the P10 addendum. Its 2025-onward part is read only AFTER this registration's test is recorded, so that it cannot inform anything here."
+    },
+    "why_this_rule": "The owner's concern is a market that surges and then falls hard. P10's rule added to falling positions and was heaviest in the declines. A volatility target does the opposite without forecasting direction: it relies only on volatility being persistent.",
+    "rule": {
+      "realised_vol": "standard deviation of the last 20 daily log returns of the dividend-adjusted close, times sqrt(252)",
+      "target_weight": "clip(0.20 / realised_vol, 0, 0.98)",
+      "trading": "decided at the close, filled at the next open; no trade while |target - current weight| <= 0.10; cash earns nothing",
+      "code": "src/tradingbot/strategies/vol_target.py, config/vol_target_soxx.toml"
+    },
+    "configuration_is_fixed_a_priori": "vol_days = 20 and target_vol = 0.20 are set here, before any return of this rule has been computed on any window. 20 days is the conventional one-month realised volatility. 20% holds SOXX at roughly broad-index volatility. Neither is searched. P10 showed that a search over this instrument's history finds a 'profitable' configuration in noise 98% of the time, so there is no search.",
+    "why_no_tuning_on_the_design_window": "The owner's bar is an absolute return, and the only parameter that moves absolute return much is the risk level, which is a preference rather than something the data can optimise without knowing the test window's direction. The owner gave a return floor and no drawdown limit, so there is no rule by which design data could pick a level. The design window is used to describe the rule, not to choose it.",
+    "design_window_measurement": {
+      "what": "2007-2024 and its two halves (2007-2018, 2019-2024): total return, CAGR, drawdown, Sharpe and average weight of the rule, the fund held outright, and a fixed position at the rule's average weight; a per-year table; the eight neighbouring settings (20 or 60 days, 15/20/25/30%).",
+      "placebo": "Timing alpha and Sharpe gap of the rule against 200 sign-flip and 200 shuffled histories (seeds 0..199 and 1000..1199), as in P10. Under sign-flip every day's move keeps its size and date, so a volatility rule holds the same weights as on the real history and only the direction of returns differs: the comparison isolates whether returns were better on the days the rule held more.",
+      "role": "Descriptive. It does not gate the final test and cannot change the configuration."
+    },
+    "final_test": {
+      "window": "2025-01-01 to the last close in the price file (2026-11-13)",
+      "measurement": "The rule is simulated continuously from 2007-01-01 and its return is measured from the last close of 2024, so it enters the window holding what it had built.",
+      "pass": "strategy total return >= +0.10",
+      "fail": "otherwise",
+      "run": "once"
+    },
+    "stated_before_the_window_opens": [
+      "The bar is absolute. A long-only rule meets it whenever the fund itself rose enough, so a pass does not by itself show that the sizing helped. To make the verdict readable, the same bar is applied to the fund held outright and to a fixed position, and all three are reported. If holding the fund also passes, the honest reading of a pass is 'being long was enough'.",
+      "The fixed position's weight is the rule's average weight over 2007-2024, fixed before the test opens. P10's bias came from taking that weight from the window being scored.",
+      "Maximum drawdown inside the test window is reported and does not decide. A rule could end above +10% after being far below its starting value on the way; the owner's bar does not exclude that, and the report will say whether it happened.",
+      "Cash earns nothing in this simulation. With short rates around four to five percent in the test window, a rule that is partly in cash is understated by roughly that rate times its cash share. This leans against the rule.",
+      "One instrument, one window of under two years. A pass or a fail is one observation."
+    ],
+    "closed_degrees_of_freedom": [
+      "The configuration (20 days, 20%, band 0.10, cap 0.98) is the one judged. The neighbouring settings are shown for context and none may be promoted to 'the strategy' after the test.",
+      "The bar is +10% total return. It is not replaced by a drawdown, a Sharpe or a comparison with the fund after the result is known.",
+      "The test window is read once, by one command, for this configuration.",
+      "No other ticker and no other rule is run on the test window before this verdict is recorded."
+    ],
+    "data": "data/cache/US/SOXX.parquet, FinanceDataReader (Yahoo), dividend-adjusted, 6,373 rows 2001-07-13 to 2026-11-13, fetched 2026-11-14. Of the 2025-onward rows only their dates have been looked at (458 trading days from 2025-01-20); no price or return from them has been read by any computation.",
+    "execution": "config/vol_target_soxx.toml: 100,000 USD, 5 bps slippage, SEC fee and FINRA TAF on sells, whole shares, 2% cash buffer, stop-loss and daily-loss limit off. Simulator equals the engine to the cent on three configurations (tests/test_vol_target.py).",
+    "not_in_scope": "A pass makes this a candidate for paper trading under the existing promotion path, not a promotion."
+  },
+  "metrics": {
+    "vol_days": 20,
+    "target_vol": 0.2,
+    "band": 0.1,
+    "max_weight": 0.98,
+    "min_total_return": 0.1,
+    "placebo_n_per_null": 200
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "experiment_id": "20261115T121518_prereg_outcome_bc79a9e7",
+  "kind": "prereg_outcome",
+  "git_commit": "054aa418c9de2bbdf3ac374ab3ee931805535b07",
+  "created_at": "2026-11-15T12:15:18.138232+00:00",
+  "prereg_id": "20261115T100940_prereg_f378af36",
+  "params": {
+    "addendum_to": "20261115T102928_prereg_outcome_6f7d254e",
+    "what_changed": "On 2026-11-15 the owner moved the out-of-sample start from 2022-01-01 to 2025-01-01 (config/research.toml) and asked for the rejected PID configuration's performance on the released years, for reference. P10 had registered that the window stays shut on a rejection; that commitment is overridden by the owner for 2022-2024, which is now design data in any case.",
+    "verdict": "unchanged — rejected. A reference reading cannot overturn it, and this one would not if it could.",
+    "configuration": "trend 250, integral 120, derivative 10, kp 0.1, ki 0.1, kd 0.0, base 0.5, band 0.10",
+    "window": "2022-01-01 to 2024-12-31, simulated continuously from 2007; price frame cut at 2024-12-31 before anything was computed",
+    "reading": "Over a round trip (-35% in 2022, +67% in 2023) the rule returned about what a fixed half position did: +18.2% against +16.2%, with the same drawdown and the same Sharpe. It lost less than the fixed half in 2022 while holding MORE (66% average), because it added late in the decline, and it gave up five points to the fixed half in 2023 by holding 38% through the rebound. Against holding the fund it kept four fifths of the return with a little over half the drawdown, which is what holding half does.",
+    "not_opened": "2025 onward. It is the test window for the next registration (P11) and stays shut for this rule until that test is recorded."
+  },
+  "metrics": {
+    "2022_2024": {
+      "strategy": {
+        "total_return": 0.182,
+        "max_drawdown": -0.254,
+        "sharpe": 0.36,
+        "avg_weight": 0.53,
+        "fills": 65
+      },
+      "fixed_50pct": {
+        "total_return": 0.162,
+        "max_drawdown": -0.248,
+        "sharpe": 0.37
+      },
+      "buy_and_hold": {
+        "total_return": 0.225,
+        "max_drawdown": -0.455
+      }
+    },
+    "by_year": {
+      "2022": {
+        "strategy": -0.156,
+        "fixed_50pct": -0.175,
+        "buy_and_hold": -0.351,
+        "avg_weight": 0.66
+      },
+      "2023": {
+        "strategy": 0.253,
+        "fixed_50pct": 0.306,
+        "buy_and_hold": 0.671,
+        "avg_weight": 0.38
+      },
+      "2024": {
+        "strategy": 0.118,
+        "fixed_50pct": 0.079,
+        "buy_and_hold": 0.129,
+        "avg_weight": 0.56
+      }
+    },
+    "2007_2024": {
+      "strategy": {
+        "total_return": 4.538,
+        "max_drawdown": -0.472,
+        "sharpe": 0.59
+      },
+      "fixed_50pct": {
+        "total_return": 3.403,
+        "max_drawdown": -0.41,
+        "sharpe": 0.62
+      },
+      "buy_and_hold": {
+        "total_return": 11.81,
+        "max_drawdown": -0.668
+      }
+    }
+  }
+}
