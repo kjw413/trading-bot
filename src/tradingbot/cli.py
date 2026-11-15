@@ -157,6 +157,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pid_parser.set_defaults(handler=cmd_research_pid_sweep)
 
+    placebo_parser = research_subparsers.add_parser(
+        "pid-placebo",
+        help="Compare the PID search with the same search on skill-free price histories",
+    )
+    placebo_parser.add_argument("--symbol", default="SOXX")
+    placebo_parser.add_argument("--market", choices=["US"], default="US")
+    placebo_parser.add_argument("--research-config", default=None, help="research.toml path")
+    placebo_parser.add_argument("--data-root", default=None)
+    placebo_parser.add_argument("--out", default="reports/research/pid_sweep")
+    placebo_parser.add_argument("--n", type=int, default=200, help="Placebo histories per null")
+    placebo_parser.add_argument("--processes", type=int, default=1)
+    placebo_parser.set_defaults(handler=cmd_research_pid_placebo)
+
     evaluate_parser = research_subparsers.add_parser(
         "evaluate", help="Measure a strategy against the promotion criteria"
     )
@@ -581,23 +594,16 @@ def cmd_research_report(args) -> int:
     return 0
 
 
-def cmd_research_pid_sweep(args) -> int:
-    from dataclasses import fields
+def _pid_search_setup(args) -> tuple[Any, dict[str, Any], Any]:
+    """Prices, the registered search settings, and the out-of-sample start.
 
+    Shared by the search and its placebo so the two cannot drift apart: a
+    placebo run through different settings would calibrate a different test.
+    """
     from tradingbot.data.cache import ParquetCache
     from tradingbot.research.dates import research_period
     from tradingbot.research.gate import load_research_config
-    from tradingbot.research.pid_sweep import (
-        AXES,
-        ExecutionModel,
-        SelectionRule,
-        build_report,
-        default_grid,
-        evaluate_window,
-        render_markdown,
-        static_mix_metrics,
-        run_grid,
-    )
+    from tradingbot.research.pid_sweep import AXES, ExecutionModel, SelectionRule, default_grid
     from tradingbot.research.walk_forward import walk_forward_windows
     from tradingbot.strategies.pid_reversion import PidParams
 
@@ -617,30 +623,40 @@ def cmd_research_pid_sweep(args) -> int:
 
     # Swept axes come from the grid; everything else from the strategy table.
     configured = config.get("strategies", {}).get("pid_reversion", {})
-    fixed = {k: v for k, v in configured.items() if k not in AXES}
-    base = PidParams.from_mapping(fixed)
+    base = PidParams.from_mapping({k: v for k, v in configured.items() if k not in AXES})
     wf = research["walk_forward"]
-    windows = walk_forward_windows(
-        in_sample[0],
-        validation[1],
-        train_years=int(wf["train_years"]),
-        test_years=int(wf["test_years"]),
-        step_years=int(wf["step_years"]),
-    )
     promotion = research.get("promotion", {}).get("default", {})
-    rule = SelectionRule(max_turnover=float(promotion.get("max_annual_turnover", 6.0)))
+    settings = {
+        "in_sample": in_sample,
+        "validation": validation,
+        "walk_forward_windows_": walk_forward_windows(
+            in_sample[0],
+            validation[1],
+            train_years=int(wf["train_years"]),
+            test_years=int(wf["test_years"]),
+            step_years=int(wf["step_years"]),
+        ),
+        "grid": default_grid(),
+        "base": base,
+        "execution": execution,
+        "rule": SelectionRule(max_turnover=float(promotion.get("max_annual_turnover", 6.0))),
+    }
+    return prices, settings, oos_start
 
-    report = build_report(
-        prices,
-        symbol=args.symbol.upper(),
-        in_sample=in_sample,
-        validation=validation,
-        walk_forward_windows_=windows,
-        grid=default_grid(),
-        base=base,
-        execution=execution,
-        rule=rule,
+
+def cmd_research_pid_sweep(args) -> int:
+    from tradingbot.research.pid_sweep import (
+        AXES,
+        build_report,
+        evaluate_window,
+        render_markdown,
+        run_grid,
+        static_mix_metrics,
     )
+
+    prices, settings, oos_start = _pid_search_setup(args)
+    in_sample, execution = settings["in_sample"], settings["execution"]
+    report = build_report(prices, symbol=args.symbol.upper(), **settings)
 
     out_of_sample = None
     if args.spend_out_of_sample:
@@ -674,6 +690,47 @@ def cmd_research_pid_sweep(args) -> int:
     report["metrics"].to_csv(out_dir / f"{stamp}_{args.symbol.upper()}_grid.csv", index=False)
     report["walk_forward"].to_csv(out_dir / f"{stamp}_{args.symbol.upper()}_walk_forward.csv", index=False)
     print(f"리포트: {out_dir / f'{stamp}_{args.symbol.upper()}.md'}")
+    return 0
+
+
+def cmd_research_pid_placebo(args) -> int:
+    from tradingbot.research.pid_placebo import (
+        KINDS,
+        decide_against_placebo,
+        render_markdown,
+        run_placebo,
+        search_statistics,
+    )
+    from tradingbot.research.pid_sweep import build_report
+
+    prices, settings, _ = _pid_search_setup(args)
+    real = search_statistics(build_report(prices, symbol=args.symbol.upper(), **settings))
+
+    # Seed ranges are part of the registration: 0.. for sign_flip, 1000.. for shuffle.
+    seed_base = {"sign_flip": 0, "shuffle": 1000}
+    runs = {
+        kind: run_placebo(
+            prices,
+            kind=kind,
+            seeds=range(seed_base[kind], seed_base[kind] + args.n),
+            processes=args.processes,
+            **settings,
+        )
+        for kind in KINDS
+    }
+    deciding = "sign_flip"
+    verdict, reason, numbers = decide_against_placebo(real, runs[deciding])
+    markdown = render_markdown(real, runs, deciding, verdict, reason)
+    print(markdown)
+
+    out_dir = resolve_project_path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = f"{_datetime.now():%Y%m%d_%H%M%S}"
+    name = f"{stamp}_{args.symbol.upper()}_placebo"
+    (out_dir / f"{name}.md").write_text(markdown, encoding="utf-8")
+    for kind, frame in runs.items():
+        frame.to_csv(out_dir / f"{name}_{kind}.csv", index=False)
+    print(f"리포트: {out_dir / f'{name}.md'}")
     return 0
 
 
