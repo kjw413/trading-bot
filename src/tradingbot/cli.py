@@ -140,6 +140,23 @@ def build_parser() -> argparse.ArgumentParser:
     participation_parser.add_argument("--cost-bps", type=float, default=30.0)
     participation_parser.set_defaults(handler=cmd_research_flow_participation)
 
+    pid_parser = research_subparsers.add_parser(
+        "pid-sweep",
+        help="Search the PID sizing parameters on one instrument and judge the pick on unseen dates",
+    )
+    pid_parser.add_argument("--symbol", default="SOXX")
+    pid_parser.add_argument("--market", choices=["US"], default="US")
+    pid_parser.add_argument("--research-config", default=None, help="research.toml path")
+    pid_parser.add_argument("--data-root", default=None)
+    pid_parser.add_argument("--out", default="reports/research/pid_sweep")
+    pid_parser.add_argument(
+        "--spend-out-of-sample",
+        action="store_true",
+        help="Also score the selected configuration on the out-of-sample window. "
+        "Honoured only when the verdict is 'consistent'; the window is meant to be opened once.",
+    )
+    pid_parser.set_defaults(handler=cmd_research_pid_sweep)
+
     evaluate_parser = research_subparsers.add_parser(
         "evaluate", help="Measure a strategy against the promotion criteria"
     )
@@ -561,6 +578,102 @@ def cmd_research_report(args) -> int:
         },
     )
     print(f"실험 기록: {experiment_path}")
+    return 0
+
+
+def cmd_research_pid_sweep(args) -> int:
+    from dataclasses import fields
+
+    from tradingbot.data.cache import ParquetCache
+    from tradingbot.research.dates import research_period
+    from tradingbot.research.gate import load_research_config
+    from tradingbot.research.pid_sweep import (
+        AXES,
+        ExecutionModel,
+        SelectionRule,
+        build_report,
+        default_grid,
+        evaluate_window,
+        render_markdown,
+        static_mix_metrics,
+        run_grid,
+    )
+    from tradingbot.research.walk_forward import walk_forward_windows
+    from tradingbot.strategies.pid_reversion import PidParams
+
+    config = load_config(args.config)
+    research = load_research_config(args.research_config)
+    in_sample = research_period(research, "in_sample")
+    validation = research_period(research, "validation")
+    oos_start, _ = research_period(research, "out_of_sample")
+    if in_sample[1] is None or validation[1] is None:
+        raise ValueError("in_sample and validation periods must have end dates")
+
+    cache = ParquetCache(resolve_project_path(args.data_root or config["data"]["cache_dir"]))
+    prices = cache.read(args.market, args.symbol)
+    execution = ExecutionModel.from_config(config, args.market)
+    if execution.initial_cash <= 0:
+        raise ValueError(f"Initial cash is not configured for market {args.market}")
+
+    # Swept axes come from the grid; everything else from the strategy table.
+    configured = config.get("strategies", {}).get("pid_reversion", {})
+    fixed = {k: v for k, v in configured.items() if k not in AXES}
+    base = PidParams.from_mapping(fixed)
+    wf = research["walk_forward"]
+    windows = walk_forward_windows(
+        in_sample[0],
+        validation[1],
+        train_years=int(wf["train_years"]),
+        test_years=int(wf["test_years"]),
+        step_years=int(wf["step_years"]),
+    )
+    promotion = research.get("promotion", {}).get("default", {})
+    rule = SelectionRule(max_turnover=float(promotion.get("max_annual_turnover", 6.0)))
+
+    report = build_report(
+        prices,
+        symbol=args.symbol.upper(),
+        in_sample=in_sample,
+        validation=validation,
+        walk_forward_windows_=windows,
+        grid=default_grid(),
+        base=base,
+        execution=execution,
+        rule=rule,
+    )
+
+    out_of_sample = None
+    if args.spend_out_of_sample:
+        if report["verdict"] != "consistent":
+            print(
+                f"표본 외 구간은 열지 않습니다: 판정이 '{report['verdict']}'입니다. "
+                "이 구간은 검증을 통과한 구성에만 한 번 씁니다."
+            )
+        else:
+            end = prices.index.max().date()
+            out_of_sample = evaluate_window(
+                prices, report["selected"], sim_start=in_sample[0], start=oos_start, end=end,
+                execution=execution,
+            )
+            single = {axis: (getattr(report["selected"], axis),) for axis in AXES}
+            path = run_grid(
+                prices, start=in_sample[0], end=end, grid=single, base=report["selected"],
+                execution=execution,
+            )
+            out_of_sample["static_mix"] = static_mix_metrics(
+                path, oos_start, end, out_of_sample["strategy"]["avg_weight"]
+            )
+
+    markdown = render_markdown(report, out_of_sample)
+    print(markdown)
+
+    out_dir = resolve_project_path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = f"{_datetime.now():%Y%m%d_%H%M%S}"
+    (out_dir / f"{stamp}_{args.symbol.upper()}.md").write_text(markdown, encoding="utf-8")
+    report["metrics"].to_csv(out_dir / f"{stamp}_{args.symbol.upper()}_grid.csv", index=False)
+    report["walk_forward"].to_csv(out_dir / f"{stamp}_{args.symbol.upper()}_walk_forward.csv", index=False)
+    print(f"리포트: {out_dir / f'{stamp}_{args.symbol.upper()}.md'}")
     return 0
 
 
