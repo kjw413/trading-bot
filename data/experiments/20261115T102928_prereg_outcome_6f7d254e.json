@@ -1,0 +1,142 @@
+{
+  "experiment_id": "20261115T102928_prereg_outcome_6f7d254e",
+  "kind": "prereg_outcome",
+  "git_commit": "62c6ce63ab486a37f06aea0376b398187fb22594",
+  "created_at": "2026-11-15T10:29:28.025075+00:00",
+  "prereg_id": "20261115T100940_prereg_f378af36",
+  "amendment_id": "20261115T101339_prereg_3df87144",
+  "params": {
+    "verdict": "rejected — as registered in the amendment",
+    "rule_applied": "Under the sign-flip null the walk-forward mean test alpha must exceed the 95th percentile of 200 skill-free histories. Real +4.8%; placebo mean +2.2%, 95th percentile +6.0%; 23 of 200 placebo histories did at least as well, p = 0.119. The first key fails, so the verdict is 'rejected' and the second key is not reached. (It would have held: real validation alpha +4.5% against a placebo median of +0.4%.)",
+    "out_of_sample": "NOT opened. 2022 onward was never loaded by the search, the placebo, or any diagnostic in this record.",
+    "what_the_original_verdict_was_worth": "The four-key rule as first registered returns 'consistent' on 94 of 200 sign-flip histories and 96 of 200 shuffled ones. On prices with nothing to find it passes about half the time. The original 'consistent' carried no information.",
+    "size_of_the_bias": "On skill-free histories the walk-forward statistic averages +2.2% a year (sign-flip) and +2.9% (shuffle), is positive in 87-88% of histories, and the average history shows positive alpha in 66-68% of its test years. The in-sample alpha of the selected configuration averages +3.0% and is positive in 98% of histories: a search over 768 controllers finds a 'profitable' one in pure noise essentially every time.",
+    "where_the_real_run_sits": {
+      "walk_forward_mean_alpha": "real +4.8%, 88th percentile of the sign-flip placebo. About 2.6 points a year above what no skill produces, with a placebo standard deviation of 2.2 points.",
+      "validation_alpha": "real +4.5%, 75th percentile (p = 0.249); the placebo's own spread there is 6 points, so three years decide nothing.",
+      "in_sample_alpha_of_the_pick": "real +1.0%, 13th percentile (p = 0.866). The real pick is WORSE in sample than the typical pick from noise.",
+      "grid_median_in_sample": "real -0.7% against a placebo mean of -0.5%: the grid as a whole behaves like the grid on noise.",
+      "sharpe_gap_vs_the_fund": "real -0.02 in sample and -0.06 in validation. Negative in both, and below the placebo average in both."
+    },
+    "interpretation": "The PID sizing rule on SOXX is not distinguishable from a rule with no timing ability. The walk-forward result leans positive but one history in eight with nothing to find leans at least as far. What the rule reliably does is hold about half a position on average and move it against recent price, which gives up roughly half of a strongly rising fund's return and adds exposure during the high-volatility declines.",
+    "what_the_selected_configuration_did_2007_2021": {
+      "configuration": "trend 250, integral 120, derivative 10, kp 0.1, ki 0.1, kd 0.0, base 0.5, band 0.10",
+      "strategy": "100,000 -> 468,519 USD; +369%, CAGR 10.9%, max drawdown -47.2%, Sharpe 0.65, average weight 52%, 311 fills, turnover 1.3x a year",
+      "fixed_50pct": "+279%, CAGR 9.3%, max drawdown -41.0%, Sharpe 0.69",
+      "buy_and_hold": "+946%, CAGR 16.9%, max drawdown -66.8%, Sharpe 0.69",
+      "reading": "It made money, more than a fixed half position and less than half of holding the fund. Its Sharpe is below both: the extra return over the fixed half came with more than proportional extra risk, because the rule is heaviest in the declines.",
+      "why_the_average_weight_benchmark_misled": "Yearly average weight against that year's return correlates -0.68: 39% held in 2009 (+75%), 40% in 2013 (+42%), 36% in 2016 (+38%), 43% in 2019 (+62%); 66% in 2008 (-52%), 68% in 2018 (-6%)."
+    },
+    "about_the_terms": "The selected configuration has kd = 0, so the derivative term is unused, and in walk-forward the pick changes almost every year (ten different gain combinations and eleven different configurations in twelve years, base weight moving between 0.5 and 1.0). A stable optimum would not move like that. The term breakdown is not interpreted further: it is in units of the biased metric and was not placebo-calibrated per term.",
+    "engine_check": "The selected configuration run through the real backtest engine on SOXX 2007-2021 matches the search simulator on every one of 3,777 trading days: final equity 468,518.81 in both, 311 fills in both, no rejected or expired orders, largest daily difference 0.0000 USD.",
+    "seen_but_not_registered": "The real walk-forward was positive in 11 of 12 test years; 11 of 200 sign-flip histories match or beat that (p about 0.06). This statistic was not registered as deciding and is recorded only so it is not found later and presented as a result. It is the same data as the walk-forward mean viewed through a coarser lens.",
+    "power": "The placebo standard deviation of the walk-forward statistic is 2.2 points a year, so the test could have detected an edge of roughly 4 points a year over the bias and could not have detected 1 or 2. The rejection means no edge large enough to see in this fund's history, not proof of zero.",
+    "what_was_learned_about_method": "A timing benchmark built from the strategy's own in-window average weight is biased toward any rule that trades against price, and the bias is largest in short windows. Any future timing or exposure study in this repository (including the regime and macro exposure ideas) should either fix the comparison weight before the window or calibrate against a placebo as done here.",
+    "scope_limit": "One instrument, one error definition, one grid, non-negative gains, cash earning nothing. Says nothing about other formalisations of the idea, other funds, or a rule that trades with price rather than against it.",
+    "next_step_not_taken": "No second selection, no alternative metric, no other ticker and no mirrored strategy were tried after seeing this. Each would need its own registration."
+  },
+  "metrics": {
+    "real": {
+      "wf_mean_alpha": 0.048,
+      "wf_positive_years": "11/12",
+      "validation_alpha": 0.045,
+      "in_sample_alpha": 0.01,
+      "grid_median_alpha": -0.007,
+      "in_sample_sharpe_gap": -0.02,
+      "validation_sharpe_gap": -0.06
+    },
+    "placebo_sign_flip": {
+      "n": 200,
+      "seeds": "0..199",
+      "original_rule_consistent": 94,
+      "wf_mean_alpha": {
+        "mean": 0.0224,
+        "sd": 0.0216,
+        "p95": 0.0597,
+        "positive_share": 0.87,
+        "count_ge_real": 23,
+        "p": 0.119
+      },
+      "validation_alpha": {
+        "mean": 0.0044,
+        "sd": 0.0599,
+        "median": 0.0037,
+        "p95": 0.096,
+        "count_ge_real": 49,
+        "p": 0.249
+      },
+      "in_sample_alpha": {
+        "mean": 0.0304,
+        "sd": 0.0186,
+        "positive_share": 0.98,
+        "p": 0.866
+      },
+      "grid_median_alpha": {
+        "mean": -0.0049,
+        "sd": 0.0165
+      }
+    },
+    "placebo_shuffle": {
+      "n": 200,
+      "seeds": "1000..1199",
+      "original_rule_consistent": 96,
+      "wf_mean_alpha": {
+        "mean": 0.0294,
+        "sd": 0.0261,
+        "p95": 0.0732,
+        "positive_share": 0.88,
+        "count_ge_real": 45,
+        "p": 0.229
+      },
+      "validation_alpha": {
+        "mean": 0.0012,
+        "sd": 0.0637,
+        "median": 0.0042,
+        "p95": 0.1048,
+        "count_ge_real": 41,
+        "p": 0.209
+      },
+      "in_sample_alpha": {
+        "mean": 0.0384,
+        "sd": 0.0196,
+        "positive_share": 1.0,
+        "p": 0.925
+      }
+    },
+    "selected_2007_2021": {
+      "strategy": {
+        "total_return": 3.69,
+        "cagr": 0.109,
+        "max_drawdown": -0.472,
+        "sharpe": 0.65,
+        "avg_weight": 0.52,
+        "fills": 311,
+        "turnover": 1.3
+      },
+      "fixed_50pct": {
+        "total_return": 2.79,
+        "cagr": 0.093,
+        "max_drawdown": -0.41,
+        "sharpe": 0.69
+      },
+      "buy_and_hold": {
+        "total_return": 9.46,
+        "cagr": 0.169,
+        "max_drawdown": -0.668,
+        "sharpe": 0.69
+      }
+    },
+    "grid": {
+      "configs": 768,
+      "eligible_in_sample": 530,
+      "positive_alpha_share": 0.18
+    },
+    "data": {
+      "file": "data/cache/US/SOXX.parquet",
+      "rows": 6373,
+      "first": "2001-07-13",
+      "search_cutoff": "2021-12-31",
+      "sha256_16_cut": "4baae2eb406aa0b5"
+    }
+  }
+}

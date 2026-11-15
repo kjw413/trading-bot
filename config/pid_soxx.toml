@@ -47,8 +47,13 @@ band = 0.10
 z_cap = 4.0
 min_weight = 0.0
 max_weight = 0.98
-# 아래 여섯은 탐색 대상이다. 여기 적힌 값은 측정으로 채택된 값이 아니라 탐색 전
-# 기본값이며, 판정 결과는 data/experiments의 prereg_outcome 기록을 따른다.
+# 아래 여섯은 탐색 대상이다. 여기 적힌 값은 채택된 값이 아니다.
+#
+# 판정(2026-11-15, P10): 기각. 768개 구성 탐색에서 뽑힌 값(trend 250, integral 120,
+# kp 0.1, ki 0.1, kd 0.0, base 0.5)도 타이밍 실력이 없는 가짜 가격에서 뽑은 값과
+# 구별되지 않았다 (워크포워드 p = 0.119). 채택된 파라미터가 없으므로 탐색 전
+# 기본값을 그대로 둔다. 이 설정으로 실거래·모의투자를 돌리지 말 것.
+# 기록: data/experiments/*_prereg_outcome_*.json (prereg_id 20261115T100940_prereg_f378af36)
 trend_days = 250
 integral_days = 120
 kp = 0.2
