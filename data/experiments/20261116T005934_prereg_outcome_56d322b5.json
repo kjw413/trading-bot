@@ -1,0 +1,132 @@
+{
+  "experiment_id": "20261116T005934_prereg_outcome_56d322b5",
+  "kind": "prereg_outcome",
+  "git_commit": "3da6b1ae2cdb82fdf9d4d0b3fa12980ef46b2c22",
+  "created_at": "2026-11-16T00:59:34.315555+00:00",
+  "prereg_id": "20261116T005554_prereg_fb57a53b",
+  "params": {
+    "result": "target_vol = 0.10. The highest level, in one-point steps from 5% to 30%, such that it and every level below it stayed within -30% over 2007-2024. 10% drew down -29.4%; 11% drew down -32.5%.",
+    "applied": "config/vol_target_soxx.toml now carries target_vol = 0.10. Nothing else changed.",
+    "what_the_limit_costs": "At 10% the rule holds 44% of the account in SOXX on average and returned +198.7% over 2007-2024, 6.3% a year. Holding the fund returned +1,181%, 15.2% a year, with a -66.8% drawdown. The owner's limit removes a little over half of the position and a little under three fifths of the annual return. That is the price of the limit on this fund, not a defect of the rule.",
+    "where_the_limit_binds": "The -29.4% runs from 2007-07-17 to 2008-11-20. No other episode in the design window comes close: the next worst calendar-year drawdowns are -14.7% (2022), -14.6% (2018) and -14.2% (2015). The rule spent 5.5% of days more than 20% under its peak and 3.3% more than 25% under, all of them in 2008-09. As registered, this is a calibration to one event.",
+    "margin": "-29.4% against a limit of -30% is no margin. One step down, 9%, drew down -25.0% and returned +185.0% (6.0% a year): five points of drawdown room for 0.3 points a year of return. The registration fixed the limit as given and adds no margin; this is recorded so the owner can choose one knowingly.",
+    "against_simply_holding_less": "Not registered as deciding; computed because it is the question the calibration raises. A fixed 34% position, rebalanced daily at no cost, is the largest fixed position that also stays within -30% over 2007-2024 (-29.8%), and it returned +186.6%, 6.0% a year, with a Sharpe of 0.62 to the rule's 0.60. Over the full design window, meeting the limit with the volatility rule and meeting it by holding a third are the same result to within twelve points of total return in eighteen years, before the fixed position's rebalancing costs. In the two halves they differ in the usual way: the rule was behind on Sharpe in 2007-2018 (0.40 against 0.46) and ahead in 2019-2024 (0.99 against 0.87, drawdown -14.8% against -17.4%).",
+    "reference_reading_2025_onward": "NOT a test: this window was read in P11 before the limit was given. At 10% the rule returned +30.5% with a worst drawdown of -10.5%, holding 30% on average; the fixed 34% returned +34.4% with -14.6%; the fund +109.7% with -39.5%. In the spring 2025 fall of 34% the rule lost 10.5%, and in the 2026 fall of 39.5% it lost 8.8%, having been at 14% on the day of the peak. It holds 12% now against 79% annualised volatility.",
+    "what_this_does_not_establish": [
+      "That -30% will hold. The level is the one that would have held through 2008, the worst episode in this fund's record, and a worse one can come. The rule cuts the position after volatility rises; a fall concentrated in a single gap is taken at the weight then held, which in a calm market can be near the 98% cap: the target was at or above 90% on 1.7% of design-window days and at or above 70% on 6.6%, with a median of 41%.",
+      "That the rule beats a fixed third. On the design window it does not, measurably. Its case is that it carries more when the fund is calm and less when it is not, which showed as shallower drawdowns in 2019-2026 and as nothing over 2007-2018."
+    ],
+    "engine_check": "target_vol 0.10 through the real backtest engine on SOXX 2007-01-01..2026-11-13: final equity 389,963.27 USD in engine and simulator, 273 fills in both, no rejected orders, largest daily difference 0.0000 USD.",
+    "paper_mode": "tests/test_vol_target.py now walks the paper engine with this rule: confirmed daily bar after the close, order sized from it, restart before the open finds the same order, fill at the next morning's price. The rule had only run in the backtest engine before. No live paper session has been started; that needs the owner's machine during US market hours.",
+    "forward_criterion": "As registered: in paper or live running, equity more than 30% below its own running peak means the calibration failed and the strategy stops. This is a rule for the operator; it is not yet enforced in code."
+  },
+  "metrics": {
+    "selected_target_vol": 0.1,
+    "limit": -0.3,
+    "calibration_table": {
+      "0.05": -0.167,
+      "0.06": -0.181,
+      "0.07": -0.215,
+      "0.08": -0.225,
+      "0.09": -0.25,
+      "0.10": -0.294,
+      "0.11": -0.325,
+      "0.12": -0.325,
+      "0.13": -0.343,
+      "0.14": -0.364,
+      "0.15": -0.392,
+      "0.20": -0.48,
+      "0.30": -0.54
+    },
+    "design_2007_2024": {
+      "strategy": {
+        "total_return": 1.987,
+        "cagr": 0.063,
+        "max_drawdown": -0.294,
+        "sharpe": 0.6,
+        "avg_weight": 0.44,
+        "fills": 255,
+        "turnover": 0.9
+      },
+      "fixed_at_rule_average_44pct": {
+        "total_return": 2.726,
+        "max_drawdown": -0.367,
+        "sharpe": 0.62
+      },
+      "fixed_at_equal_drawdown_34pct": {
+        "total_return": 1.866,
+        "cagr": 0.06,
+        "max_drawdown": -0.298,
+        "sharpe": 0.62
+      },
+      "buy_and_hold": {
+        "total_return": 11.81,
+        "cagr": 0.152,
+        "max_drawdown": -0.668,
+        "sharpe": 0.62
+      },
+      "in_sample_2007_2018": {
+        "strategy": {
+          "total_return": 0.589,
+          "max_drawdown": -0.294,
+          "sharpe": 0.4
+        },
+        "fixed_34pct": {
+          "total_return": 0.593,
+          "max_drawdown": -0.298
+        },
+        "hold_sharpe": 0.46
+      },
+      "validation_2019_2024": {
+        "strategy": {
+          "total_return": 0.88,
+          "max_drawdown": -0.148,
+          "sharpe": 0.99
+        },
+        "fixed_34pct": {
+          "total_return": 0.799,
+          "max_drawdown": -0.174
+        },
+        "hold_sharpe": 0.87
+      },
+      "losing_years": "6 of 18",
+      "worst_year": -0.213,
+      "days_below_minus_20pct": 0.055,
+      "days_below_minus_25pct": 0.033,
+      "max_drawdown_peak": "2007-07-17",
+      "max_drawdown_trough": "2008-11-20"
+    },
+    "reference_2025_01_01_to_2026_11_13": {
+      "strategy": {
+        "total_return": 0.305,
+        "cagr": 0.154,
+        "max_drawdown": -0.105,
+        "sharpe": 1.24,
+        "avg_weight": 0.3,
+        "fills": 18
+      },
+      "fixed_34pct": {
+        "total_return": 0.344,
+        "max_drawdown": -0.146,
+        "sharpe": 1.1
+      },
+      "buy_and_hold": {
+        "total_return": 1.097,
+        "max_drawdown": -0.395,
+        "sharpe": 1.1
+      },
+      "spring_2025_fall": {
+        "buy_and_hold": -0.342,
+        "strategy": -0.105
+      },
+      "second_half_2026_fall": {
+        "buy_and_hold": -0.395,
+        "strategy": -0.088
+      },
+      "weight_now": 0.12,
+      "target_now": 0.13,
+      "realised_vol_now": 0.79
+    },
+    "engine_final_equity": 389963.27
+  }
+}
