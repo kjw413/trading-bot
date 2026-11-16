@@ -809,6 +809,7 @@ def cmd_research_vol_target(args) -> int:
         },
         execution=execution,
         placebo_n=args.placebo_n,
+        stop_drawdown=params.max_drawdown_stop,
     )
     markdown = render_design_markdown(report)
 
@@ -823,6 +824,7 @@ def cmd_research_vol_target(args) -> int:
             execution=execution,
             min_total_return=args.min_total_return,
             fixed_weight=report["design_avg_weight"],
+            stop_drawdown=params.max_drawdown_stop,
         )
         markdown += "\n" + render_final_markdown(result, symbol=symbol, label=label)
 

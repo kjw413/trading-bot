@@ -17,7 +17,20 @@ lightest exactly where that one is heaviest.
 The cap is what makes it long-only and unlevered: in a quiet market the
 formula would ask for more than the whole account, and gets `max_weight`.
 
-No state is kept. Each target is recomputed from price history.
+**The stop.** With `max_drawdown_stop` above zero, the rule tracks the
+account's highest closing equity. A close more than that fraction below the
+peak sells everything at the next open, and the rule never buys again until
+an operator clears its saved state. This is not part of the sizing and is not
+expected to trigger: the risk level is calibrated so the worst historical fall
+stays inside the limit. It is the line past which that calibration is known to
+have failed, and the right response to a failed calibration is to stop and
+look, not to keep trading it.
+
+The stop acts on the close and fills at the next open, so a gap down overnight
+is taken in full. The realised loss can exceed the limit.
+
+Targets carry no state; the stop's peak and its halted flag do, and are
+persisted through the strategy state store so a restart cannot forget them.
 """
 
 from __future__ import annotations
@@ -31,6 +44,9 @@ import pandas as pd
 from tradingbot.allocation.rebalance import plan_rebalance
 from tradingbot.models import Bar
 from tradingbot.strategies.base import Strategy, StrategyContext
+from tradingbot.utils.log import get_logger
+
+LOGGER = get_logger(__name__)
 
 TRADING_DAYS = 252
 
@@ -46,6 +62,9 @@ class VolTargetParams:
     # Realised volatility moves a little every day. Without a band the rule
     # would trade daily to follow noise in its own estimate.
     band: float = 0.10
+    # Fraction below the highest closing equity at which the rule sells out
+    # and stops. Zero disables it.
+    max_drawdown_stop: float = 0.0
 
     def __post_init__(self) -> None:
         if self.vol_days < 2:
@@ -56,6 +75,8 @@ class VolTargetParams:
             raise ValueError("weights must satisfy 0 <= min_weight <= max_weight <= 1")
         if self.band < 0:
             raise ValueError("band must be non-negative")
+        if not 0.0 <= self.max_drawdown_stop < 1.0:
+            raise ValueError("max_drawdown_stop must be in [0, 1)")
 
     @classmethod
     def from_mapping(cls, mapping: Mapping[str, Any]) -> "VolTargetParams":
@@ -107,8 +128,58 @@ class VolTargetStrategy(Strategy):
     def __init__(self, **params) -> None:
         super().__init__(**params)
         self.rule = VolTargetParams.from_mapping(self.params)
+        self.peak_equity: float | None = None
+        self.halted = False
+        self.halted_on: str | None = None
+        self.halted_equity: float | None = None
+
+    def snapshot_state(self) -> dict:
+        return {
+            "peak_equity": self.peak_equity,
+            "halted": self.halted,
+            "halted_on": self.halted_on,
+            "halted_equity": self.halted_equity,
+        }
+
+    def restore_state(self, state: dict) -> None:
+        peak = state.get("peak_equity")
+        self.peak_equity = float(peak) if peak is not None else None
+        self.halted = bool(state.get("halted", False))
+        self.halted_on = state.get("halted_on")
+        equity = state.get("halted_equity")
+        self.halted_equity = float(equity) if equity is not None else None
+
+    def _check_stop(self, ctx: StrategyContext, bar: Bar) -> bool:
+        """Update the peak; return True when the rule must hold nothing."""
+        limit = self.rule.max_drawdown_stop
+        if limit <= 0:
+            return False
+        equity = ctx.equity()
+        if self.peak_equity is None or equity > self.peak_equity:
+            self.peak_equity = equity
+        if not self.halted and equity < self.peak_equity * (1 - limit):
+            self.halted = True
+            self.halted_on = bar.dt.isoformat()
+            self.halted_equity = equity
+            LOGGER.warning(
+                "vol_target stopped on %s: equity %.2f is %.1f%% below its peak %.2f "
+                "(limit %.0f%%). Selling out; no further buys until the strategy state is cleared.",
+                self.halted_on,
+                equity,
+                (1 - equity / self.peak_equity) * 100,
+                self.peak_equity,
+                limit * 100,
+            )
+            self.persist_state()
+        return self.halted
 
     def on_bar(self, ctx: StrategyContext, bar: Bar) -> None:
+        if self._check_stop(ctx, bar):
+            position = ctx.position(bar.symbol)
+            if position.qty > 0 and not ctx.has_open_order(bar.symbol):
+                ctx.sell(bar.symbol, qty=position.qty)
+            return
+
         needed = self.rule.warmup_days
         closes = ctx.history(bar.symbol, needed)["close"]
         if len(closes) < needed:

@@ -360,3 +360,135 @@ def test_paper_engine_sizes_the_position_at_the_close_and_fills_it_at_the_next_o
     assert "open" in at_open["actions"]
     assert at_open["positions"] == {"AAA": expected_qty}
     assert at_open["open_orders"] == 0
+
+
+def _crash_prices() -> pd.DataFrame:
+    """A calm climb, a sharp fall of about 45%, then a full recovery."""
+    rng = np.random.default_rng(9)
+    calm = 0.0005 + 0.005 * rng.standard_normal(300)
+    fall = np.full(12, np.log(0.95))
+    recovery = np.full(120, 0.01) + 0.005 * rng.standard_normal(120)
+    closes = 80 * np.exp(np.cumsum(np.concatenate([calm, fall, recovery])))
+    opens = np.concatenate([[closes[0]], closes[:-1]])
+    return pd.DataFrame(
+        {"open": opens, "high": np.maximum(opens, closes) * 1.001,
+         "low": np.minimum(opens, closes) * 0.999, "close": closes, "volume": 1e6},
+        index=pd.bdate_range("2015-01-01", periods=len(closes)),
+    )
+
+
+def _run_engine(tmp_path, prices, strategy, start):
+    cache = ParquetCache(tmp_path / "cache")
+    cache.write("US", "AAA", prices)
+    broker = BacktestBroker(
+        EXECUTION.initial_cash, market="US", fee_model=FeeModel.from_config("US", CONFIG),
+        slippage_bps=EXECUTION.slippage_bps,
+    )
+    result = BacktestEngine(
+        HistoricalDataFeed(cache, "US", ["AAA"], start=start), broker, strategy,
+        risk_manager=RiskManager(RiskLimits.from_config(CONFIG)),
+    ).run()
+    return result, broker
+
+
+STOP = VolTargetParams(vol_days=20, target_vol=0.50, band=0.10, max_drawdown_stop=0.15)
+
+
+def test_stop_sells_out_once_equity_falls_past_the_limit_and_never_buys_again(tmp_path):
+    prices = _crash_prices()
+    strategy = VolTargetStrategy(**{k: getattr(STOP, k) for k in VolTargetStrategy.default_params})
+
+    result, broker = _run_engine(tmp_path, prices, strategy, prices.index[30].date())
+
+    assert strategy.halted
+    halted_on = pd.Timestamp(strategy.halted_on)
+    assert prices.index[300] < halted_on < prices.index[312]  # during the fall
+    assert strategy.halted_equity < strategy.peak_equity * (1 - 0.15)
+    last_fill = result.fills[-1]
+    assert last_fill.side.value == "SELL" and pd.Timestamp(last_fill.dt) > halted_on
+    assert not [f for f in result.fills if f.side.value == "BUY" and pd.Timestamp(f.dt) > halted_on]
+    assert broker.position("AAA").qty == 0
+    # It stayed out through a recovery that a running rule would have bought back into.
+    assert prices["close"].iloc[-1] > prices["close"].loc[halted_on] * 2
+
+
+def test_without_a_stop_the_same_fall_is_ridden_through(tmp_path):
+    prices = _crash_prices()
+    strategy = VolTargetStrategy(**{**{k: getattr(STOP, k) for k in VolTargetStrategy.default_params}, "max_drawdown_stop": 0.0})
+
+    _, broker = _run_engine(tmp_path, prices, strategy, prices.index[30].date())
+
+    assert not strategy.halted
+    assert broker.position("AAA").qty > 0
+
+
+def test_simulator_reproduces_the_engine_through_a_stop(tmp_path):
+    prices = _crash_prices()
+    start = prices.index[30].date()
+    strategy = VolTargetStrategy(**{k: getattr(STOP, k) for k in VolTargetStrategy.default_params})
+
+    result, _ = _run_engine(tmp_path, prices, strategy, start)
+    path = simulate_rule(
+        prices, _targets(STOP), start=start, band=STOP.band, execution=EXECUTION,
+        stop_drawdown=STOP.max_drawdown_stop,
+    )
+
+    assert strategy.halted
+    assert int(path.fills.sum()) == result.trade_count
+    np.testing.assert_allclose(path.equity[0], result.equity_curve["equity"].to_numpy(), rtol=0, atol=0.01)
+
+
+def test_stop_and_peak_survive_a_restart(tmp_path):
+    from tradingbot.strategies.state import JsonStateStore
+
+    prices = _crash_prices()
+    store = JsonStateStore(tmp_path / "state" / "vol.strategy.json")
+    params = {k: getattr(STOP, k) for k in VolTargetStrategy.default_params}
+    first = VolTargetStrategy(**params)
+    first.bind_state_store(store)
+    _run_engine(tmp_path / "a", prices.iloc[:320], first, prices.index[30].date())
+    assert first.halted
+
+    restarted = VolTargetStrategy(**params)
+    restarted.bind_state_store(store)
+
+    assert restarted.halted and restarted.halted_on == first.halted_on
+    assert restarted.peak_equity == pytest.approx(first.peak_equity)
+    # A fresh account on the same store still does nothing: the stop is the operator's to clear.
+    result, broker = _run_engine(tmp_path / "b", prices, restarted, prices.index[30].date())
+    assert result.trade_count == 0 and broker.position("AAA").qty == 0
+
+
+def test_peak_is_remembered_across_a_restart_before_any_stop(tmp_path):
+    from tradingbot.strategies.state import JsonStateStore
+
+    store = JsonStateStore(tmp_path / "state.json")
+    strategy = VolTargetStrategy(max_drawdown_stop=0.30)
+    strategy.bind_state_store(store)
+    strategy.peak_equity = 123_456.0
+    strategy.persist_state()
+
+    restarted = VolTargetStrategy(max_drawdown_stop=0.30)
+    restarted.bind_state_store(store)
+
+    assert restarted.peak_equity == 123_456.0 and not restarted.halted
+
+
+@pytest.mark.parametrize("bad", [-0.1, 1.0, 1.5])
+def test_stop_outside_zero_to_one_is_refused(bad):
+    with pytest.raises(ValueError, match="max_drawdown_stop"):
+        VolTargetParams(max_drawdown_stop=bad)
+
+
+def test_calibration_measures_each_level_without_the_stop():
+    prices = _crash_prices()
+    end = prices.index[-1].date()
+
+    _, table = calibrate_level(
+        prices, targets_for=lambda level: _targets(VolTargetParams(target_vol=level)),
+        levels=[0.50], max_drawdown=0.15, band=0.10, start=prices.index[30].date(), end=end,
+        execution=EXECUTION,
+    )
+
+    # With the stop the drawdown would be cut near 15%; the calibration must see the full fall.
+    assert table["max_drawdown"].iloc[0] < -0.30

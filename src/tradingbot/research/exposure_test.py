@@ -69,6 +69,7 @@ def simulate_rule(
     start: date,
     band: float,
     execution: ExecutionModel,
+    stop_drawdown: float = 0.0,
 ) -> RulePath:
     """Targets from the full history (so the rule is warm), trades from `start`."""
     window = prices.loc[pd.Timestamp(start) :]
@@ -82,6 +83,7 @@ def simulate_rule(
         targets.tolist(),
         band=band,
         execution=execution,
+        stop_drawdown=stop_drawdown,
     )
     return RulePath(
         dates=window.index,
@@ -157,6 +159,7 @@ def placebo_runs(
     execution: ExecutionModel,
     n: int,
     seed_base: dict[str, int] | None = None,
+    stop_drawdown: float = 0.0,
 ) -> pd.DataFrame:
     """The rule on skill-free histories: timing alpha and Sharpe gap per seed."""
     bases = seed_base or {"sign_flip": 0, "shuffle": 1000}
@@ -165,7 +168,9 @@ def placebo_runs(
     for kind in KINDS:
         for seed in range(bases[kind], bases[kind] + n):
             fake = placebo_prices(prices, kind, seed)
-            path = simulate_rule(fake, make_targets, start=start, band=band, execution=scaled)
+            path = simulate_rule(
+                fake, make_targets, start=start, band=band, execution=scaled, stop_drawdown=stop_drawdown
+            )
             stats = rule_metrics(path, start, end)
             hold = buy_and_hold_metrics(path, start, end)
             rows.append(
@@ -191,6 +196,7 @@ def design_report(
     windows: dict[str, tuple[date, date]],
     execution: ExecutionModel,
     placebo_n: int,
+    stop_drawdown: float = 0.0,
 ) -> dict[str, Any]:
     """Everything that may be known before the test window opens.
 
@@ -203,7 +209,9 @@ def design_report(
             f"Price frame runs to {prices.index.max().date()}, past the design cutoff {design_end}; "
             "cut it before measuring."
         )
-    path = simulate_rule(prices, make_targets, start=sim_start, band=band, execution=execution)
+    path = simulate_rule(
+        prices, make_targets, start=sim_start, band=band, execution=execution, stop_drawdown=stop_drawdown
+    )
     report: dict[str, Any] = {
         "symbol": symbol,
         "label": label,
@@ -214,7 +222,9 @@ def design_report(
     }
     rows = []
     for name, targets in variants.items():
-        variant = simulate_rule(prices, targets, start=sim_start, band=band, execution=execution)
+        variant = simulate_rule(
+            prices, targets, start=sim_start, band=band, execution=execution, stop_drawdown=stop_drawdown
+        )
         rows.append({"variant": name, **rule_metrics(variant, design_start, design_end)})
     report["variants"] = pd.DataFrame(rows)
 
@@ -224,7 +234,7 @@ def design_report(
     if placebo_n > 0:
         runs = placebo_runs(
             prices, make_targets, start=design_start, end=design_end, band=band,
-            execution=execution, n=placebo_n,
+            execution=execution, n=placebo_n, stop_drawdown=stop_drawdown,
         )
         report["placebo"] = {
             kind: {
@@ -253,6 +263,7 @@ def final_test(
     execution: ExecutionModel,
     min_total_return: float,
     fixed_weight: float,
+    stop_drawdown: float = 0.0,
 ) -> dict[str, Any]:
     """Open the test window once and read the registered number.
 
@@ -262,7 +273,9 @@ def final_test(
     design data.
     """
     end = prices.index.max().date()
-    path = simulate_rule(prices, make_targets, start=sim_start, band=band, execution=execution)
+    path = simulate_rule(
+        prices, make_targets, start=sim_start, band=band, execution=execution, stop_drawdown=stop_drawdown
+    )
     result = comparison(path, test_start, end, fixed_weight=fixed_weight)
     total = result["strategy"]["total_return"]
     result["min_total_return"] = min_total_return
@@ -272,7 +285,9 @@ def final_test(
     result["yearly"] = yearly_table(path, test_start, end)
     rows = []
     for name, targets in variants.items():
-        variant = simulate_rule(prices, targets, start=sim_start, band=band, execution=execution)
+        variant = simulate_rule(
+            prices, targets, start=sim_start, band=band, execution=execution, stop_drawdown=stop_drawdown
+        )
         stats = rule_metrics(variant, test_start, end)
         rows.append({"variant": name, **stats, "passes": bool(stats["total_return"] >= min_total_return)})
     result["variants"] = pd.DataFrame(rows)
@@ -311,6 +326,10 @@ def calibrate_level(
     This chooses how much risk to carry, not how to earn more: one parameter,
     one stated limit, and nothing about return enters the choice. Refuses a
     frame that runs past `end`.
+
+    The drawdown stop is deliberately absent. With it, every level above the
+    limit would be cut off at the limit and look as if it fitted; the
+    calibration has to see how deep each level falls on its own.
     """
     if prices.index.max() > pd.Timestamp(end):
         raise ValueError(

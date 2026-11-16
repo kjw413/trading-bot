@@ -108,12 +108,17 @@ def simulate(
     *,
     band: float,
     execution: ExecutionModel,
+    stop_drawdown: float = 0.0,
 ) -> SimResult:
     """One instrument through the backtest engine's order path, without the engine.
 
     A decision made at a close fills at the next open. Every sizing rule,
     rounding step and rejection below is the engine's, in the engine's order;
     the comments name the function each one comes from.
+
+    `stop_drawdown` mirrors `VolTargetStrategy`'s stop: a close more than that
+    fraction under the highest closing equity sells everything at the next
+    open and ends all trading. Zero, the default, leaves it out.
     """
     n = len(closes)
     equity_out = np.empty(n)
@@ -123,6 +128,8 @@ def simulate(
 
     cash = float(execution.initial_cash)
     qty = 0
+    peak = -math.inf
+    halted = False
     pending_side = 0  # +1 buy, -1 sell, 0 none
     pending_qty = 0
     slip = execution.slippage_bps / 10_000
@@ -161,6 +168,15 @@ def simulate(
         equity_out[t] = equity
         current = qty * close / equity if equity > 0 else 0.0
         weight_out[t] = current
+
+        if stop_drawdown > 0:  # VolTargetStrategy._check_stop
+            peak = max(peak, equity)
+            if not halted and equity < peak * (1 - stop_drawdown):
+                halted = True
+            if halted:
+                if qty > 0:
+                    pending_side, pending_qty = -1, qty
+                continue
 
         target = targets[t]
         if target != target or equity <= 0:  # NaN: no view yet
