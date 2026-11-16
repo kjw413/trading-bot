@@ -279,6 +279,96 @@ def final_test(
     return result
 
 
+def highest_level_within(table: pd.DataFrame, max_drawdown: float) -> float | None:
+    """The highest level such that it and every lower level stayed inside the limit.
+
+    Not simply the highest level that passes. The trading band makes drawdown
+    slightly uneven in the level, and a level that slips under the limit above
+    one that did not is passing by an accident of when it happened to trade.
+    """
+    limit = -abs(max_drawdown)
+    selected: float | None = None
+    for _, row in table.sort_values("level").iterrows():
+        if row["max_drawdown"] < limit:
+            break
+        selected = float(row["level"])
+    return selected
+
+
+def calibrate_level(
+    prices: pd.DataFrame,
+    *,
+    targets_for: Callable[[float], TargetFn],
+    levels: Sequence[float],
+    max_drawdown: float,
+    band: float,
+    start: date,
+    end: date,
+    execution: ExecutionModel,
+) -> tuple[float | None, pd.DataFrame]:
+    """Find the risk level a drawdown limit allows, on design data only.
+
+    This chooses how much risk to carry, not how to earn more: one parameter,
+    one stated limit, and nothing about return enters the choice. Refuses a
+    frame that runs past `end`.
+    """
+    if prices.index.max() > pd.Timestamp(end):
+        raise ValueError(
+            f"Price frame runs to {prices.index.max().date()}, past the design cutoff {end}; "
+            "cut it before calibrating."
+        )
+    rows = []
+    for level in levels:
+        path = simulate_rule(prices, targets_for(level), start=start, band=band, execution=execution)
+        stats = rule_metrics(path, start, end)
+        rows.append(
+            {
+                "level": float(level),
+                "max_drawdown": stats["max_drawdown"],
+                "total_return": stats["total_return"],
+                "cagr": stats["cagr"],
+                "sharpe": stats["sharpe"],
+                "avg_weight": stats["avg_weight"],
+            }
+        )
+    table = pd.DataFrame(rows)
+    table["within_limit"] = table["max_drawdown"] >= -abs(max_drawdown)
+    return highest_level_within(table, max_drawdown), table
+
+
+def render_calibration_markdown(
+    selected: float | None, table: pd.DataFrame, *, symbol: str, max_drawdown: float, start: date, end: date
+) -> str:
+    lines = [
+        f"# 낙폭 한도로 위험 수준 정하기 — {symbol}",
+        "",
+        f"한도: 최대 낙폭 {-abs(max_drawdown) * 100:.0f}%. 측정 구간 {start} ~ {end} (설계 구간만).",
+        "",
+        "선택 규칙: 자신과 그보다 낮은 모든 수준이 한도 안에 들어온 가장 높은 수준.",
+        "",
+        "| 목표 변동성 | 최대 낙폭 | 한도 이내 | 총수익 | 연환산 | 샤프 | 평균 비중 |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for _, row in table.sort_values("level").iterrows():
+        mark = " **← 선택**" if selected is not None and abs(row["level"] - selected) < 1e-9 else ""
+        lines.append(
+            f"| {row['level'] * 100:.0f}%{mark} | {_pct(row['max_drawdown'])} | {'예' if row['within_limit'] else '아니오'} "
+            f"| {_pct(row['total_return'])} | {_pct(row['cagr'])} | {_num(row['sharpe'])} | {row['avg_weight'] * 100:.0f}% |"
+        )
+    lines.append("")
+    if selected is None:
+        lines.append("한도 안에 들어온 수준이 없다.")
+    else:
+        lines.append(f"선택된 목표 변동성: {selected * 100:.0f}%")
+    lines += [
+        "",
+        "과거에 한도를 지켰다는 것이 앞으로도 지킨다는 보장은 아니다. 이 규칙은 변동성이 오른 *뒤에*",
+        "비중을 줄이므로, 변동성이 오르기 전에 한 번에 오는 급락은 그때 들고 있던 비중으로 맞는다.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def _pct(value: float, digits: int = 1) -> str:
     return "측정 불가" if value != value else f"{value * 100:+.{digits}f}%"
 

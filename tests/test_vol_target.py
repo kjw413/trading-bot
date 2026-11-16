@@ -12,9 +12,12 @@ from tradingbot.data.cache import ParquetCache
 from tradingbot.data.feed import HistoricalDataFeed
 from tradingbot.engine.engine import BacktestEngine
 from tradingbot.research.exposure_test import (
+    calibrate_level,
     comparison,
     design_report,
     final_test,
+    highest_level_within,
+    render_calibration_markdown,
     render_design_markdown,
     render_final_markdown,
     simulate_rule,
@@ -237,3 +240,123 @@ def test_final_test_enters_the_window_holding_what_the_rule_had_built():
     before = path.equity[0][last_before]
     assert result["strategy"]["total_return"] == pytest.approx(path.equity[0][-1] / before - 1)
     assert path.weight[0][last_before] > 0  # not a fresh start from cash
+
+
+def test_highest_level_within_stops_at_the_first_breach():
+    table = pd.DataFrame(
+        {"level": [0.05, 0.10, 0.15, 0.20], "max_drawdown": [-0.10, -0.25, -0.34, -0.29]}
+    )
+
+    # 0.20 is back inside the limit, but only above a level that broke it.
+    assert highest_level_within(table, 0.30) == 0.10
+    assert highest_level_within(table, 0.35) == 0.20
+    assert highest_level_within(table, 0.05) is None
+    assert highest_level_within(table.iloc[::-1], 0.30) == 0.10  # order of rows does not matter
+
+
+def test_a_drawdown_exactly_on_the_limit_counts_as_within():
+    table = pd.DataFrame({"level": [0.05, 0.10], "max_drawdown": [-0.30, -0.3001]})
+
+    assert highest_level_within(table, 0.30) == 0.05
+
+
+def _calibration_kwargs(prices, end):
+    return dict(
+        targets_for=lambda level: _targets(VolTargetParams(target_vol=level)),
+        levels=[0.04, 0.08, 0.12, 0.16, 0.20, 0.30],
+        band=0.10, start=prices.index[60].date(), end=end, execution=EXECUTION,
+    )
+
+
+def test_calibration_picks_the_level_the_limit_allows_and_the_next_one_breaks_it():
+    prices = _prices(900)
+    end = prices.index[-1].date()
+
+    _, loose = calibrate_level(prices, max_drawdown=1.0, **_calibration_kwargs(prices, end))
+    drawdowns = loose.set_index("level")["max_drawdown"]
+    limit = -(drawdowns[0.12] + drawdowns[0.16]) / 2  # between two levels
+    selected, table = calibrate_level(prices, max_drawdown=limit, **_calibration_kwargs(prices, end))
+
+    assert drawdowns[0.04] > drawdowns[0.30]  # more risk, deeper drawdown
+    assert selected == 0.12
+    assert table.set_index("level")["within_limit"].to_dict() == {
+        0.04: True, 0.08: True, 0.12: True, 0.16: False, 0.20: False, 0.30: False,
+    }
+    text = render_calibration_markdown(selected, table, symbol="AAA", max_drawdown=limit, start=end, end=end)
+    assert "12% **← 선택**" in text
+
+
+def test_calibration_says_so_when_no_level_fits():
+    prices = _prices(900)
+    end = prices.index[-1].date()
+
+    selected, table = calibrate_level(prices, max_drawdown=0.0001, **_calibration_kwargs(prices, end))
+
+    assert selected is None
+    assert "한도 안에 들어온 수준이 없다" in render_calibration_markdown(
+        selected, table, symbol="AAA", max_drawdown=0.0001, start=end, end=end
+    )
+
+
+def test_calibration_refuses_prices_past_its_cutoff():
+    prices = _prices(900)
+
+    with pytest.raises(ValueError, match="past the design cutoff"):
+        calibrate_level(prices, max_drawdown=0.30, **_calibration_kwargs(prices, prices.index[700].date()))
+
+
+def test_paper_engine_sizes_the_position_at_the_close_and_fills_it_at_the_next_open(tmp_path):
+    """The path a live paper session takes: confirmed daily bar in, order out, fill next morning."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from tradingbot.broker.paper import PaperBroker
+    from tradingbot.data.polling import PollingDataFeed
+    from tradingbot.engine.calendar import WeekdayCalendar
+    from tradingbot.engine.clock import TradingSessionClock
+    from tradingbot.engine.paper import PaperTradingEngine
+
+    history = _prices(40, start="2024-01-01")  # ends Fri 2024-02-23
+    today = pd.Timestamp("2024-02-26")
+    bar = {"open": 100.0, "high": 101.0, "low": 99.0, "close": float(history["close"].iloc[-1]) * 1.01, "volume": 1e6}
+
+    class TodayCache(ParquetCache):
+        def update(self, market, symbol, start=None, end=None):
+            frame = pd.concat([self.read(market, symbol), pd.DataFrame([bar], index=[today])])
+            self.write(market, symbol, frame[~frame.index.duplicated(keep="last")])
+            return self.read(market, symbol)
+
+    cache = TodayCache(tmp_path / "cache")
+    cache.write("US", "AAA", history)
+    clock = TradingSessionClock("US", poll_interval=timedelta(minutes=5), calendar=WeekdayCalendar("US"))
+    next_open = bar["close"] * 1.002
+
+    def build(strategy):
+        broker = PaperBroker("vol", tmp_path / "state", 100_000, market="US",
+                             fee_model=FeeModel.from_config("US", CONFIG), slippage_bps=5)
+        feed = HistoricalDataFeed(cache, "US", ["AAA"], start="2024-01-01")
+        polling = PollingDataFeed("US", ["AAA"], clock, price_fetcher=lambda market, symbols: {s: next_open for s in symbols})
+        return PaperTradingEngine(feed, polling, broker, strategy,
+                                  risk_manager=RiskManager(RiskLimits.from_config(CONFIG))), broker
+
+    params = VolTargetParams(vol_days=20, target_vol=0.20)
+    engine, broker = build(VolTargetStrategy())
+    tz = ZoneInfo("America/New_York")
+
+    after_close = engine.run_once(datetime(2024, 2, 26, 16, 5, tzinfo=tz))
+
+    closes = pd.concat([history["close"], pd.Series([bar["close"]], index=[today])])
+    target = float(vol_target_weights(closes, params)["target"].iloc[-1])
+    expected_qty = int(min(100_000 * target, 100_000 * 0.98) // bar["close"])
+    assert after_close["actions"] == ["close"]
+    assert [order.qty for order in broker.open_orders()] == [expected_qty]
+
+    # A restart before the open must not lose or duplicate the order: the rule keeps no state.
+    engine, broker = build(VolTargetStrategy())
+    assert [order.qty for order in broker.open_orders()] == [expected_qty]
+
+    at_open = engine.run_once(datetime(2024, 2, 27, 9, 31, tzinfo=tz))
+
+    assert "open" in at_open["actions"]
+    assert at_open["positions"] == {"AAA": expected_qty}
+    assert at_open["open_orders"] == 0

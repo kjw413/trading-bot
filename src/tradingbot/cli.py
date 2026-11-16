@@ -187,6 +187,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pass bar for the final test: cumulative return over the test window",
     )
     vol_parser.add_argument(
+        "--calibrate-max-drawdown",
+        type=float,
+        default=None,
+        metavar="LIMIT",
+        help="Instead of the design report, find the highest target_vol whose design-window "
+        "drawdown stays within LIMIT (e.g. 0.30). Reads design data only.",
+    )
+    vol_parser.add_argument(
         "--final-test",
         action="store_true",
         help="Open the out-of-sample window and score the registered configuration. Meant to run once.",
@@ -759,6 +767,33 @@ def cmd_research_vol_target(args) -> int:
     symbol = args.symbol.upper()
 
     cut = prices.loc[: pd.Timestamp(validation[1])]
+    out_dir = resolve_project_path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = f"{_datetime.now():%Y%m%d_%H%M%S}"
+
+    if args.calibrate_max_drawdown is not None:
+        from tradingbot.research.exposure_test import calibrate_level, render_calibration_markdown
+
+        selected, table = calibrate_level(
+            cut,
+            targets_for=lambda level: targets(replace(params, target_vol=level)),
+            levels=[round(0.05 + 0.01 * step, 2) for step in range(26)],
+            max_drawdown=args.calibrate_max_drawdown,
+            band=params.band,
+            start=in_sample[0],
+            end=validation[1],
+            execution=execution,
+        )
+        markdown = render_calibration_markdown(
+            selected, table, symbol=symbol, max_drawdown=args.calibrate_max_drawdown,
+            start=in_sample[0], end=validation[1],
+        )
+        print(markdown)
+        path = out_dir / f"{stamp}_{symbol}_calibration.md"
+        path.write_text(markdown, encoding="utf-8")
+        print(f"리포트: {path}")
+        return 0
+
     report = design_report(
         cut,
         symbol=symbol,
@@ -792,9 +827,6 @@ def cmd_research_vol_target(args) -> int:
         markdown += "\n" + render_final_markdown(result, symbol=symbol, label=label)
 
     print(markdown)
-    out_dir = resolve_project_path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = f"{_datetime.now():%Y%m%d_%H%M%S}"
     suffix = "final" if args.final_test else "design"
     path = out_dir / f"{stamp}_{symbol}_{suffix}.md"
     path.write_text(markdown, encoding="utf-8")
