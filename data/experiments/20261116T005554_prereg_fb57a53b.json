@@ -1,0 +1,39 @@
+{
+  "experiment_id": "20261116T005554_prereg_fb57a53b",
+  "kind": "prereg",
+  "git_commit": "327ecbc45b6c12e0bb2581b6a2c577a86eb1c7b9",
+  "created_at": "2026-11-16T00:55:54.078299+00:00",
+  "params": {
+    "phase": "P12",
+    "follows": "20261115T121518_prereg_313c0218 (P11)",
+    "question": "What risk level keeps the volatility-target position in SOXX inside the owner's drawdown limit on the data available for design?",
+    "owner_decision_2026_11_16": "Maximum tolerable drawdown: -30%. Given after P11, where the owner's bar was a return floor with no drawdown limit and the registration therefore had nothing to choose a risk level by. This supplies it.",
+    "why_this_is_a_calibration_not_a_search": "P11 showed the target level does not create return per unit of risk on this fund; it sets how much risk is carried. Choosing it to meet a stated limit is choosing a preference, with one free parameter and a rule fixed below. Nothing is optimised for return.",
+    "rule": {
+      "unchanged": "vol_days 20, band 0.10, max weight 0.98, min weight 0, execution as in config/vol_target_soxx.toml",
+      "candidates": "target_vol from 0.05 to 0.30 in steps of 0.01 (26 levels)",
+      "measurement": "For each level, simulate 2007-01-01..2024-12-31 on a price frame cut at 2024-12-31 and take the maximum drawdown of closing equity over the whole window.",
+      "selection": "The highest level L such that every candidate at or below L has a maximum drawdown no worse than -30%. 'Every level at or below' rather than 'the highest that passes' so that a level which slips under the limit by a quirk of the trading band, above one that does not, cannot be picked.",
+      "if_none_qualifies": "No level is selected and the result says so."
+    },
+    "what_is_already_known": "From P11's design table: 15% drew down -39.2% and 20% drew down -48.0% over 2007-2024. The selected level will therefore be below 15%. P11's test-window table was also seen (15%: -16.0% drawdown, +44.0%). The limit binds in the design window, on 2008, not in the test window.",
+    "stated_in_advance": [
+      "The design window's worst episode is 2008. The calibration is in effect 'the level that would have held -30% through 2008'. It is fitted to one event, on purpose: it is the worst one on record for this fund.",
+      "A level calibrated to hold -30% in the past does not guarantee -30% in the future. A historical maximum drawdown is the largest of a finite sample, and the next largest can be larger. The rule shrinks the position after volatility rises, so a fall that arrives in one gap, before volatility has risen, is taken at whatever weight was held.",
+      "A lower level means a smaller average position and proportionally less return. The outcome will state the average weight and the return given up.",
+      "Cash earns nothing in the simulation; this understates a rule that holds more cash."
+    ],
+    "role_of_the_2025_window": "Already read in P11, for the fund, a fixed position and eight levels. The selected level's reading on it is reported for reference and is NOT a test: the window's shape was known when the limit was given. It cannot confirm the calibration.",
+    "what_can_confirm_it": "Only dates not yet seen. In paper or live running, the limit is the criterion: if the strategy's equity falls more than 30% below its own running peak, the calibration has failed, the strategy stops and returns to research. The existing promotion path (docs/quant_research_spec.md 6.2) applies unchanged.",
+    "closed_degrees_of_freedom": [
+      "Only target_vol changes. vol_days, the band and the cap are not revisited.",
+      "The limit is -30% as given. No safety margin is added or removed after seeing the table; the neighbouring levels are reported so the owner can choose a margin knowingly.",
+      "The selection uses drawdown over 2007-2024 only. Return, Sharpe and anything from 2025 onward play no part in it."
+    ]
+  },
+  "metrics": {
+    "max_drawdown_limit": -0.3,
+    "levels": "0.05..0.30 step 0.01",
+    "design_window": "2007-01-01..2024-12-31"
+  }
+}
