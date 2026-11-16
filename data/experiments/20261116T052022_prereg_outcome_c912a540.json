@@ -1,0 +1,90 @@
+{
+  "experiment_id": "20261116T052022_prereg_outcome_c912a540",
+  "kind": "prereg_outcome",
+  "git_commit": "76d4784dcfe2b2c91db9273386eac15af53bdf0a",
+  "created_at": "2026-11-16T05:20:22.913087+00:00",
+  "prereg_id": "20261116T005554_prereg_fb57a53b",
+  "params": {
+    "addendum_to": "20261116T005934_prereg_outcome_56d322b5",
+    "owner_decisions_2026_11_16": {
+      "target_vol": "0.09, one step under the calibrated 0.10, taking the margin the P12 outcome offered: design-window drawdown -25.0% instead of -29.4%.",
+      "stop": "Enforce in code the forward criterion P12 registered: equity more than 30% below its own running peak stops the strategy."
+    },
+    "what_the_stop_does": "VolTargetStrategy tracks the highest closing equity. A close more than max_drawdown_stop below it sells the whole position at the next open, and the strategy places no further buys until its saved state is cleared by the operator. The peak and the halted flag are persisted through the strategy state store, so a restart cannot reset the reference. The research simulator mirrors it (stop_drawdown) and a test holds engine and simulator equal through a triggered stop.",
+    "why_calibration_ignores_the_stop": "With the stop in place every level above the limit would be cut off near the limit and appear to fit. calibrate_level measures each level without it, and a test holds that.",
+    "at_0_09_with_the_stop": "The stop never triggers anywhere in 2007-01-01..2026-11-13: the worst fall is -25.0% on 2008-11-20, 5 points from the stop. The equity path is identical with and without it.",
+    "against_the_equal_drawdown_fixed_position": "Not deciding; computed for the same reason as in P12. The largest fixed position within -25% over 2007-2024 is 27% (-24.3%), which returned +134.4% (4.8% a year) against the rule's +185.0% (6.0% a year), Sharpe 0.62 for both. At -30% the two were level; at -25% the rule is ahead. Both comparisons rest mostly on 2008.",
+    "reference_2025_onward": "Seen window, not a test. At 9% the rule returned +21.7% with a worst fall of -10.7%, against +30.5% at 10%. A one-point change moving the two-year return by nine points is the trading band choosing different days to trade over 15 fills, not information about the level. The fixed 27% returned +26.9% with -11.7%.",
+    "rebalancing_as_built": "Daily evaluation at the close, trading at the next open only when the target differs from the held weight by more than 0.10. Over 2007-2024 at 9%: 224 fills, 12.4 a year, median 19 days between fills, longest 291. Not weekly. Weekly evaluation was checked on design data for the owner's question and was slightly worse on every measure (with the band: 169 fills, +171.3%, -26.7%; without a band: 935 fills, +163.8%, -25.3%), against +185.0% and -25.0% daily. Not adopted; nothing changed.",
+    "engine_check": "Config as committed (0.09, stop 0.30) through the real backtest engine on SOXX 2007-01-01..2026-11-13: 346,814.52 USD in engine and simulator, 239 fills in both, no rejections, largest daily difference 0.0000 USD."
+  },
+  "metrics": {
+    "target_vol": 0.09,
+    "max_drawdown_stop": 0.3,
+    "design_2007_2024": {
+      "strategy": {
+        "total_return": 1.85,
+        "cagr": 0.06,
+        "max_drawdown": -0.25,
+        "sharpe": 0.62,
+        "avg_weight": 0.4,
+        "fills": 224
+      },
+      "fixed_27pct": {
+        "total_return": 1.344,
+        "cagr": 0.048,
+        "max_drawdown": -0.243,
+        "sharpe": 0.62
+      },
+      "buy_and_hold": {
+        "total_return": 11.81,
+        "max_drawdown": -0.668
+      },
+      "2007_2018": {
+        "total_return": 0.602,
+        "max_drawdown": -0.25,
+        "sharpe": 0.44
+      },
+      "2019_2024": {
+        "total_return": 0.779,
+        "max_drawdown": -0.134,
+        "sharpe": 1.0
+      }
+    },
+    "reference_2025_01_01_to_2026_11_13": {
+      "strategy": {
+        "total_return": 0.217,
+        "max_drawdown": -0.107,
+        "sharpe": 0.97,
+        "avg_weight": 0.28,
+        "fills": 15
+      },
+      "fixed_27pct": {
+        "total_return": 0.269,
+        "max_drawdown": -0.117
+      },
+      "buy_and_hold": {
+        "total_return": 1.097,
+        "max_drawdown": -0.395
+      }
+    },
+    "rebalancing_design_2007_2024": {
+      "daily_band_0_10": {
+        "fills": 224,
+        "total_return": 1.85,
+        "max_drawdown": -0.25
+      },
+      "weekly_band_0_10": {
+        "fills": 169,
+        "total_return": 1.713,
+        "max_drawdown": -0.267
+      },
+      "weekly_no_band": {
+        "fills": 935,
+        "total_return": 1.638,
+        "max_drawdown": -0.253
+      }
+    },
+    "engine_final_equity": 346814.52
+  }
+}
